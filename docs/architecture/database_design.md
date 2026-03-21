@@ -127,58 +127,60 @@ SequenceNode (1) ──< (N) Comment
 
 ### 2.4 CTD 目录结构
 
-#### `ctd_template_node` — CTD 目录模板（系统预置，约 200+ 节点）
+#### `ctd_template_node` — CTD 目录模板（系统预置，229 节点）✅ 已实现
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | UUID | 主键 |
-| module | INT | 模块号（1-5） |
-| element_name | VARCHAR(100) | XML 元素名（如 cn-1-0, m2-3-s-drug-substance） |
-| ctd_section_number | VARCHAR(30) | CTD 章节号（如 1.0, 2.3.S, 3.2.P.4.1） |
-| title_zh | VARCHAR(200) | 中文标题 |
-| title_en | VARCHAR(200) | 英文标题 |
-| parent_id | UUID | 父节点 FK→self |
-| sort_order | INT | 排序序号 |
-| folder_name | VARCHAR(100) | eCTD 文件夹名（如 00, 02, 22-intro, 32-body-data） |
-| node_type | ENUM | MODULE/SECTION/LEAF/EXTENSION_POINT |
+| parent_id | UUID | 父节点 FK→self（自引用树结构） |
+| module | SMALLINT | 模块号（1-5） |
+| element_name | VARCHAR(120) | XML 元素名（唯一，如 cn-1-0, m2-3-s-drug-substance） |
+| ctd_section_number | VARCHAR(20) | CTD 章节号（如 1.0, 2.3.S, 3.2.P.4.1） |
+| title_zh | VARCHAR(500) | 中文标题 |
+| title_en | VARCHAR(500) | 英文标题 |
+| node_type | ENUM | MODULE(5)/SECTION(43)/LEAF(180)/EXTENSION_POINT(1) |
 | is_leaf | BOOLEAN | 是否为叶节点（可放置文件） |
-| requires_stf | BOOLEAN | 是否需要 STF（模块四 4.2.X 和模块五 5.3.1-5.3.5） |
-| requires_e_seal | BOOLEAN | 是否需要电子签章（cn-1-0, cn-1-2, cn-1-3-8, cn-1-10, cn-1-11, cn-1-12） |
-| allows_extension | BOOLEAN | 是否允许扩展子节点（仅 3.2.R，且仅生物制品） |
-| allowed_file_types | VARCHAR(100) | 允许的文件类型（pdf,xml,xpt,txt,xsl） |
-| backbone_attributes | JSONB | 骨架属性配置（如 {substance: required, manufacturer: required}） |
+| requires_stf | BOOLEAN | 是否需要 STF（48个: 模块四 4.2.X 和模块五 5.3.1-5.3.5 叶节点） |
+| requires_e_seal | BOOLEAN | 是否需要电子签章（6个: cn-1-0, cn-1-2, cn-1-3-8, cn-1-10, cn-1-11, cn-1-12） |
+| allows_extension | BOOLEAN | 是否允许扩展子节点（仅 3.2.R） |
+| sort_order | INT | 排序序号 |
 
-#### `ctd_completeness_rule` — 内容完整性规则表（验证标准 4.3.x）
+数据来源: `element-property_CN.xml`（模块一71节点）+ `element-property_ICH.xml`（模块二至五158节点）
+
+#### `ctd_completeness_rule` — 内容完整性规则表（验证标准 4.3.x）✅ 已实现
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | UUID | 主键 |
-| rule_code | VARCHAR(10) | 规则编号（如 4.3.1, 4.3.2） |
 | application_type_code | VARCHAR(10) | 申请类型代码 |
 | regulatory_activity_type_code | VARCHAR(10) | 注册行为类型代码 |
-| element_name | VARCHAR(100) | 必填的章节元素名 |
+| template_node_id | UUID | FK→ctd_template_node |
+| rule_type | ENUM | REQUIRED(90条)/FORBIDDEN(40条) |
 | severity | ENUM | ERROR/WARNING |
-| description | VARCHAR(500) | 规则描述 |
 
-#### `sequence_node` — 序列目录节点（实例化的 CTD 树）
+已导入130条规则，覆盖验证标准 4.3.1-4.3.11
+
+#### `sequence_node` — 序列目录节点（实例化的 CTD 树）✅ 已实现
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | UUID | 主键 |
 | sequence_id | UUID | FK→sequence |
 | template_node_id | UUID | FK→ctd_template_node |
-| parent_id | UUID | 父节点 FK→self |
-| element_name | VARCHAR(100) | XML 元素名 |
-| ctd_section_number | VARCHAR(30) | CTD 章节号 |
-| title | VARCHAR(200) | 标题（可自定义，默认取模板标题） |
-| sort_order | INT | 排序序号 |
-| operation | ENUM | new/replace/append/delete（叶节点的生命周期操作，非叶节点为空） |
+| parent_id | UUID | 父节点 FK→self（自引用树结构） |
+| element_name | VARCHAR(120) | XML 元素名 |
+| ctd_section_number | VARCHAR(20) | CTD 章节号 |
+| title | VARCHAR(500) | 标题（默认取模板中文标题） |
+| operation | ENUM | NEW/REPLACE/APPEND/DELETE（叶节点的生命周期操作，非叶节点为空） |
 | status | ENUM | EMPTY/EDITING/COMPLETED |
-| approval_status | ENUM | DRAFT/SUBMITTED/APPROVED/REJECTED |
 | is_required | BOOLEAN | 是否必填（根据内容完整性规则计算） |
-| is_extension_node | BOOLEAN | 是否为扩展节点 |
-| xml_lang | VARCHAR(10) | 语言属性（zh/en/空） |
-| backbone_attributes | JSONB | 骨架属性值（如 {substance: "xxx", manufacturer: "yyy"}） |
+| is_leaf | BOOLEAN | 是否为叶节点 |
+| sort_order | INT | 排序序号 |
+| substance | VARCHAR(200) | 骨架属性: 活性成分（2.3.S/3.2.S 节点） |
+| manufacturer | VARCHAR(200) | 骨架属性: 生产商（2.3.S/3.2.S/2.3.P/3.2.P 节点） |
+| product_name | VARCHAR(200) | 骨架属性: 产品名称（2.3.P/3.2.P 节点） |
+| dosage_form | VARCHAR(200) | 骨架属性: 剂型（2.3.P/3.2.P 节点） |
+| indication | VARCHAR(500) | 骨架属性: 适应症（2.7.3 节点） |
 
 ### 2.5 文档内容
 

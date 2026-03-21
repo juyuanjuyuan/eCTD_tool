@@ -13,7 +13,7 @@
 | `regulatory-activity` | 注册行为管理（信封注册行为级别属性） | RegulatoryActivityService |
 | `sequence` | 序列管理（序列号、序列类型、联系人） | SequenceService |
 | `controlled-vocabulary` | 受控词汇解析与查询（4种申请类型×9种注册行为×4种序列类型关联） | ControlledVocabularyService |
-| `ctd-structure` | CTD 五模块目录结构管理、内容完整性规则 | CTDStructureService, CTDTemplateService, CompletenessService |
+| `ctd-template` ✅ | CTD 五模块目录模板管理、序列目录初始化、内容完整性检查、骨架属性、扩展节点 | CtdTemplateService |
 | `document` | 文档内容管理（富文本内容、版本历史） | DocumentService |
 | `export` | 文档导出（Word/PDF） | WordExportService, PDFExportService, PDFComplianceService |
 | `ectd` | eCTD 核心逻辑（XML 骨架、验证、MD5、生命周期、STF） | XmlBackboneService, ValidatorService, LifecycleService, STFService, Md5ChecksumService |
@@ -25,7 +25,7 @@
 auth ← user
 project ← application ← regulatory-activity ← sequence
 controlled-vocabulary (被 application/regulatory-activity/sequence/ectd 引用)
-ctd-structure ← document ← export
+ctd-template ← document ← export
                           ← ectd (xml-backbone, validator, lifecycle, stf)
 file (独立，被 document/export/ectd 引用)
 ```

@@ -1,0 +1,291 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== Enums ====================
+
+enum Role {
+  ADMIN
+  MANAGER
+  EDITOR
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum ProjectMemberRole {
+  OWNER
+  MEMBER
+  VIEWER
+}
+
+enum SequenceStatus {
+  DRAFT
+  EDITING
+  VALIDATING
+  EXPORTED
+  SUBMITTED
+}
+
+enum CtdNodeType {
+  MODULE
+  SECTION
+  LEAF
+  EXTENSION_POINT
+}
+
+enum SequenceNodeStatus {
+  EMPTY
+  EDITING
+  COMPLETED
+}
+
+enum LeafOperation {
+  NEW
+  REPLACE
+  APPEND
+  DELETE
+}
+
+enum CompletenessRuleSeverity {
+  ERROR
+  WARNING
+}
+
+enum CompletenessRuleType {
+  REQUIRED    // 必须包含
+  FORBIDDEN   // 不能包含
+}
+
+// ==================== User ====================
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  name         String     @db.VarChar(100)
+  phone        String?    @db.VarChar(20)
+  role         Role       @default(EDITOR)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  projectMembers ProjectMember[]
+  createdProjects Project[] @relation("ProjectCreator")
+
+  @@map("user")
+}
+
+// ==================== Project ====================
+
+model Project {
+  id          String        @id @default(uuid())
+  name        String        @db.VarChar(200)
+  description String?       @db.Text
+  status      ProjectStatus @default(DRAFT)
+  createdBy   String        @map("created_by")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  creator      User            @relation("ProjectCreator", fields: [createdBy], references: [id])
+  members      ProjectMember[]
+  applications Application[]
+
+  @@map("project")
+}
+
+model ProjectMember {
+  id        String            @id @default(uuid())
+  projectId String            @map("project_id")
+  userId    String            @map("user_id")
+  role      ProjectMemberRole @default(MEMBER)
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_member")
+}
+
+// ==================== Application (envelope - application level) ====================
+
+model Application {
+  id                     String   @id @default(uuid())
+  projectId              String   @map("project_id")
+  applicationNumber      String   @unique @map("application_number") @db.VarChar(15)
+  applicationTypeCode    String   @map("application_type_code") @db.VarChar(10)
+  applicationTypeVersion String   @map("application_type_version") @db.VarChar(10)
+  productTypeCode        String   @map("product_type_code") @db.VarChar(10)
+  productTypeVersion     String   @map("product_type_version") @db.VarChar(10)
+  productNumber          String   @map("product_number") @db.VarChar(10)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  project              Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  regulatoryActivities RegulatoryActivity[]
+
+  @@index([projectId])
+  @@map("application")
+}
+
+// ==================== Regulatory Activity (envelope - RA level) ====================
+
+model RegulatoryActivity {
+  id                             String   @id @default(uuid())
+  applicationId                  String   @map("application_id")
+  regulatoryActivityTypeCode     String   @map("regulatory_activity_type_code") @db.VarChar(10)
+  regulatoryActivityTypeVersion  String   @map("regulatory_activity_type_version") @db.VarChar(10)
+  relatedSequence                String   @map("related_sequence") @db.Char(4)
+  createdAt                      DateTime @default(now()) @map("created_at")
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  sequences   Sequence[]
+
+  @@index([applicationId])
+  @@map("regulatory_activity")
+}
+
+// ==================== Sequence (envelope - sequence level) ====================
+
+model Sequence {
+  id                    String         @id @default(uuid())
+  regulatoryActivityId  String         @map("regulatory_activity_id")
+  sequenceNumber        String         @map("sequence_number") @db.Char(4)
+  sequenceTypeCode      String         @map("sequence_type_code") @db.VarChar(10)
+  sequenceTypeVersion   String         @map("sequence_type_version") @db.VarChar(10)
+  description           String         @db.VarChar(500)
+  contactName           String         @map("contact_name") @db.VarChar(100)
+  contactPhone          String         @map("contact_phone") @db.VarChar(20)
+  contactEmail          String         @map("contact_email") @db.VarChar(255)
+  status                SequenceStatus @default(DRAFT)
+  createdAt             DateTime       @default(now()) @map("created_at")
+  updatedAt             DateTime       @updatedAt @map("updated_at")
+
+  regulatoryActivity RegulatoryActivity @relation(fields: [regulatoryActivityId], references: [id], onDelete: Cascade)
+  sequenceNodes      SequenceNode[]
+
+  @@unique([regulatoryActivityId, sequenceNumber])
+  @@index([regulatoryActivityId])
+  @@map("sequence")
+}
+
+// ==================== CTD Template Node (法规定义的目录模板) ====================
+
+model CtdTemplateNode {
+  id              String      @id @default(uuid())
+  parentId        String?     @map("parent_id")
+  module          Int         @db.SmallInt // 1-5
+  elementName     String      @unique @map("element_name") @db.VarChar(120)
+  ctdSectionNumber String     @map("ctd_section_number") @db.VarChar(20)
+  titleZh         String      @map("title_zh") @db.VarChar(500)
+  titleEn         String      @map("title_en") @db.VarChar(500)
+  nodeType        CtdNodeType @map("node_type")
+  isLeaf          Boolean     @default(false) @map("is_leaf")
+  requiresStf     Boolean     @default(false) @map("requires_stf")
+  requiresESeal   Boolean     @default(false) @map("requires_e_seal")
+  allowsExtension Boolean     @default(false) @map("allows_extension")
+  sortOrder       Int         @map("sort_order")
+
+  parent   CtdTemplateNode?  @relation("CtdTemplateTree", fields: [parentId], references: [id])
+  children CtdTemplateNode[] @relation("CtdTemplateTree")
+  completenessRules CtdCompletenessRule[]
+  sequenceNodes     SequenceNode[]
+
+  @@index([parentId])
+  @@index([module])
+  @@map("ctd_template_node")
+}
+
+// ==================== CTD Completeness Rule (4.3.x 内容完整性规则) ====================
+
+model CtdCompletenessRule {
+  id                          String                   @id @default(uuid())
+  applicationTypeCode         String                   @map("application_type_code") @db.VarChar(10)
+  regulatoryActivityTypeCode  String                   @map("regulatory_activity_type_code") @db.VarChar(10)
+  templateNodeId              String                   @map("template_node_id")
+  ruleType                    CompletenessRuleType     @default(REQUIRED) @map("rule_type")
+  severity                    CompletenessRuleSeverity  @default(ERROR)
+
+  templateNode CtdTemplateNode @relation(fields: [templateNodeId], references: [id], onDelete: Cascade)
+
+  @@index([applicationTypeCode, regulatoryActivityTypeCode])
+  @@map("ctd_completeness_rule")
+}
+
+// ==================== Sequence Node (序列目录实例) ====================
+
+model SequenceNode {
+  id               String             @id @default(uuid())
+  sequenceId       String             @map("sequence_id")
+  templateNodeId   String             @map("template_node_id")
+  parentId         String?            @map("parent_id")
+  elementName      String             @map("element_name") @db.VarChar(120)
+  ctdSectionNumber String             @map("ctd_section_number") @db.VarChar(20)
+  title            String             @db.VarChar(500)
+  operation        LeafOperation?
+  status           SequenceNodeStatus @default(EMPTY)
+  isRequired       Boolean            @default(false) @map("is_required")
+  isLeaf           Boolean            @default(false) @map("is_leaf")
+  sortOrder        Int                @map("sort_order")
+  // Backbone attributes (only for specific nodes)
+  substance        String?            @db.VarChar(200)
+  manufacturer     String?            @db.VarChar(200)
+  productName      String?            @map("product_name") @db.VarChar(200)
+  dosageForm       String?            @map("dosage_form") @db.VarChar(200)
+  indication       String?            @db.VarChar(500)
+
+  sequence     Sequence        @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  templateNode CtdTemplateNode @relation(fields: [templateNodeId], references: [id])
+  parent       SequenceNode?   @relation("SequenceNodeTree", fields: [parentId], references: [id])
+  children     SequenceNode[]  @relation("SequenceNodeTree")
+
+  @@index([sequenceId])
+  @@index([templateNodeId])
+  @@index([parentId])
+  @@map("sequence_node")
+}
+
+// ==================== Controlled Vocabulary ====================
+
+model ControlledVocabulary {
+  id             String   @id @default(uuid())
+  vocabularyName String   @map("vocabulary_name") @db.VarChar(50)
+  code           String   @db.VarChar(10)
+  version        String   @db.VarChar(10)
+  validFrom      DateTime @map("valid_from") @db.Date
+  validTo        DateTime? @map("valid_to") @db.Date
+  descriptionZh  String   @map("description_zh") @db.VarChar(200)
+  descriptionEn  String   @map("description_en") @db.VarChar(200)
+
+  @@unique([vocabularyName, code, version])
+  @@index([vocabularyName, code])
+  @@map("controlled_vocabulary")
+}
+
+// ==================== CV Dependency (application-type -> RA-type -> sequence-type) ====================
+
+model CvDependency {
+  id                          String  @id @default(uuid())
+  applicationTypeCode         String  @map("application_type_code") @db.VarChar(10)
+  regulatoryActivityTypeCode  String  @map("regulatory_activity_type_code") @db.VarChar(10)
+  sequenceTypeCode            String? @map("sequence_type_code") @db.VarChar(10)
+  version                     String  @db.VarChar(10)
+
+  @@index([applicationTypeCode, regulatoryActivityTypeCode])
+  @@map("cv_dependency")
+}

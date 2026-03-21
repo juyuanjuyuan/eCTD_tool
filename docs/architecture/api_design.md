@@ -71,24 +71,27 @@
 | GET | `/sequence-types?appType=cnapt2&ratType=cnrat1` | 按申请类型+注册行为类型过滤的序列类型列表 | ALL |
 | GET | `/stf-valid-values` | STF 合法标签值（species/route/duration/control/file-tag） | ALL |
 
-## 8. CTD 目录结构 `/api/v1/sequences/:seqId/nodes`
+## 8. CTD 目录结构 `/api/v1/sequences/:seqId`
 
-| 方法 | 路径 | 说明 | 权限 |
-|------|------|------|------|
-| GET | `/tree` | 获取完整 CTD 目录树（含状态、必填标记） | 成员 |
-| GET | `/:id` | 获取节点详情（含骨架属性） | 成员 |
-| PATCH | `/:id` | 更新节点信息（标题、operation、xml_lang） | EDITOR+ |
-| PATCH | `/:id/attributes` | 更新骨架属性（substance/manufacturer/indication 等） | EDITOR+ |
-| POST | `/:parentId/extension` | 创建扩展节点（仅 3.2.R 章节，仅生物制品） | EDITOR+ |
-| DELETE | `/:id` | 删除扩展节点 | EDITOR+ |
-| PATCH | `/:id/sort` | 调整节点排序 | EDITOR+ |
+| 方法 | 路径 | 说明 | 权限 | 状态 |
+|------|------|------|------|------|
+| POST | `/initialize` | 初始化序列 CTD 目录树（从模板复制，标记必填，设置 operation） | EDITOR+ | ✅ |
+| GET | `/nodes/tree` | 获取完整 CTD 目录树（含状态、必填标记） | 成员 | ✅ |
+| PATCH | `/nodes/:nodeId` | 更新节点信息（status、operation、title） | EDITOR+ | ✅ |
+| PATCH | `/nodes/:nodeId/attributes` | 更新骨架属性（substance/manufacturer/indication 等） | EDITOR+ | ✅ |
+| POST | `/nodes/:parentNodeId/extensions` | 创建扩展节点（仅 3.2.R 章节，仅生物制品） | EDITOR+ | ✅ |
+| DELETE | `/nodes/:nodeId/extension` | 删除扩展节点 | EDITOR+ | ✅ |
+| GET | `/completeness` | 获取内容完整性检查结果（必填章节完成情况、模块统计） | 成员 | ✅ |
+| GET | `/nodes/:id` | 获取节点详情（含骨架属性） | 成员 | 待开发 |
+| PATCH | `/nodes/:id/sort` | 调整节点排序 | EDITOR+ | 待开发 |
 
 ## 9. CTD 模板 `/api/v1/ctd-templates`
 
-| 方法 | 路径 | 说明 | 权限 |
-|------|------|------|------|
-| GET | `/tree` | 获取 CTD 目录模板树 | ALL |
-| GET | `/tree?appType=cnapt2&ratType=cnrat1` | 按申请类型+注册行为类型过滤并标记必填章节 | ALL |
+| 方法 | 路径 | 说明 | 权限 | 状态 |
+|------|------|------|------|------|
+| GET | `/tree` | 获取 CTD 目录模板树（229 节点，6 级嵌套） | ALL | ✅ |
+| GET | `/extension-options` | 获取扩展节点类型列表（3.2.R.1~3.2.R.6） | ALL | ✅ |
+| GET | `/tree?appType=cnapt2&ratType=cnrat1` | 按申请类型+注册行为类型过滤并标记必填章节 | ALL | 待开发 |
 
 ## 10. 文档编辑 `/api/v1/nodes/:nodeId/document`
 
