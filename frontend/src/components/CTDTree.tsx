@@ -13,6 +13,9 @@ import {
   FileOutlined,
   AppstoreAddOutlined,
   SearchOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  CloseCircleOutlined,
 } from '@ant-design/icons';
 import type { SequenceNode, ExtensionOption } from '../types';
 import type { DataNode } from 'antd/es/tree';
@@ -149,6 +152,15 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
             <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
               {operationLabels[node.operation]}
             </Tag>
+          )}
+          {node.isLeaf && node.approvalStatus === 'APPROVED' && (
+            <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 12 }} />
+          )}
+          {node.isLeaf && node.approvalStatus === 'SUBMITTED' && (
+            <ClockCircleOutlined style={{ color: '#1890ff', fontSize: 12 }} />
+          )}
+          {node.isLeaf && node.approvalStatus === 'REJECTED' && (
+            <CloseCircleOutlined style={{ color: '#ff4d4f', fontSize: 12 }} />
           )}
           {flatNodes.find((n) => n.id === node.templateNodeId)?.ctdSectionNumber === '3.2.R' ||
             (node.ctdSectionNumber === '3.2.R' && isbiological && (

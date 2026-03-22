@@ -77,7 +77,7 @@
 - [x] GET `/api/v1/cv/product-types` — 获取产品类型列表
 - [x] GET `/api/v1/cv/regulatory-activity-types?appType=cnapt2` — 按申请类型过滤注册行为类型
 - [x] GET `/api/v1/cv/sequence-types?appType=cnapt2&ratType=cnrat1` — 按申请类型+注册行为过滤序列类型
-- [ ] 受控词汇缓存 (Redis)（Redis 服务集成待 Docker 就绪后完成）
+- [x] 受控词汇缓存 (Redis)（RedisCacheService 已实现，24h TTL）
 
 ### 1.4 公共模块
 - [x] 统一响应拦截器 (TransformInterceptor)
@@ -153,12 +153,12 @@
   - 注册行为类型→序列类型**级联选择**（根据关联矩阵过滤）
   - 序列描述输入
   - 联系人信息填写
-- [ ] 序列详情页（进入编辑器的入口）— 待 Plan 2/3 编辑器完成
+- [x] 序列详情页（进入编辑器的入口）— 已在 Plan 2/3 中实现 (SequenceDetailPage)
 
 ## 阶段 5: Docker 开发环境
 
 - [x] docker-compose.yml (PostgreSQL + Redis + MinIO)
-- [ ] 后端 Dockerfile (开发模式)
+- [x] 后端 Dockerfile (开发模式)
 - [x] .dockerignore
 - [x] 种子数据脚本: 导入受控词汇、关联矩阵
 

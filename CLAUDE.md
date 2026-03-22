@@ -60,9 +60,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 │       ├── plan_7.md         # WP-07: 协作、审批流程与电子签章
 │       └── plan_8.md         # WP-08: eCTD 合规测试、CDE 验证对齐与部署
 ├── reference/               # 法规参考文件（只读）
-├── backend/                 # NestJS 后端（待创建）
-├── frontend/                # React 前端（待创建）
-└── docker-compose.yml       # 开发环境（待创建）
+├── backend/                 # NestJS 后端
+├── frontend/                # React 前端
+└── docker-compose.yml       # 开发环境
 ```
 
 ## 需求来源文件

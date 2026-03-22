@@ -12,15 +12,34 @@ import {
   Popconfirm,
   Typography,
   Divider,
+  Modal,
+  Badge,
 } from 'antd';
 import {
   HistoryOutlined,
   RollbackOutlined,
   CameraOutlined,
+  PaperClipOutlined,
+  AuditOutlined,
+  CommentOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  UnlockOutlined,
+  SendOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { ctdApi } from '../../services/ctd';
 import { documentApi } from '../../services/document';
-import type { SequenceNode, Document, DocumentVersion } from '../../types';
+import { approvalApi } from '../../services/approval';
+import { commentApi } from '../../services/comment';
+import FilePanel from '../../components/FilePanel';
+import type {
+  SequenceNode,
+  Document,
+  DocumentVersion,
+  ApprovalHistory,
+  Comment,
+} from '../../types';
 
 const operationOptions = [
   { label: '新建 (new)', value: 'NEW' },
@@ -66,6 +85,21 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const [versions, setVersions] = useState<DocumentVersion[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
 
+  // Approval state
+  const [approvalHistory, setApprovalHistory] = useState<ApprovalHistory | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+
+  // Comment state
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [loadingComments, setLoadingComments] = useState(false);
+
+  const userStr = localStorage.getItem('user');
+  const currentUser = userStr ? JSON.parse(userStr) : null;
+  const isManager = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER';
+
   const isFirstSequence = sequenceNumber === '0000';
   const hasBackboneAttrs =
     SUBSTANCE_SECTIONS.has(node.ctdSectionNumber) ||
@@ -86,9 +120,98 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     }
   }, [node.id]);
 
+  // Load approval history
+  const loadApprovalHistory = useCallback(async () => {
+    if (!node.id || !node.isLeaf) return;
+    try {
+      const data = await approvalApi.getHistory(node.id);
+      setApprovalHistory(data);
+    } catch {
+      // Ignore
+    }
+  }, [node.id, node.isLeaf]);
+
+  // Load comments
+  const loadComments = useCallback(async () => {
+    if (!node.id) return;
+    setLoadingComments(true);
+    try {
+      const data = await commentApi.list(node.id);
+      setComments(data);
+    } catch {
+      // Ignore
+    } finally {
+      setLoadingComments(false);
+    }
+  }, [node.id]);
+
   useEffect(() => {
     loadVersions();
-  }, [loadVersions]);
+    loadApprovalHistory();
+    loadComments();
+  }, [loadVersions, loadApprovalHistory, loadComments]);
+
+  // Approval handlers
+  const handleApprove = async () => {
+    try {
+      await approvalApi.approve(node.id);
+      message.success('审批通过');
+      onNodeUpdated();
+      loadApprovalHistory();
+    } catch (err: any) {
+      message.error(err.message);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!rejectReason.trim()) {
+      message.warning('请填写驳回理由');
+      return;
+    }
+    try {
+      await approvalApi.reject(node.id, rejectReason);
+      message.success('已驳回');
+      setRejectModalOpen(false);
+      setRejectReason('');
+      onNodeUpdated();
+      loadApprovalHistory();
+    } catch (err: any) {
+      message.error(err.message);
+    }
+  };
+
+  const handleUnlockApproval = async () => {
+    try {
+      await approvalApi.unlockApproval(node.id);
+      message.success('已解锁，可重新编辑');
+      onNodeUpdated();
+      loadApprovalHistory();
+    } catch (err: any) {
+      message.error(err.message);
+    }
+  };
+
+  // Comment handlers
+  const handleAddComment = async () => {
+    if (!commentText.trim()) return;
+    try {
+      await commentApi.create(node.id, commentText, replyTo || undefined);
+      setCommentText('');
+      setReplyTo(null);
+      loadComments();
+    } catch (err: any) {
+      message.error(err.message);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    try {
+      await commentApi.delete(node.id, commentId);
+      loadComments();
+    } catch (err: any) {
+      message.error(err.message);
+    }
+  };
 
   // Update operation type
   const handleOperationChange = async (operation: string) => {
@@ -332,10 +455,21 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       ),
     },
     {
+      key: 'files',
+      label: (
+        <span>
+          <PaperClipOutlined /> 文件
+        </span>
+      ),
+      children: (
+        <FilePanel nodeId={node.id} isLeaf={node.isLeaf} />
+      ),
+    },
+    {
       key: 'versions',
       label: (
         <span>
-          <HistoryOutlined /> 版本历史
+          <HistoryOutlined /> 版本
           {versions.length > 0 && (
             <Tag style={{ marginLeft: 4, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
               {versions.length}
@@ -389,6 +523,277 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   description={new Date(ver.createdAt).toLocaleString('zh-CN')}
                 />
               </List.Item>
+            )}
+          />
+        </div>
+      ),
+    },
+    // Approval tab
+    ...(node.isLeaf
+      ? [
+          {
+            key: 'approval',
+            label: (
+              <span>
+                <AuditOutlined /> 审批
+              </span>
+            ),
+            children: (
+              <div style={{ padding: '0 12px' }}>
+                {/* Current status */}
+                <Descriptions column={1} size="small" style={{ marginBottom: 12 }}>
+                  <Descriptions.Item label="审批状态">
+                    <Tag
+                      color={
+                        node.approvalStatus === 'APPROVED'
+                          ? 'green'
+                          : node.approvalStatus === 'SUBMITTED'
+                            ? 'blue'
+                            : node.approvalStatus === 'REJECTED'
+                              ? 'red'
+                              : 'default'
+                      }
+                    >
+                      {node.approvalStatus === 'APPROVED'
+                        ? '已通过'
+                        : node.approvalStatus === 'SUBMITTED'
+                          ? '待审批'
+                          : node.approvalStatus === 'REJECTED'
+                            ? '已驳回'
+                            : '草稿'}
+                    </Tag>
+                  </Descriptions.Item>
+                  {approvalHistory?.submitterName && (
+                    <Descriptions.Item label="提交人">
+                      {approvalHistory.submitterName}
+                    </Descriptions.Item>
+                  )}
+                  {approvalHistory?.submittedAt && (
+                    <Descriptions.Item label="提交时间">
+                      {new Date(approvalHistory.submittedAt).toLocaleString('zh-CN')}
+                    </Descriptions.Item>
+                  )}
+                  {approvalHistory?.approverName && (
+                    <Descriptions.Item label="审批人">
+                      {approvalHistory.approverName}
+                    </Descriptions.Item>
+                  )}
+                  {approvalHistory?.approvedAt && (
+                    <Descriptions.Item label="审批时间">
+                      {new Date(approvalHistory.approvedAt).toLocaleString('zh-CN')}
+                    </Descriptions.Item>
+                  )}
+                </Descriptions>
+
+                {/* Rejection reason */}
+                {node.approvalStatus === 'REJECTED' && approvalHistory?.rejectionReason && (
+                  <div style={{ marginBottom: 12, padding: 8, background: '#fff2f0', borderRadius: 4 }}>
+                    <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                      驳回理由: {approvalHistory.rejectionReason}
+                    </Typography.Text>
+                  </div>
+                )}
+
+                {/* Manager actions */}
+                {isManager && node.approvalStatus === 'SUBMITTED' && (
+                  <Space style={{ marginBottom: 12 }}>
+                    <Button
+                      type="primary"
+                      size="small"
+                      icon={<CheckCircleOutlined />}
+                      onClick={handleApprove}
+                    >
+                      通过
+                    </Button>
+                    <Button
+                      danger
+                      size="small"
+                      icon={<CloseCircleOutlined />}
+                      onClick={() => setRejectModalOpen(true)}
+                    >
+                      驳回
+                    </Button>
+                  </Space>
+                )}
+
+                {/* Unlock approved node */}
+                {isManager && node.approvalStatus === 'APPROVED' && (
+                  <Popconfirm
+                    title="确认解锁？"
+                    description="解锁后该节点可重新编辑"
+                    onConfirm={handleUnlockApproval}
+                  >
+                    <Button
+                      size="small"
+                      icon={<UnlockOutlined />}
+                      style={{ marginBottom: 12 }}
+                      block
+                    >
+                      解锁审批（允许重新编辑）
+                    </Button>
+                  </Popconfirm>
+                )}
+
+                {/* Reject modal */}
+                <Modal
+                  title="驳回审批"
+                  open={rejectModalOpen}
+                  onOk={handleReject}
+                  onCancel={() => {
+                    setRejectModalOpen(false);
+                    setRejectReason('');
+                  }}
+                  okText="确认驳回"
+                  okButtonProps={{ danger: true }}
+                >
+                  <Input.TextArea
+                    rows={3}
+                    placeholder="请填写驳回理由"
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                  />
+                </Modal>
+              </div>
+            ),
+          },
+        ]
+      : []),
+    // Comments tab
+    {
+      key: 'comments',
+      label: (
+        <span>
+          <CommentOutlined /> 评论
+          {comments.length > 0 && (
+            <Badge
+              count={comments.reduce((sum, c) => sum + 1 + (c.replies?.length || 0), 0)}
+              size="small"
+              style={{ marginLeft: 4 }}
+            />
+          )}
+        </span>
+      ),
+      children: (
+        <div style={{ padding: '0 12px' }}>
+          {/* Comment input */}
+          <div style={{ marginBottom: 12 }}>
+            {replyTo && (
+              <div style={{ marginBottom: 4 }}>
+                <Tag closable onClose={() => setReplyTo(null)} style={{ fontSize: 11 }}>
+                  回复评论
+                </Tag>
+              </div>
+            )}
+            <Space.Compact style={{ width: '100%' }}>
+              <Input.TextArea
+                size="small"
+                rows={2}
+                placeholder="添加评论..."
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                onPressEnter={(e) => {
+                  if (e.ctrlKey) handleAddComment();
+                }}
+              />
+            </Space.Compact>
+            <Button
+              size="small"
+              type="primary"
+              icon={<SendOutlined />}
+              onClick={handleAddComment}
+              disabled={!commentText.trim()}
+              style={{ marginTop: 4 }}
+              block
+            >
+              发送
+            </Button>
+          </div>
+
+          {/* Comments list */}
+          <List
+            size="small"
+            loading={loadingComments}
+            dataSource={comments}
+            locale={{ emptyText: '暂无评论' }}
+            renderItem={(comment) => (
+              <div key={comment.id} style={{ marginBottom: 8 }}>
+                <div style={{ background: '#fafafa', padding: 8, borderRadius: 4 }}>
+                  <Space size={4} style={{ marginBottom: 4 }}>
+                    <Typography.Text strong style={{ fontSize: 12 }}>
+                      {comment.user.name}
+                    </Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      {new Date(comment.createdAt).toLocaleString('zh-CN')}
+                    </Typography.Text>
+                  </Space>
+                  <div style={{ fontSize: 13 }}>{comment.content}</div>
+                  <Space size={4} style={{ marginTop: 4 }}>
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ fontSize: 11, padding: 0 }}
+                      onClick={() => setReplyTo(comment.id)}
+                    >
+                      回复
+                    </Button>
+                    {(comment.user.id === currentUser?.id || isManager) && (
+                      <Popconfirm
+                        title="确认删除？"
+                        onConfirm={() => handleDeleteComment(comment.id)}
+                      >
+                        <Button
+                          type="link"
+                          size="small"
+                          danger
+                          style={{ fontSize: 11, padding: 0 }}
+                          icon={<DeleteOutlined />}
+                        >
+                          删除
+                        </Button>
+                      </Popconfirm>
+                    )}
+                  </Space>
+                </div>
+                {/* Replies */}
+                {comment.replies?.map((reply) => (
+                  <div
+                    key={reply.id}
+                    style={{
+                      marginLeft: 16,
+                      marginTop: 4,
+                      background: '#f0f5ff',
+                      padding: 8,
+                      borderRadius: 4,
+                    }}
+                  >
+                    <Space size={4} style={{ marginBottom: 4 }}>
+                      <Typography.Text strong style={{ fontSize: 12 }}>
+                        {reply.user.name}
+                      </Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                        {new Date(reply.createdAt).toLocaleString('zh-CN')}
+                      </Typography.Text>
+                    </Space>
+                    <div style={{ fontSize: 13 }}>{reply.content}</div>
+                    {(reply.user.id === currentUser?.id || isManager) && (
+                      <Popconfirm
+                        title="确认删除？"
+                        onConfirm={() => handleDeleteComment(reply.id)}
+                      >
+                        <Button
+                          type="link"
+                          size="small"
+                          danger
+                          style={{ fontSize: 11, padding: 0 }}
+                          icon={<DeleteOutlined />}
+                        >
+                          删除
+                        </Button>
+                      </Popconfirm>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           />
         </div>

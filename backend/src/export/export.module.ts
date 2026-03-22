@@ -6,6 +6,7 @@ import { ExportProcessor } from './export.processor';
 import { WordExportService } from './word-export.service';
 import { PDFExportService } from './pdf-export.service';
 import { PDFComplianceService } from './pdf-compliance.service';
+import { FileModule } from '../file/file.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { PDFComplianceService } from './pdf-compliance.service';
         attempts: 1,
       },
     }),
+    FileModule,
   ],
   controllers: [ExportController],
   providers: [

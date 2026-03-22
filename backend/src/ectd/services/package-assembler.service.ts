@@ -1,9 +1,10 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CnRegionalXmlService } from './cn-regional-xml.service';
 import { IndexXmlService } from './index-xml.service';
 import { Md5Service } from './md5.service';
 import { ValidatorService } from './validator.service';
+import { MinioService } from '../../file/minio.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import archiver from 'archiver';
@@ -67,6 +68,7 @@ export class PackageAssemblerService {
     private indexXml: IndexXmlService,
     private md5Service: Md5Service,
     private validator: ValidatorService,
+    @Optional() @Inject(MinioService) private minioService?: MinioService,
   ) {}
 
   /**
@@ -76,6 +78,23 @@ export class PackageAssemblerService {
     buffer: Buffer;
     fileName: string;
   }> {
+    // Step 0: Check that all required sections are approved
+    const requiredNodes = await this.prisma.sequenceNode.findMany({
+      where: { sequenceId, isRequired: true, isLeaf: true },
+      select: { id: true, ctdSectionNumber: true, title: true, approvalStatus: true },
+    });
+    const unapproved = requiredNodes.filter((n) => n.approvalStatus !== 'APPROVED');
+    if (unapproved.length > 0) {
+      throw new BadRequestException({
+        message: `${unapproved.length} 个必填章节尚未审批通过，无法生成 eCTD 包`,
+        unapprovedSections: unapproved.map((n) => ({
+          section: n.ctdSectionNumber,
+          title: n.title,
+          status: n.approvalStatus,
+        })),
+      });
+    }
+
     // Step 1: Run validation
     const validationResult = await this.validator.validate(sequenceId);
     if (!validationResult.isPassed) {
@@ -148,7 +167,7 @@ export class PackageAssemblerService {
     indexContent: string,
     indexMd5Content: string,
   ): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       const chunks: Buffer[] = [];
       const writable = new Writable({
         write(chunk, _encoding, callback) {
@@ -174,16 +193,41 @@ export class PackageAssemblerService {
       this.addUtilFiles(archive, basePath);
 
       // Add content files from sequence nodes
-      const addedFolders = new Set<string>();
+      // Empty section handling: only include nodes that have actual file attachments
       for (const node of sequence.sequenceNodes) {
         if (!node.isLeaf || !node.operation || node.operation === 'DELETE') continue;
 
-        for (const file of node.fileAttachments || []) {
-          // Add file to the archive
+        // Skip empty leaf nodes (no files attached = empty section)
+        const files = node.fileAttachments || [];
+        if (files.length === 0) continue;
+
+        for (const file of files) {
           // The ectdRelativePath is relative to the sequence folder
           const filePath = `${basePath}/${file.ectdRelativePath}`;
 
-          // Read from storage path if it exists on disk
+          // For reference files, read the original from MinIO
+          if (file.isReference && file.referenceFileId) {
+            // Reference files don't need to be included physically;
+            // the backbone XML references them via relative path.
+            // But if the reference is within the same sequence, include it.
+            continue;
+          }
+
+          // Try MinIO first, then fall back to local disk
+          if (this.minioService && file.storagePath) {
+            try {
+              const exists = await this.minioService.fileExists(file.storagePath);
+              if (exists) {
+                const fileBuffer = await this.minioService.getFile(file.storagePath);
+                archive.append(fileBuffer, { name: filePath });
+                continue;
+              }
+            } catch (err) {
+              this.logger.warn(`MinIO read failed for ${file.storagePath}: ${err}`);
+            }
+          }
+
+          // Fallback: local disk
           if (file.storagePath && fs.existsSync(file.storagePath)) {
             archive.file(file.storagePath, { name: filePath });
           }
@@ -191,7 +235,6 @@ export class PackageAssemblerService {
 
         // Add STF files if present
         if (node.studyTaggingFile?.stfXmlContent) {
-          // STF goes alongside the study files
           const stfPath = this.getStfPath(node, basePath);
           if (stfPath) {
             archive.append(node.studyTaggingFile.stfXmlContent, {
@@ -269,14 +312,11 @@ export class PackageAssemblerService {
     const sectionNum = node.ctdSectionNumber;
     if (!sectionNum) return null;
 
-    // STF file goes in the same directory as the study files
-    // Named based on section number
     const normalizedSection = sectionNum.replace(/\./g, '-');
     const moduleNum = parseInt(sectionNum.split('.')[0]);
     const moduleFolder = MODULE_FOLDER_MAP[moduleNum];
     if (!moduleFolder) return null;
 
-    // Find the appropriate subfolder
     const prefix = sectionNum.split('.').slice(0, 2).join('.');
     const subFolder = MODULE_SUBFOLDERS[prefix] || moduleFolder;
 
@@ -284,7 +324,8 @@ export class PackageAssemblerService {
   }
 
   /**
-   * Preview the directory structure that would be generated
+   * Preview the directory structure that would be generated.
+   * Empty sections (no files) are automatically excluded.
    */
   async previewStructure(sequenceId: string): Promise<string[]> {
     const sequence = await this.prisma.sequence.findUnique({
@@ -296,7 +337,7 @@ export class PackageAssemblerService {
         sequenceNodes: {
           include: {
             templateNode: { select: { module: true } },
-            fileAttachments: { select: { ectdRelativePath: true } },
+            fileAttachments: { select: { ectdRelativePath: true, isReference: true } },
             studyTaggingFile: { select: { id: true } },
           },
           orderBy: { sortOrder: 'asc' },
@@ -328,10 +369,15 @@ export class PackageAssemblerService {
     paths.push(`${basePath}/util/style/ich-stf-stylesheet-2-2a.xsl`);
     paths.push(`${basePath}/util/style/valid-values.xml`);
 
-    // Content files
+    // Content files — skip empty sections
     for (const node of sequence.sequenceNodes) {
       if (!node.isLeaf || !node.operation || node.operation === 'DELETE') continue;
-      for (const file of node.fileAttachments || []) {
+
+      const files = node.fileAttachments || [];
+      if (files.length === 0) continue; // Empty section — exclude
+
+      for (const file of files) {
+        if (file.isReference) continue; // References point to prior sequence files
         paths.push(`${basePath}/${file.ectdRelativePath}`);
       }
       if (node.studyTaggingFile) {

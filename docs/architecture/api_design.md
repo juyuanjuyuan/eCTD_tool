@@ -82,6 +82,7 @@
 | POST | `/nodes/:parentNodeId/extensions` | 创建扩展节点（仅 3.2.R 章节，仅生物制品） | EDITOR+ | ✅ |
 | DELETE | `/nodes/:nodeId/extension` | 删除扩展节点 | EDITOR+ | ✅ |
 | GET | `/completeness` | 获取内容完整性检查结果（必填章节完成情况、模块统计） | 成员 | ✅ |
+| GET | `/preview-required` | 初始化前预览必填章节清单（按申请类型+注册行为类型） | 成员 | ✅ |
 | GET | `/nodes/:id` | 获取节点详情（含骨架属性） | 成员 | 待开发 |
 | PATCH | `/nodes/:id/sort` | 调整节点排序 | EDITOR+ | 待开发 |
 
@@ -91,7 +92,7 @@
 |------|------|------|------|------|
 | GET | `/tree` | 获取 CTD 目录模板树（229 节点，6 级嵌套） | ALL | ✅ |
 | GET | `/extension-options` | 获取扩展节点类型列表（3.2.R.1~3.2.R.6） | ALL | ✅ |
-| GET | `/tree?appType=cnapt2&ratType=cnrat1` | 按申请类型+注册行为类型过滤并标记必填章节 | ALL | 待开发 |
+| GET | `/tree?appType=cnapt2&ratType=cnrat1` | 按申请类型+注册行为类型过滤并标记必填章节 | ALL | ✅ |
 
 ## 10. 文档编辑 `/api/v1/nodes/:nodeId/document` ✅ (WP-03 已实现)
 
@@ -104,17 +105,25 @@
 | POST | `/versions` | 创建版本快照 | EDITOR+ |
 | POST | `/restore/:version` | 恢复到指定版本 | EDITOR+ |
 
-## 11. 文件管理 `/api/v1/nodes/:nodeId/files`
+## 11. 文件管理 `/api/v1/nodes/:nodeId/files` ✅ (WP-06 已实现)
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| POST | `/upload` | 上传文件（自动命名规范化、MD5 计算、PDF 合规分析） | EDITOR+ |
-| GET | `/` | 获取节点下的文件列表 | 成员 |
+| POST | `/upload` | 上传单文件（自动命名规范化、MD5 计算、PDF 合规分析、MinIO 存储） | EDITOR+ |
+| POST | `/upload-batch` | 批量上传文件（最多20个） | EDITOR+ |
+| GET | `/` | 获取节点下的文件列表（含 PDF 分析结果） | 成员 |
 | GET | `/:id` | 获取文件详情（含 PDF 合规分析结果） | 成员 |
-| GET | `/:id/download` | 下载文件（presigned URL） | 成员 |
-| GET | `/:id/preview` | 预览文件（presigned URL） | 成员 |
-| DELETE | `/:id` | 删除文件 | EDITOR+ |
-| POST | `/:id/reference` | 创建文件引用（同一申请跨序列复用） | EDITOR+ |
+| GET | `/:id/download` | 下载文件（返回 presigned URL） | 成员 |
+| GET | `/:id/preview` | 预览文件（返回 presigned URL，inline） | 成员 |
+| DELETE | `/:id` | 删除文件（检查引用关系，同步删除 MinIO） | EDITOR+ |
+| POST | `/reference` | 创建文件引用（同一申请跨序列复用，验证前序存在性） | EDITOR+ |
+| GET | `/referenceable` | 列出可引用的前序序列文件 | 成员 |
+
+### 11.1 编辑器图片上传 `/api/v1/sequences/:seqId/editor`
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| POST | `/upload-image` | 上传编辑器图片到 MinIO（PNG/JPG/GIF/SVG，≤10MB） | EDITOR+ |
 
 ## 12. STF 管理 `/api/v1/nodes/:nodeId/stf` ✅ (WP-05 已实现)
 
@@ -139,6 +148,7 @@
 | POST | `/pdf` | 导出单个章节为 PDF（自动合规检查） | EDITOR+ |
 | POST | `/pdf/batch` | 批量导出为 PDF | EDITOR+ |
 | GET | `/status/:taskId` | 查询导出任务进度 | 成员 |
+| GET | `/download/:taskId` | 下载批量导出结果（MinIO presigned URL） | 成员 |
 
 ## 13b. eCTD 包导出 `/api/v1/sequences/:seqId/export` ✅ (WP-05 已实现)
 

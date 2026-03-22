@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SaveDocumentDto } from './dto';
 
@@ -48,6 +48,11 @@ export class DocumentService {
       where: { id: nodeId },
     });
     if (!node) throw new NotFoundException('序列节点不存在');
+
+    // Block editing on approved nodes
+    if (node.approvalStatus === 'APPROVED') {
+      throw new ForbiddenException('该节点已审批通过，不可编辑');
+    }
 
     // Extract plain text and word count from HTML
     const contentText = this.extractText(dto.contentHtml || '');

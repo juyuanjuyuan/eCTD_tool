@@ -1,5 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
+import { message } from 'antd';
+import { fileApi } from '../../services/file';
 import StarterKit from '@tiptap/starter-kit';
 import Table from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
@@ -19,6 +21,7 @@ interface RichEditorProps {
   onUpdate?: (json: any, html: string) => void;
   editable?: boolean;
   sectionTitle?: string;
+  sequenceId?: string; // For image upload to MinIO
 }
 
 const RichEditor: React.FC<RichEditorProps> = ({
@@ -26,6 +29,7 @@ const RichEditor: React.FC<RichEditorProps> = ({
   onUpdate,
   editable = true,
   sectionTitle,
+  sequenceId,
 }) => {
   const editor = useEditor({
     extensions: [
@@ -85,19 +89,30 @@ const RichEditor: React.FC<RichEditorProps> = ({
 
   if (!editor) return null;
 
-  const handleInsertImage = () => {
+  const handleInsertImage = useCallback(() => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'image/*';
+    input.accept = 'image/png,image/jpeg,image/gif,image/svg+xml';
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
-      // For now, use object URL. MinIO integration will come in plan_6
-      const url = URL.createObjectURL(file);
-      editor.chain().focus().setImage({ src: url }).run();
+
+      if (sequenceId) {
+        // Upload to MinIO
+        try {
+          const { url } = await fileApi.uploadEditorImage(sequenceId, file);
+          editor.chain().focus().setImage({ src: url }).run();
+        } catch (err: any) {
+          message.error(err.message || '图片上传失败');
+        }
+      } else {
+        // Fallback: use object URL
+        const url = URL.createObjectURL(file);
+        editor.chain().focus().setImage({ src: url }).run();
+      }
     };
     input.click();
-  };
+  }, [editor, sequenceId]);
 
   const charCount = editor.storage.characterCount?.characters() || 0;
   const wordCount = editor.storage.characterCount?.words() || 0;

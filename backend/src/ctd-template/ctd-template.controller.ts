@@ -47,6 +47,11 @@ export class CtdTemplateController {
     return this.ctdTemplateService.initializeSequenceNodes(seqId);
   }
 
+  @Get('sequences/:seqId/preview-required')
+  previewRequired(@Param('seqId') seqId: string) {
+    return this.ctdTemplateService.previewRequiredSections(seqId);
+  }
+
   @Get('sequences/:seqId/nodes/tree')
   getSequenceNodeTree(@Param('seqId') seqId: string) {
     return this.ctdTemplateService.getSequenceNodeTree(seqId);

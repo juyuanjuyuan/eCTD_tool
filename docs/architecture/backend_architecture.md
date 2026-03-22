@@ -17,7 +17,11 @@
 | `document` ✅ | 文档内容管理（富文本内容、版本历史、字数统计、语言属性） | DocumentService |
 | `export` ✅ | 文档导出（Word/PDF）+ eCTD PDF 合规检查 + Bull Queue 异步任务 | ExportService, WordExportService, PDFExportService, PDFComplianceService, ExportProcessor |
 | `ectd` ✅ | eCTD 核心逻辑（XML 骨架生成、验证引擎、MD5 校验、生命周期状态机、STF 生成、提交包组装） | CnRegionalXmlService, IndexXmlService, ValidatorService, LifecycleService, StfService, Md5Service, PackageAssemblerService |
-| `file` | 文件存储（MinIO 操作、命名规范化、PDF 分析） | FileService, FileNameNormalizer |
+| `file` ✅ | 文件存储（MinIO 操作、命名规范化、PDF 分析、文件复用） | FileService, MinioService, FileNameNormalizerService |
+| `edit-lock` ✅ | Redis 编辑锁（SETNX 30min TTL、5min 心跳续期、强制解锁） | EditLockService |
+| `approval` ✅ | 文档审批流程（提交/通过/驳回/解锁、序列审批总览、导出门控） | ApprovalService |
+| `comment` ✅ | 节点评论（嵌套回复、作者/MANAGER 删除） | CommentService |
+| `activity-log` ✅ | 操作审计日志（不可删除、按序列查询、分页） | ActivityLogService |
 
 ### 1.2 模块依赖关系
 
@@ -28,6 +32,10 @@ controlled-vocabulary (被 application/regulatory-activity/sequence/ectd 引用)
 ctd-template ← document ← export
                           ← ectd (xml-backbone, validator, lifecycle, stf)
 file (独立，被 document/export/ectd 引用)
+edit-lock (Redis-based, 独立)
+approval ← export (审批门控)
+comment (独立)
+activity-log (独立, 被其他模块调用记录日志)
 ```
 
 ## 2. API 规范

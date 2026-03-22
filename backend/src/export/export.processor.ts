@@ -1,9 +1,12 @@
 import { Process, Processor } from '@nestjs/bull';
+import { Optional, Inject } from '@nestjs/common';
 import type { Job } from 'bull';
+import * as archiver from 'archiver';
 import { PrismaService } from '../prisma/prisma.service';
 import { WordExportService } from './word-export.service';
 import { PDFExportService } from './pdf-export.service';
 import { PDFComplianceService, ComplianceResult } from './pdf-compliance.service';
+import { MinioService } from '../file/minio.service';
 
 interface BatchJobData {
   sequenceId: string;
@@ -17,6 +20,7 @@ interface BatchResult {
   totalNodes: number;
   successCount: number;
   failCount: number;
+  downloadObjectName?: string;
   files: Array<{
     nodeId: string;
     fileName: string;
@@ -33,6 +37,7 @@ export class ExportProcessor {
     private wordExport: WordExportService,
     private pdfExport: PDFExportService,
     private pdfCompliance: PDFComplianceService,
+    @Optional() @Inject(MinioService) private minioService?: MinioService,
   ) {}
 
   @Process('word-batch')
@@ -45,6 +50,8 @@ export class ExportProcessor {
       failCount: 0,
       files: [],
     };
+
+    const exportedFiles: Array<{ fileName: string; buffer: Buffer }> = [];
 
     for (let i = 0; i < nodeIds.length; i++) {
       const nodeId = nodeIds[i];
@@ -71,6 +78,7 @@ export class ExportProcessor {
         const fileName = `${node.ctdSectionNumber.replace(/\./g, '-')}_${node.title}.docx`;
         result.successCount++;
         result.files.push({ nodeId, fileName, sizeBytes: buffer.length });
+        exportedFiles.push({ fileName, buffer });
       } catch (err: any) {
         result.failCount++;
         result.files.push({
@@ -82,6 +90,14 @@ export class ExportProcessor {
       }
 
       await job.progress(Math.round(((i + 1) / nodeIds.length) * 100));
+    }
+
+    // Upload ZIP to MinIO if available
+    if (this.minioService && exportedFiles.length > 0) {
+      result.downloadObjectName = await this.uploadZipToMinio(
+        `export-word-${job.id}`,
+        exportedFiles,
+      );
     }
 
     return result;
@@ -97,6 +113,8 @@ export class ExportProcessor {
       failCount: 0,
       files: [],
     };
+
+    const exportedFiles: Array<{ fileName: string; buffer: Buffer }> = [];
 
     for (let i = 0; i < nodeIds.length; i++) {
       const nodeId = nodeIds[i];
@@ -135,6 +153,7 @@ export class ExportProcessor {
           sizeBytes: pdfBuffer.length,
           complianceResult,
         });
+        exportedFiles.push({ fileName, buffer: pdfBuffer });
       } catch (err: any) {
         result.failCount++;
         result.files.push({
@@ -148,6 +167,49 @@ export class ExportProcessor {
       await job.progress(Math.round(((i + 1) / nodeIds.length) * 100));
     }
 
+    // Upload ZIP to MinIO if available
+    if (this.minioService && exportedFiles.length > 0) {
+      result.downloadObjectName = await this.uploadZipToMinio(
+        `export-pdf-${job.id}`,
+        exportedFiles,
+      );
+    }
+
     return result;
+  }
+
+  // ==================== Helpers ====================
+
+  private async uploadZipToMinio(
+    prefix: string,
+    files: Array<{ fileName: string; buffer: Buffer }>,
+  ): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      const archive = archiver.default('zip', { zlib: { level: 6 } });
+
+      archive.on('data', (chunk: Buffer) => chunks.push(chunk));
+      archive.on('end', async () => {
+        try {
+          const zipBuffer = Buffer.concat(chunks);
+          const objectName = `exports/${prefix}.zip`;
+          await this.minioService!.uploadFile(
+            objectName,
+            zipBuffer,
+            'application/zip',
+          );
+          resolve(objectName);
+        } catch (err) {
+          reject(err);
+        }
+      });
+      archive.on('error', reject);
+
+      for (const file of files) {
+        archive.append(file.buffer, { name: file.fileName });
+      }
+
+      archive.finalize();
+    });
   }
 }

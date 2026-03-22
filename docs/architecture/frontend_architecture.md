@@ -54,8 +54,9 @@
   - 叶节点操作类型标签（新建/替换/增补/删除）
   - 右键菜单: 生物制品 3.2.R 章节可添加扩展子节点
   - 扩展节点创建 Modal（Select 下拉选择 3.2.R.1~3.2.R.6）
+- WP-07 新增:
+  - ✅ 审批状态图标: CheckCircleOutlined 绿(APPROVED)/ClockCircleOutlined 蓝(SUBMITTED)/CloseCircleOutlined 红(REJECTED)
 - 待开发:
-  - 审批状态图标
   - 文件合规状态图标
   - STF/电子签章标记
   - 拖拽排序
@@ -99,14 +100,53 @@
 - Blob 下载（PDF 合规通过时自动触发下载）
 - 对应 API: `exportApi.exportWord()` / `exportApi.exportPdf()`
 
-### 2.5 文件上传组件 (`FileUploader`)
+### 2.5 文件管理面板 (`FilePanel`) ✅ (WP-06 已实现)
 
-- 支持拖拽上传
-- PDF 文件自动验证（版本、书签、安全设置）
-- 上传后自动计算 MD5
-- 显示上传进度
+嵌入属性面板的文件管理 Tab:
+- 拖拽上传区域（Upload.Dragger）
+- 上传进度条（Progress）
+- 文件扩展名前端校验（.pdf/.xml/.xpt/.txt/.xsl）
+- 文件大小前端校验（200MB/4GB）
+- 文件列表（List，含文件图标、合规状态 Badge、引用标签）
+- 文件操作: 预览（PDF）、下载（presigned URL）、删除（确认弹窗）
+- PDF 合规状态图标: 绿色通过/黄色警告/红色错误
+- 合规详情 Modal（错误/警告列表 Table）
+- 前序序列文件引用 Modal（Table 选择器，显示序列号/章节/文件名/大小）
+- 文件引用创建（同一申请内跨序列复用，验证前序存在性）
+- 对应 API: `fileApi.upload/list/delete/download/preview/createReference/listReferenceable`
 
-### 2.6 PDF 预览组件 (`PDFViewer`)
+### 2.6 审批面板 (PropertiesPanel 审批 Tab) ✅ (WP-07 已实现)
+
+嵌入属性面板的审批 Tab（仅叶节点显示）:
+- 审批状态展示（Tag: 草稿/待审批/已通过/已驳回）
+- 提交人/时间、审批人/时间信息
+- 驳回理由展示（红色背景提示）
+- MANAGER 审批操作: 通过按钮 + 驳回按钮（弹窗填写理由）
+- MANAGER 解锁审批按钮（允许重新编辑已通过节点）
+- 对应 API: `approvalApi.submit/approve/reject/unlockApproval/getHistory`
+
+### 2.7 评论面板 (PropertiesPanel 评论 Tab) ✅ (WP-07 已实现)
+
+嵌入属性面板的评论 Tab:
+- 评论输入框（Ctrl+Enter 发送）
+- 回复功能（点击"回复"设置 parentId）
+- 评论列表（顶级评论 + 嵌套回复，不同背景色区分）
+- 删除评论（评论作者或 MANAGER 可删，确认弹窗）
+- Badge 评论数统计
+- 对应 API: `commentApi.create/list/delete`
+
+### 2.8 编辑锁指示器 (EditorPage) ✅ (WP-07 已实现)
+
+集成在 EditorPage 中:
+- 选中叶节点时自动获取编辑锁（editLockApi.acquire）
+- 切换节点/离开页面时释放锁（editLockApi.release）
+- 5 分钟心跳续期（editLockApi.heartbeat）
+- 锁冲突时: 顶栏 Tag 显示"xx 正在编辑" + Alert 只读模式提示
+- 已审批节点: Alert "该节点已审批通过，不可编辑" + 只读模式
+- RichEditor editable={!isReadOnly}
+- 对应 API: `editLockApi.acquire/release/query/forceUnlock/heartbeat`
+
+### 2.9 PDF 预览组件 (`PDFViewer`)
 
 - 基于 react-pdf 或 PDF.js
 - 支持在线预览已上传的 PDF

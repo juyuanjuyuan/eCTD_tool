@@ -40,7 +40,7 @@
 
 ### 1.4 图片支持
 - [x] 安装 @tiptap/extension-image
-- [ ] 图片上传至 MinIO（待 WP-06 文件管理完成后集成）
+- [x] 图片上传至 MinIO（WP-06 已集成，通过 fileApi.uploadEditorImage）
 - [x] 图片拖拽/粘贴插入（当前使用 ObjectURL，MinIO 后续集成）
 - [ ] 图片大小调整（待后续增强）
 - [ ] 图片说明文字 (figure caption)（待后续增强）
@@ -108,7 +108,7 @@
   - 2.3.S/3.2.S: substance（活性成分）、manufacturer（生产商）— 必填
   - 2.3.P/3.2.P: product-name、dosageform、manufacturer — 选填
   - m2-7-3: indication（适应症）— 必填
-- [ ] **文件引用列表**: 该节点关联的 PDF 文件（待 WP-06 文件管理完成后集成）
+- [x] **文件引用列表**: 该节点关联的 PDF 文件（WP-06 已集成，通过 FilePanel 组件）
 - [x] **版本历史**: 快捷查看
 
 ### 3.4 自动保存
@@ -119,9 +119,9 @@
 ### 3.5 编辑器顶栏
 - [x] 面包屑导航: 项目 > 申请 > 序列 > 当前章节
 - [x] 保存按钮（手动保存）
-- [ ] 导出 Word / 导出 PDF 快捷按钮（待 WP-04 导出功能完成后集成）
-- [ ] 运行验证按钮（待 WP-05 验证引擎完成后集成）
-- [ ] 内容完整性状态: "必填 X/Y 章节已完成"（待集成）
+- [x] 导出 Word / 导出 PDF 快捷按钮（WP-04 已集成，通过 ExportModal 组件）
+- [x] 运行验证按钮（已集成，通过 ectdApi.runValidation）
+- [x] 内容完整性状态: "必填 X/Y 章节已完成"（已集成，通过 completeness 数据）
 
 ## 验收标准
 

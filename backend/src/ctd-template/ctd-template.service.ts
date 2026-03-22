@@ -5,6 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisCacheService } from '../common/redis-cache.service';
 import {
   UpdateSequenceNodeDto,
   UpdateBackboneAttributesDto,
@@ -29,12 +30,19 @@ const INDICATION_SECTIONS = new Set(['2.7.3']);
 
 @Injectable()
 export class CtdTemplateService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: RedisCacheService,
+  ) {}
 
   // ==================== Template Tree ====================
 
   async getTemplateTree() {
-    return this.prisma.ctdTemplateNode.findMany({
+    const cacheKey = 'ctd:template-tree';
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.prisma.ctdTemplateNode.findMany({
       where: { parentId: null },
       include: {
         children: {
@@ -59,9 +67,16 @@ export class CtdTemplateService {
       },
       orderBy: { sortOrder: 'asc' },
     });
+
+    await this.cache.set(cacheKey, result, 86400); // 24h - template data is static
+    return result;
   }
 
   async getTemplateTreeWithRules(appTypeCode: string, ratTypeCode: string) {
+    const cacheKey = `ctd:template-tree:${appTypeCode}:${ratTypeCode}`;
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
+
     // Get all template nodes
     const allNodes = await this.prisma.ctdTemplateNode.findMany({
       orderBy: { sortOrder: 'asc' },
@@ -109,6 +124,7 @@ export class CtdTemplateService {
       }
     }
 
+    await this.cache.set(cacheKey, roots, 86400);
     return roots;
   }
 
@@ -165,12 +181,50 @@ export class CtdTemplateService {
       }
     }
 
+    // For subsequent sequences, get prior sequence nodes to inherit status
+    let priorNodesByTemplate: Map<string, { status: SequenceNodeStatus; operation: LeafOperation | null }> | null = null;
+    if (!isFirstSequence) {
+      // Find the prior sequence in the same regulatory activity
+      const priorSequences = await this.prisma.sequence.findMany({
+        where: {
+          regulatoryActivityId: sequence.regulatoryActivity.id,
+          id: { not: sequenceId },
+        },
+        orderBy: { sequenceNumber: 'desc' },
+        take: 1,
+      });
+
+      if (priorSequences.length > 0) {
+        const priorNodes = await this.prisma.sequenceNode.findMany({
+          where: { sequenceId: priorSequences[0].id },
+        });
+        priorNodesByTemplate = new Map();
+        for (const pn of priorNodes) {
+          priorNodesByTemplate.set(pn.templateNodeId, {
+            status: pn.status as SequenceNodeStatus,
+            operation: null, // Subsequent sequences don't inherit operation
+          });
+        }
+      }
+    }
+
     // Map template node IDs to sequence node IDs
     const templateToSequenceId = new Map<string, string>();
 
     // Create sequence nodes from template
     for (const tmpl of templateNodes) {
-      const operation = isFirstSequence && tmpl.isLeaf ? LeafOperation.NEW : null;
+      let operation: LeafOperation | null = null;
+      let status: SequenceNodeStatus = SequenceNodeStatus.EMPTY;
+
+      if (isFirstSequence && tmpl.isLeaf) {
+        operation = LeafOperation.NEW;
+      } else if (priorNodesByTemplate && tmpl.isLeaf) {
+        // Inherit status from prior sequence
+        const priorNode = priorNodesByTemplate.get(tmpl.id);
+        if (priorNode) {
+          status = priorNode.status;
+        }
+      }
 
       const seqNode = await this.prisma.sequenceNode.create({
         data: {
@@ -180,7 +234,7 @@ export class CtdTemplateService {
           ctdSectionNumber: tmpl.ctdSectionNumber,
           title: tmpl.titleZh,
           operation,
-          status: SequenceNodeStatus.EMPTY,
+          status,
           isRequired: requiredNodeIds.has(tmpl.id),
           isLeaf: tmpl.isLeaf,
           sortOrder: tmpl.sortOrder,
@@ -199,6 +253,48 @@ export class CtdTemplateService {
             where: { id: seqNodeId },
             data: { parentId: parentSeqNodeId },
           });
+        }
+      }
+    }
+
+    // For subsequent sequences, also copy extension nodes from prior sequence
+    if (!isFirstSequence && priorNodesByTemplate) {
+      const priorSequences = await this.prisma.sequence.findMany({
+        where: {
+          regulatoryActivityId: sequence.regulatoryActivity.id,
+          id: { not: sequenceId },
+        },
+        orderBy: { sequenceNumber: 'desc' },
+        take: 1,
+      });
+
+      if (priorSequences.length > 0) {
+        const priorExtensions = await this.prisma.sequenceNode.findMany({
+          where: {
+            sequenceId: priorSequences[0].id,
+            elementName: 'node-extension',
+          },
+        });
+
+        for (const ext of priorExtensions) {
+          const parentSeqNodeId = templateToSequenceId.get(ext.templateNodeId);
+          if (parentSeqNodeId) {
+            await this.prisma.sequenceNode.create({
+              data: {
+                sequenceId,
+                templateNodeId: ext.templateNodeId,
+                parentId: parentSeqNodeId,
+                elementName: 'node-extension',
+                ctdSectionNumber: ext.ctdSectionNumber,
+                title: ext.title,
+                operation: null,
+                status: ext.status as SequenceNodeStatus,
+                isRequired: false,
+                isLeaf: true,
+                sortOrder: ext.sortOrder,
+              },
+            });
+          }
         }
       }
     }
@@ -287,10 +383,70 @@ export class CtdTemplateService {
       throw new BadRequestException(`章节 ${sno} 不支持骨架属性`);
     }
 
+    // Rule 3.6: When updating substance/manufacturer on 2.3.S/3.2.S,
+    // must mark all child leaf nodes for rebuild (delete old + new)
+    if (SUBSTANCE_SECTIONS.has(sno)) {
+      const hasSubstanceChange =
+        (dto.substance !== undefined && dto.substance !== node.substance) ||
+        (dto.manufacturer !== undefined && dto.manufacturer !== node.manufacturer);
+
+      if (hasSubstanceChange) {
+        // Get the sequence to check if it's the first sequence
+        const sequence = await this.prisma.sequence.findUnique({
+          where: { id: sequenceId },
+        });
+
+        // For non-first sequences, mark child leaves as DELETE then rebuild with NEW
+        if (sequence && sequence.sequenceNumber !== '0000') {
+          const childLeaves = await this.prisma.sequenceNode.findMany({
+            where: {
+              sequenceId,
+              isLeaf: true,
+            },
+          });
+
+          // Find all descendant leaves under this section node
+          const allNodes = await this.prisma.sequenceNode.findMany({
+            where: { sequenceId },
+          });
+          const descendantIds = this.getDescendantIds(node.id, allNodes);
+
+          const sectionLeaves = childLeaves.filter(
+            (l) => descendantIds.has(l.id),
+          );
+
+          // Mark section leaves for rebuild: operation = NEW
+          // (In eCTD, updating substance/manufacturer requires deleting the old section
+          // and creating new content — we set operation to NEW to signal this)
+          for (const leaf of sectionLeaves) {
+            await this.prisma.sequenceNode.update({
+              where: { id: leaf.id },
+              data: { operation: LeafOperation.NEW },
+            });
+          }
+        }
+      }
+    }
+
     return this.prisma.sequenceNode.update({
       where: { id: nodeId },
       data,
     });
+  }
+
+  /** Get all descendant node IDs recursively */
+  private getDescendantIds(
+    parentId: string,
+    allNodes: Array<{ id: string; parentId: string | null }>,
+  ): Set<string> {
+    const result = new Set<string>();
+    const children = allNodes.filter((n) => n.parentId === parentId);
+    for (const child of children) {
+      result.add(child.id);
+      const grandChildren = this.getDescendantIds(child.id, allNodes);
+      grandChildren.forEach((id) => result.add(id));
+    }
+    return result;
   }
 
   // ==================== Extension Nodes ====================
@@ -480,6 +636,69 @@ export class CtdTemplateService {
     }
 
     return results;
+  }
+
+  // ==================== Pre-initialization Preview ====================
+
+  async previewRequiredSections(sequenceId: string) {
+    const sequence = await this.prisma.sequence.findUnique({
+      where: { id: sequenceId },
+      include: {
+        regulatoryActivity: {
+          include: {
+            application: {
+              select: { applicationTypeCode: true, productTypeCode: true },
+            },
+          },
+        },
+      },
+    });
+    if (!sequence) throw new NotFoundException(`序列 ${sequenceId} 不存在`);
+
+    const appTypeCode = sequence.regulatoryActivity.application.applicationTypeCode;
+    const ratTypeCode = sequence.regulatoryActivity.regulatoryActivityTypeCode;
+
+    const rules = await this.prisma.ctdCompletenessRule.findMany({
+      where: {
+        applicationTypeCode: appTypeCode,
+        regulatoryActivityTypeCode: ratTypeCode,
+      },
+      include: {
+        templateNode: {
+          select: {
+            elementName: true,
+            ctdSectionNumber: true,
+            titleZh: true,
+            module: true,
+          },
+        },
+      },
+    });
+
+    const required = rules
+      .filter((r) => r.ruleType === 'REQUIRED')
+      .map((r) => ({
+        section: r.templateNode.ctdSectionNumber,
+        title: r.templateNode.titleZh,
+        module: r.templateNode.module,
+        severity: r.severity,
+      }));
+
+    const forbidden = rules
+      .filter((r) => r.ruleType === 'FORBIDDEN')
+      .map((r) => ({
+        section: r.templateNode.ctdSectionNumber,
+        title: r.templateNode.titleZh,
+        module: r.templateNode.module,
+      }));
+
+    return {
+      applicationTypeCode: appTypeCode,
+      regulatoryActivityTypeCode: ratTypeCode,
+      requiredSections: required,
+      forbiddenSections: forbidden,
+      totalRequired: required.length,
+    };
   }
 
   // ==================== Extension Node Options ====================

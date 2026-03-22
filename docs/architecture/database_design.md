@@ -181,6 +181,12 @@ SequenceNode (1) ──< (N) Comment
 | product_name | VARCHAR(200) | 骨架属性: 产品名称（2.3.P/3.2.P 节点） |
 | dosage_form | VARCHAR(200) | 骨架属性: 剂型（2.3.P/3.2.P 节点） |
 | indication | VARCHAR(500) | 骨架属性: 适应症（2.7.3 节点） |
+| approval_status | ApprovalStatus | 审批状态（默认 DRAFT） |
+| submitted_by | UUID? | 提交审批的用户 ID |
+| submitted_at | TIMESTAMP? | 提交审批时间 |
+| approved_by | UUID? | 审批人用户 ID |
+| approved_at | TIMESTAMP? | 审批时间 |
+| rejection_reason | TEXT? | 驳回理由 |
 
 ### 2.5 文档内容 ✅ (WP-03 已实现)
 

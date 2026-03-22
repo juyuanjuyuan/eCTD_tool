@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { PrismaService } from '../prisma/prisma.service';
 import { WordExportService } from './word-export.service';
 import { PDFExportService } from './pdf-export.service';
 import { PDFComplianceService, ComplianceResult } from './pdf-compliance.service';
+import { MinioService } from '../file/minio.service';
 
 export interface ExportResult {
   taskId: string;
@@ -25,6 +26,7 @@ export class ExportService {
     private pdfExport: PDFExportService,
     private pdfCompliance: PDFComplianceService,
     @InjectQueue('export') private exportQueue: Queue,
+    @Optional() @Inject(MinioService) private minioService?: MinioService,
   ) {}
 
   // ==================== Single Chapter Export ====================
@@ -136,6 +138,30 @@ export class ExportService {
       result: state === 'completed' ? job.returnvalue : undefined,
       error: state === 'failed' ? (job.failedReason || '未知错误') : undefined,
     };
+  }
+
+  // ==================== Download Batch Export Result ====================
+
+  async getDownloadUrl(taskId: string): Promise<{ url: string }> {
+    const job = await this.exportQueue.getJob(taskId);
+    if (!job) throw new NotFoundException(`导出任务 ${taskId} 不存在`);
+
+    const state = await job.getState();
+    if (state !== 'completed') {
+      throw new BadRequestException(`导出任务尚未完成，当前状态: ${state}`);
+    }
+
+    const result = job.returnvalue;
+    if (!result?.downloadObjectName) {
+      throw new NotFoundException('导出结果不可下载（未存储到文件系统）');
+    }
+
+    if (!this.minioService) {
+      throw new BadRequestException('文件存储服务不可用');
+    }
+
+    const url = await this.minioService.getPresignedDownloadUrl(result.downloadObjectName);
+    return { url };
   }
 
   // ==================== PDF Compliance Check (for user-uploaded PDFs) ====================

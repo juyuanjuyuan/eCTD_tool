@@ -61,6 +61,13 @@ enum LeafOperation {
   DELETE
 }
 
+enum ApprovalStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
 enum CompletenessRuleSeverity {
   ERROR
   WARNING
@@ -98,6 +105,8 @@ model User {
 
   projectMembers ProjectMember[]
   createdProjects Project[] @relation("ProjectCreator")
+  comments       Comment[]
+  activityLogs   ActivityLog[]
 
   @@map("user")
 }
@@ -261,6 +270,13 @@ model SequenceNode {
   productName      String?            @map("product_name") @db.VarChar(200)
   dosageForm       String?            @map("dosage_form") @db.VarChar(200)
   indication       String?            @db.VarChar(500)
+  // Approval fields
+  approvalStatus   ApprovalStatus     @default(DRAFT) @map("approval_status")
+  submittedBy      String?            @map("submitted_by")
+  submittedAt      DateTime?          @map("submitted_at")
+  approvedBy       String?            @map("approved_by")
+  approvedAt       DateTime?          @map("approved_at")
+  rejectionReason  String?            @map("rejection_reason") @db.Text
 
   sequence        Sequence        @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
   templateNode    CtdTemplateNode @relation(fields: [templateNodeId], references: [id])
@@ -269,6 +285,7 @@ model SequenceNode {
   document        Document?
   fileAttachments FileAttachment[]
   studyTaggingFile StudyTaggingFile?
+  comments        Comment[]
 
   @@index([sequenceId])
   @@index([templateNodeId])
@@ -457,4 +474,42 @@ model ValidationItem {
   @@index([reportId])
   @@index([reportId, severity])
   @@map("validation_item")
+}
+
+// ==================== Comment (节点评论) ====================
+
+model Comment {
+  id               String   @id @default(uuid())
+  sequenceNodeId   String   @map("sequence_node_id")
+  userId           String   @map("user_id")
+  content          String   @db.Text
+  parentId         String?  @map("parent_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  sequenceNode SequenceNode @relation(fields: [sequenceNodeId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent       Comment?     @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies      Comment[]    @relation("CommentReplies")
+
+  @@index([sequenceNodeId, createdAt])
+  @@map("comment")
+}
+
+// ==================== Activity Log (操作日志) ====================
+
+model ActivityLog {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  action     String   @db.VarChar(50)
+  resource   String   @db.VarChar(50)
+  resourceId String   @map("resource_id")
+  detail     Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([resource, resourceId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activity_log")
 }

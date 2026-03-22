@@ -13,6 +13,11 @@ import { CtdTemplateModule } from './ctd-template/ctd-template.module';
 import { DocumentModule } from './document/document.module';
 import { ExportModule } from './export/export.module';
 import { EctdModule } from './ectd/ectd.module';
+import { FileModule } from './file/file.module';
+import { EditLockModule } from './edit-lock/edit-lock.module';
+import { ApprovalModule } from './approval/approval.module';
+import { CommentModule } from './comment/comment.module';
+import { ActivityLogModule } from './activity-log/activity-log.module';
 
 @Module({
   imports: [
@@ -35,6 +40,11 @@ import { EctdModule } from './ectd/ectd.module';
     DocumentModule,
     ExportModule,
     EctdModule,
+    FileModule,
+    EditLockModule,
+    ApprovalModule,
+    CommentModule,
+    ActivityLogModule,
   ],
 })
 export class AppModule {}

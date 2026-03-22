@@ -10,6 +10,7 @@ import {
   message,
   Result,
   Tooltip,
+  Alert,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -20,17 +21,23 @@ import {
   SyncOutlined,
   ExclamationCircleOutlined,
   ExportOutlined,
+  SafetyCertificateOutlined,
+  SendOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import { sequenceApi } from '../../services/application';
 import { ctdApi } from '../../services/ctd';
+import { ectdApi } from '../../services/ectd';
 import { documentApi } from '../../services/document';
+import { editLockApi } from '../../services/editLock';
+import { approvalApi } from '../../services/approval';
 import { useEditorStore } from '../../stores/useEditorStore';
 import { useAutoSave } from '../../hooks/useAutoSave';
 import CTDTree from '../../components/CTDTree';
 import RichEditor from '../../components/RichEditor';
 import ExportModal from '../../components/ExportModal';
 import PropertiesPanel from './PropertiesPanel';
-import type { SequenceNode } from '../../types';
+import type { SequenceNode, CompletenessResult, EditLockInfo } from '../../types';
 
 const { Sider, Content } = Layout;
 
@@ -62,6 +69,18 @@ const EditorPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [docLoading, setDocLoading] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [completeness, setCompleteness] = useState<CompletenessResult | null>(null);
+  const [validating, setValidating] = useState(false);
+
+  // Edit lock state
+  const [lockInfo, setLockInfo] = useState<EditLockInfo | null>(null);
+  const [lockedByOther, setLockedByOther] = useState(false);
+  const [lockedByName, setLockedByName] = useState('');
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const currentUserId = localStorage.getItem('userId') || '';
+
+  // Read-only: locked by another user OR node is approved
+  const isReadOnly = lockedByOther || selectedNode?.approvalStatus === 'APPROVED';
 
   const { debouncedSave, flushSave } = useAutoSave(selectedNode?.id || null);
   const prevNodeRef = useRef<string | null>(null);
@@ -72,12 +91,14 @@ const EditorPage: React.FC = () => {
     const load = async () => {
       setLoading(true);
       try {
-        const [seq, tree] = await Promise.all([
+        const [seq, tree, comp] = await Promise.all([
           sequenceApi.detail(seqId),
           ctdApi.getSequenceNodeTree(seqId),
+          ctdApi.checkCompleteness(seqId).catch(() => null),
         ]);
         setSequence(seq);
         setNodes(tree);
+        if (comp) setCompleteness(comp);
       } catch (err: any) {
         message.error(err.message);
       } finally {
@@ -86,12 +107,33 @@ const EditorPage: React.FC = () => {
     };
     load();
 
-    // Cleanup on unmount
+    // Cleanup on unmount: release lock
     return () => {
+      const currentNodeId = prevNodeRef.current;
+      if (currentNodeId) {
+        editLockApi.release(currentNodeId).catch(() => {});
+      }
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
       setSelectedNode(null);
       setDocument(null);
     };
   }, [seqId, setSelectedNode, setDocument]);
+
+  // Release lock on current node
+  const releaseLock = useCallback(async (nodeId: string) => {
+    try {
+      await editLockApi.release(nodeId);
+    } catch {
+      // Ignore release errors
+    }
+    setLockInfo(null);
+    setLockedByOther(false);
+    setLockedByName('');
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
+    }
+  }, []);
 
   // Load document when node changes
   const loadDocument = useCallback(async (nodeId: string) => {
@@ -113,28 +155,91 @@ const EditorPage: React.FC = () => {
       return;
     }
 
-    // Save previous node's content before switching
+    // Save previous node's content and release lock before switching
     if (prevNodeRef.current && prevNodeRef.current !== node.id) {
       await flushSave();
+      await releaseLock(prevNodeRef.current);
     }
 
     setSelectedNode(node);
     prevNodeRef.current = node.id;
-    await loadDocument(node.id);
-  }, [flushSave, setSelectedNode, loadDocument]);
 
-  // Handle editor content updates
+    // Try to acquire lock (skip if approved)
+    if (node.approvalStatus !== 'APPROVED') {
+      try {
+        const lock = await editLockApi.acquire(node.id);
+        setLockInfo(lock);
+        setLockedByOther(false);
+        setLockedByName('');
+
+        // Start heartbeat
+        if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+        heartbeatRef.current = setInterval(async () => {
+          try {
+            await editLockApi.heartbeat(node.id);
+          } catch {
+            // Lock lost
+          }
+        }, 5 * 60 * 1000); // 5 minutes
+      } catch (err: any) {
+        // Locked by another user
+        const lockedBy = err?.response?.data?.lockedBy;
+        setLockedByOther(true);
+        setLockedByName(lockedBy?.userName || '其他用户');
+        setLockInfo(null);
+      }
+    } else {
+      // Approved node — no lock needed, read-only
+      setLockedByOther(false);
+      setLockInfo(null);
+    }
+
+    await loadDocument(node.id);
+  }, [flushSave, setSelectedNode, loadDocument, releaseLock]);
+
+  // Handle editor content updates (blocked in read-only mode)
   const handleEditorUpdate = useCallback((json: any, html: string) => {
-    if (selectedNode?.id) {
+    if (selectedNode?.id && !isReadOnly) {
       debouncedSave(json, html);
     }
-  }, [selectedNode?.id, debouncedSave]);
+  }, [selectedNode?.id, debouncedSave, isReadOnly]);
+
+  // Submit for approval
+  const handleSubmitApproval = useCallback(async () => {
+    if (!selectedNode?.id) return;
+    try {
+      await approvalApi.submit(selectedNode.id);
+      message.success('已提交审批');
+      refreshNodes();
+    } catch (err: any) {
+      message.error(err.message || '提交审批失败');
+    }
+  }, [selectedNode?.id]);
 
   // Manual save
   const handleManualSave = useCallback(async () => {
     await flushSave();
     message.success('已保存');
   }, [flushSave]);
+
+  // Run eCTD validation
+  const handleRunValidation = useCallback(async () => {
+    if (!seqId) return;
+    setValidating(true);
+    try {
+      const result = await ectdApi.runValidation(seqId);
+      const errors = (result as any)?.results?.filter((r: any) => r.severity === 'ERROR') || [];
+      if (errors.length === 0) {
+        message.success('eCTD 验证通过');
+      } else {
+        message.warning(`验证发现 ${errors.length} 个错误，请前往序列详情页查看完整报告`);
+      }
+    } catch (err: any) {
+      message.error(`验证失败: ${err.message}`);
+    } finally {
+      setValidating(false);
+    }
+  }, [seqId]);
 
   // Refresh nodes (after property changes)
   const refreshNodes = useCallback(async () => {
@@ -211,6 +316,63 @@ const EditorPage: React.FC = () => {
               disabled={saveStatus === 'saved'}
             />
           </Tooltip>
+
+          {/* Completeness status */}
+          {completeness && (
+            <Tag color={completeness.completedRequired >= completeness.requiredSections ? 'green' : 'orange'}>
+              必填 {completeness.completedRequired}/{completeness.requiredSections} 已完成
+            </Tag>
+          )}
+
+          {/* Validation */}
+          <Tooltip title="运行 eCTD 验证">
+            <Button
+              type="text"
+              icon={<SafetyCertificateOutlined />}
+              onClick={handleRunValidation}
+              loading={validating}
+            />
+          </Tooltip>
+
+          {/* Submit for approval */}
+          {selectedNode?.isLeaf &&
+            (selectedNode.approvalStatus === 'DRAFT' ||
+              selectedNode.approvalStatus === 'REJECTED') && (
+              <Tooltip title="提交审批">
+                <Button
+                  type="text"
+                  icon={<SendOutlined />}
+                  onClick={handleSubmitApproval}
+                  disabled={selectedNode.status === 'EMPTY'}
+                />
+              </Tooltip>
+            )}
+
+          {/* Approval status indicator */}
+          {selectedNode?.isLeaf && selectedNode.approvalStatus !== 'DRAFT' && (
+            <Tag
+              color={
+                selectedNode.approvalStatus === 'APPROVED'
+                  ? 'green'
+                  : selectedNode.approvalStatus === 'SUBMITTED'
+                    ? 'blue'
+                    : 'red'
+              }
+            >
+              {selectedNode.approvalStatus === 'APPROVED'
+                ? '已审批'
+                : selectedNode.approvalStatus === 'SUBMITTED'
+                  ? '待审批'
+                  : '已驳回'}
+            </Tag>
+          )}
+
+          {/* Lock indicator */}
+          {lockedByOther && (
+            <Tag icon={<LockOutlined />} color="warning">
+              {lockedByName} 正在编辑
+            </Tag>
+          )}
 
           {/* Export */}
           <Tooltip title="导出">
@@ -305,11 +467,29 @@ const EditorPage: React.FC = () => {
               <Spin />
             </div>
           ) : (
-            <RichEditor
-              content={currentDoc?.contentJson || undefined}
-              onUpdate={handleEditorUpdate}
-              sectionTitle={`${selectedNode.ctdSectionNumber} ${selectedNode.title}`}
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              {isReadOnly && (
+                <Alert
+                  type={lockedByOther ? 'warning' : 'info'}
+                  message={
+                    lockedByOther
+                      ? `${lockedByName} 正在编辑此节点，当前为只读模式`
+                      : '该节点已审批通过，不可编辑'
+                  }
+                  banner
+                  style={{ flexShrink: 0 }}
+                />
+              )}
+              <div style={{ flex: 1, overflow: 'auto' }}>
+                <RichEditor
+                  content={currentDoc?.contentJson || undefined}
+                  onUpdate={handleEditorUpdate}
+                  sectionTitle={`${selectedNode.ctdSectionNumber} ${selectedNode.title}`}
+                  sequenceId={seqId}
+                  editable={!isReadOnly}
+                />
+              </div>
+            </div>
           )}
         </Content>
 

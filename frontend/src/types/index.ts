@@ -110,6 +110,8 @@ export interface CtdTemplateNode {
   isForbidden?: boolean;
 }
 
+export type ApprovalStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+
 export interface SequenceNode {
   id: string;
   sequenceId: string;
@@ -120,6 +122,7 @@ export interface SequenceNode {
   title: string;
   operation: 'NEW' | 'REPLACE' | 'APPEND' | 'DELETE' | null;
   status: 'EMPTY' | 'EDITING' | 'COMPLETED';
+  approvalStatus: ApprovalStatus;
   isRequired: boolean;
   isLeaf: boolean;
   sortOrder: number;
@@ -128,6 +131,11 @@ export interface SequenceNode {
   productName?: string;
   dosageForm?: string;
   indication?: string;
+  submittedBy?: string | null;
+  submittedAt?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectionReason?: string | null;
   children?: SequenceNode[];
 }
 
@@ -190,4 +198,68 @@ export interface PaginatedData<T> {
   total: number;
   page: number;
   pageSize: number;
+}
+
+// ==================== Edit Lock ====================
+export interface EditLockInfo {
+  userId: string;
+  userName: string;
+  acquiredAt: string;
+  expiresAt: string;
+}
+
+// ==================== Comment ====================
+export interface Comment {
+  id: string;
+  sequenceNodeId: string;
+  userId: string;
+  content: string;
+  parentId: string | null;
+  createdAt: string;
+  user: { id: string; name: string };
+  replies?: Comment[];
+}
+
+// ==================== Activity Log ====================
+export interface ActivityLog {
+  id: string;
+  userId: string;
+  action: string;
+  resource: string;
+  resourceId: string;
+  detail: Record<string, any> | null;
+  createdAt: string;
+  user: { id: string; name: string };
+}
+
+// ==================== Approval ====================
+export interface ApprovalHistory {
+  id: string;
+  approvalStatus: ApprovalStatus;
+  submittedBy: string | null;
+  submittedAt: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  rejectionReason: string | null;
+  submitterName: string | null;
+  approverName: string | null;
+}
+
+export interface SequenceApprovalStatus {
+  total: number;
+  approved: number;
+  submitted: number;
+  rejected: number;
+  draft: number;
+  requiredTotal: number;
+  requiredApproved: number;
+  allRequiredApproved: boolean;
+  nodes: Array<{
+    id: string;
+    ctdSectionNumber: string;
+    title: string;
+    isRequired: boolean;
+    approvalStatus: ApprovalStatus;
+    status: string;
+  }>;
 }

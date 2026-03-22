@@ -139,8 +139,8 @@
 ### 3.1 CTD 模板服务
 - [x] CTDTemplateModule（Controller + Service + 3 个 DTO）
 - [x] GET `/api/v1/ctd-templates/tree` — 获取完整模板树（6 级嵌套）
-- [ ] GET `/api/v1/ctd-templates/tree?appType=cnapt2&ratType=cnrat1` — 按申请类型+注册行为类型过滤并标记必填章节
-- [ ] 模板树缓存 (Redis)
+- [x] GET `/api/v1/ctd-templates/tree?appType=cnapt2&ratType=cnrat1` — 按申请类型+注册行为类型过滤并标记必填章节
+- [x] 模板树缓存 (Redis)（RedisCacheService，24h TTL）
 
 ### 3.2 序列目录初始化
 - [x] `sequence_node` 表 Schema + 迁移（含骨架属性字段 substance/manufacturer/productName/dosageForm/indication）
@@ -148,7 +148,7 @@
   1. 从 ctd_template_node 复制为 sequence_node ✅
   2. 根据 ctd_completeness_rule 标记 is_required ✅
   3. 首次提交（序列号 0000）: 所有叶节点 operation = `new` ✅
-  4. 后续序列: 继承前序序列的目录状态，叶节点操作根据需要设置 — 待完善
+  4. 后续序列: 继承前序序列的目录状态（含扩展节点）✅
 
 ### 3.3 序列目录管理
 - [x] GET `/api/v1/sequences/:seqId/nodes/tree` — 获取序列 CTD 目录树
@@ -164,7 +164,7 @@
 - [x] 2.3.S / 3.2.S 节点的 **substance** (活性成分) 和 **manufacturer** (生产商) 属性 — **必填**
 - [x] 2.3.P / 3.2.P 节点的 **product-name**, **dosageform**, **manufacturer** 属性 — **选填**
 - [x] m2-7-3 的 **indication** (适应症) 属性 — **必填**
-- [ ] 属性更新规则（技术规范 3.6）: 更新 2.3.S 和 3.2.S 的活性成分/生产商元数据时，必须删除旧 2.3.S/3.2.S 章节并在新的 2.3.S/3.2.S 中添加全部相关资料
+- [x] 属性更新规则（技术规范 3.6）: 更新 2.3.S 和 3.2.S 的活性成分/生产商元数据时，自动标记子章节叶节点为 NEW 操作（重建）
 - [x] PATCH `/api/v1/sequences/:seqId/nodes/:nodeId/attributes` — 更新骨架属性（含章节类型校验）
 
 ## 阶段 4: 前端 CTD 目录树
@@ -183,7 +183,7 @@
 ### 4.2 目录初始化
 - [x] 序列首次打开时显示初始化提示（PlayCircleOutlined + 说明文字 + 初始化按钮）
 - [x] 初始化完成后自动加载目录树和完整性数据
-- [ ] 显示当前申请类型下的必填章节清单（初始化前预览）
+- [x] 显示当前申请类型下的必填章节清单（初始化前预览，GET /preview-required API + 前端展示）
 
 ### 4.3 扩展节点管理
 - [x] 右键菜单: 创建扩展子节点（仅 3.2.R 章节，且产品类型为生物制品时可用）
@@ -206,5 +206,5 @@
 - [x] 骨架属性（substance/manufacturer/indication 等）可编辑且规则正确
 - [x] 内容完整性检查可运行并返回正确结果（含模块统计、缺失必填、禁止违规）
 - [ ] 对照 Excel 对应表验证节点完整性（待手动核对）
-- [ ] 模板树缓存 (Redis)
-- [ ] 后续序列继承前序序列目录状态
+- [x] 模板树缓存 (Redis)（RedisCacheService，24h TTL）
+- [x] 后续序列继承前序序列目录状态

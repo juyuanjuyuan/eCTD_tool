@@ -123,15 +123,15 @@
 
 ### 4.2 用户上传 PDF 的合规检查
 - [x] `checkUploadedPdfCompliance()` 接口可复用（待 WP-06 文件上传时集成）
-- [ ] 不合规的 PDF 标记警告/错误（待 WP-06）
-- [ ] 提供修复建议（待 WP-06）
+- [x] 不合规的 PDF 标记警告/错误（WP-06 已实现，FilePdfAnalysis + ComplianceStatus）
+- [x] 提供修复建议（WP-06 已实现，前端 FilePanel 合规详情 Modal）
 
 ## 阶段 5: 导出任务管理
 
 ### 5.1 异步任务
 - [x] 使用 Bull Queue (Redis) 管理导出任务
 - [x] GET `/api/v1/sequences/:seqId/export/status/:taskId` — 查询进度
-- [ ] GET `/api/v1/export/download/:taskId` — 下载结果（待 MinIO 存储集成）
+- [x] GET `/api/v1/export/download/:taskId` — 下载结果（MinIO 存储已集成）
 
 ### 5.2 前端导出页面
 - [x] ExportModal 组件（选择格式 Word/PDF）

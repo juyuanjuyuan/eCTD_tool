@@ -93,4 +93,11 @@ export class ExportController {
   async getTaskStatus(@Param('taskId') taskId: string) {
     return this.exportService.getTaskStatus(taskId);
   }
+
+  // ==================== Download ====================
+
+  @Get('download/:taskId')
+  async downloadResult(@Param('taskId') taskId: string) {
+    return this.exportService.getDownloadUrl(taskId);
+  }
 }

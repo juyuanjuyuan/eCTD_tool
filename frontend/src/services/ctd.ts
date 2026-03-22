@@ -58,4 +58,13 @@ export const ctdApi = {
 
   checkCompleteness: (seqId: string) =>
     api.get<never, CompletenessResult>(`/sequences/${seqId}/completeness`),
+
+  previewRequired: (seqId: string) =>
+    api.get<never, {
+      applicationTypeCode: string;
+      regulatoryActivityTypeCode: string;
+      requiredSections: Array<{ section: string; title: string; module: number; severity: string }>;
+      forbiddenSections: Array<{ section: string; title: string; module: number }>;
+      totalRequired: number;
+    }>(`/sequences/${seqId}/preview-required`),
 };

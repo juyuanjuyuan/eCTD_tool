@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
+import { FileModule } from '../file/file.module';
 import { EctdController } from './ectd.controller';
 import { CnRegionalXmlService } from './services/cn-regional-xml.service';
 import { IndexXmlService } from './services/index-xml.service';
@@ -10,7 +11,7 @@ import { PackageAssemblerService } from './services/package-assembler.service';
 import { Md5Service } from './services/md5.service';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, FileModule],
   controllers: [EctdController],
   providers: [
     CnRegionalXmlService,

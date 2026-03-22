@@ -19,6 +19,7 @@ import {
   ArrowLeftOutlined,
   PlayCircleOutlined,
   EditOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { sequenceApi } from '../../services/application';
 import { ctdApi } from '../../services/ctd';
@@ -68,6 +69,11 @@ const SequenceDetailPage: React.FC = () => {
   const [initializing, setInitializing] = useState(false);
   const [needsInit, setNeedsInit] = useState(false);
   const [validationPassed, setValidationPassed] = useState(false);
+  const [requiredPreview, setRequiredPreview] = useState<{
+    requiredSections: Array<{ section: string; title: string; module: number; severity: string }>;
+    forbiddenSections: Array<{ section: string; title: string; module: number }>;
+    totalRequired: number;
+  } | null>(null);
 
   const fetchSequence = useCallback(async () => {
     if (!seqId) return;
@@ -127,6 +133,15 @@ const SequenceDetailPage: React.FC = () => {
     };
     load();
   }, [fetchSequence, fetchNodes, fetchCompleteness, fetchExtensionOptions]);
+
+  // Load required sections preview when initialization is needed
+  useEffect(() => {
+    if (needsInit && seqId) {
+      ctdApi.previewRequired(seqId)
+        .then(setRequiredPreview)
+        .catch(() => { /* non-critical */ });
+    }
+  }, [needsInit, seqId]);
 
   const handleInitialize = async () => {
     if (!seqId) return;
@@ -259,6 +274,25 @@ const SequenceDetailPage: React.FC = () => {
               </Button>
             }
           />
+          {requiredPreview && requiredPreview.requiredSections.length > 0 && (
+            <div style={{ marginTop: 16, padding: '0 24px 24px' }}>
+              <Typography.Title level={5}>
+                <InfoCircleOutlined style={{ marginRight: 8 }} />
+                必填章节清单（共 {requiredPreview.totalRequired} 项）
+              </Typography.Title>
+              <div style={{ maxHeight: 300, overflow: 'auto' }}>
+                {requiredPreview.requiredSections.map((s) => (
+                  <div key={s.section} style={{ padding: '4px 0', borderBottom: '1px solid #f0f0f0' }}>
+                    <Tag color={s.severity === 'ERROR' ? 'red' : 'orange'} style={{ marginRight: 8 }}>
+                      {s.severity === 'ERROR' ? '必填' : '建议'}
+                    </Tag>
+                    <span style={{ color: '#262626' }}>{s.section}</span>
+                    <span style={{ marginLeft: 8, color: '#595959' }}>{s.title}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Card>
       ) : (
         <Tabs
