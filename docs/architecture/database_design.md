@@ -182,21 +182,22 @@ SequenceNode (1) ──< (N) Comment
 | dosage_form | VARCHAR(200) | 骨架属性: 剂型（2.3.P/3.2.P 节点） |
 | indication | VARCHAR(500) | 骨架属性: 适应症（2.7.3 节点） |
 
-### 2.5 文档内容
+### 2.5 文档内容 ✅ (WP-03 已实现)
 
 #### `document` — 文档表
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | UUID | 主键 |
-| sequence_node_id | UUID | FK→sequence_node (唯一) |
+| node_id | UUID | FK→sequence_node (唯一，一个叶节点一个文档) |
 | content_json | JSONB | TipTap 编辑器 JSON 内容 |
 | content_html | TEXT | 渲染后的 HTML（用于导出） |
-| content_text | TEXT | 纯文本（用于搜索） |
-| word_count | INT | 字数统计 |
-| version | INT | 版本号 |
-| created_by | UUID | FK→user |
-| updated_by | UUID | FK→user |
+| content_text | TEXT | 纯文本（用于搜索/字数统计） |
+| word_count | INT | 字数统计（中文字符+英文词） |
+| version | INT | 版本号（每次保存自增） |
+| xml_lang | VARCHAR(10) | 语言属性: zh/en/空 |
+| created_by | UUID | 创建人 |
+| updated_by | UUID | 最后编辑人 |
 | created_at | TIMESTAMP | 创建时间 |
 | updated_at | TIMESTAMP | 更新时间 |
 
@@ -206,13 +207,15 @@ SequenceNode (1) ──< (N) Comment
 |------|------|------|
 | id | UUID | 主键 |
 | document_id | UUID | FK→document |
+| version | INT | 快照时的版本号 |
 | content_json | JSONB | 该版本的内容快照 |
-| version | INT | 版本号 |
-| change_summary | VARCHAR(500) | 变更说明 |
-| created_by | UUID | FK→user |
+| content_html | TEXT | 该版本的 HTML |
+| word_count | INT | 该版本字数 |
+| xml_lang | VARCHAR(10) | 该版本语言属性 |
+| created_by | UUID | 创建人 |
 | created_at | TIMESTAMP | 创建时间 |
 
-### 2.6 文件管理
+### 2.6 文件管理 ✅ (WP-05 已实现)
 
 #### `file_attachment` — 文件附件表
 
@@ -255,7 +258,7 @@ SequenceNode (1) ──< (N) Comment
 | compliance_details | JSONB | 详细合规检查结果 |
 | analyzed_at | TIMESTAMP | 分析时间 |
 
-### 2.7 STF（研究标签文件）
+### 2.7 STF（研究标签文件）✅ (WP-05 已实现)
 
 #### `study_tagging_file` — STF 表（模块四五的研究标签）
 
@@ -272,7 +275,7 @@ SequenceNode (1) ──< (N) Comment
 | created_at | TIMESTAMP | 创建时间 |
 | updated_at | TIMESTAMP | 更新时间 |
 
-### 2.8 验证
+### 2.8 验证 ✅ (WP-05 已实现)
 
 #### `validation_report` — 验证报告表
 

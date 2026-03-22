@@ -18,11 +18,15 @@ import {
 import {
   ArrowLeftOutlined,
   PlayCircleOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { sequenceApi } from '../../services/application';
 import { ctdApi } from '../../services/ctd';
 import CTDTree from '../../components/CTDTree';
 import CompletenessPanel from '../../components/CompletenessPanel';
+import ValidationPanel from '../../components/ValidationPanel';
+import EctdPackagePanel from '../../components/EctdPackagePanel';
+import XmlPreviewPanel from '../../components/XmlPreviewPanel';
 import type {
   SequenceNode,
   CompletenessResult,
@@ -63,6 +67,7 @@ const SequenceDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(false);
   const [needsInit, setNeedsInit] = useState(false);
+  const [validationPassed, setValidationPassed] = useState(false);
 
   const fetchSequence = useCallback(async () => {
     if (!seqId) return;
@@ -142,8 +147,7 @@ const SequenceDetailPage: React.FC = () => {
 
   const handleNodeSelect = (node: SequenceNode) => {
     if (node.isLeaf) {
-      // Future: navigate to editor
-      message.info(`选中: ${node.ctdSectionNumber} ${node.title}`);
+      navigate(`/sequences/${seqId}/editor`);
     }
   };
 
@@ -190,6 +194,15 @@ const SequenceDetailPage: React.FC = () => {
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
           返回
         </Button>
+        {!needsInit && (
+          <Button
+            type="primary"
+            icon={<EditOutlined />}
+            onClick={() => navigate(`/sequences/${seqId}/editor`)}
+          >
+            进入编辑器
+          </Button>
+        )}
       </Space>
 
       <Breadcrumb
@@ -289,6 +302,31 @@ const SequenceDetailPage: React.FC = () => {
               ),
               children: (
                 <CompletenessPanel data={completeness} />
+              ),
+            },
+            {
+              key: 'validation',
+              label: 'eCTD 验证',
+              children: (
+                <ValidationPanel
+                  sequenceId={seqId!}
+                  onValidationComplete={setValidationPassed}
+                />
+              ),
+            },
+            {
+              key: 'xml-preview',
+              label: 'XML 骨架预览',
+              children: <XmlPreviewPanel sequenceId={seqId!} />,
+            },
+            {
+              key: 'ectd-package',
+              label: 'eCTD 导出',
+              children: (
+                <EctdPackagePanel
+                  sequenceId={seqId!}
+                  validationPassed={validationPassed}
+                />
               ),
             },
           ]}

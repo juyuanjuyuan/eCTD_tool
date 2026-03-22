@@ -13,7 +13,7 @@
 | 申请管理 | `/projects/:id/applications` | 申请编号、类型管理 | EDITOR+ |
 | 序列管理 | `/projects/:id/applications/:appId/sequences` | 序列号、注册行为管理 | EDITOR+ |
 | 序列详情 ✅ | `/sequences/:seqId` | CTD 目录树 + 内容完整性看板 + 目录初始化 | EDITOR+ |
-| **文档编辑** | `/editor/:sequenceId` | **核心页面** — CTD 目录树 + 富文本编辑器 | EDITOR+ |
+| **文档编辑** ✅ | `/sequences/:seqId/editor` | **核心页面** — 三栏布局: CTD 目录树 + TipTap 富文本编辑器 + 属性面板 | EDITOR+ |
 | 导出中心 | `/export/:sequenceId` | Word/PDF 导出、eCTD 包生成 | EDITOR+ |
 | 验证报告 | `/validation/:sequenceId` | eCTD 验证结果查看 | VIEWER+ |
 | 文件管理 | `/files/:sequenceId` | 上传/管理 PDF、附件文件 | EDITOR+ |
@@ -67,7 +67,7 @@
 - 未完成必填章节列表（带 ERROR/WARNING 级别 Tag）
 - 禁止使用的章节违规列表
 
-### 2.3 富文本编辑器 (`RichEditor`)
+### 2.3 富文本编辑器 (`RichEditor`) ✅
 
 基于 TipTap (ProseMirror) 封装:
 
@@ -86,14 +86,27 @@
 - 交叉引用节点（引用其他模块章节内容）
 - 语言标记支持（xml:lang: zh/en）
 
-### 2.3 文件上传组件 (`FileUploader`)
+### 2.4 导出对话框 (`ExportModal`) ✅
+
+- 格式选择: Word (.docx) / PDF
+- eCTD PDF 合规提示信息
+- 导出进度 Spin 指示
+- 合规检查结果展示:
+  - Summary 描述（合规通过/不通过）
+  - 错误列表（Collapse 可展开，红色标记）
+  - 警告列表（橙色标记）
+  - 已移除外部链接列表
+- Blob 下载（PDF 合规通过时自动触发下载）
+- 对应 API: `exportApi.exportWord()` / `exportApi.exportPdf()`
+
+### 2.5 文件上传组件 (`FileUploader`)
 
 - 支持拖拽上传
 - PDF 文件自动验证（版本、书签、安全设置）
 - 上传后自动计算 MD5
 - 显示上传进度
 
-### 2.4 PDF 预览组件 (`PDFViewer`)
+### 2.6 PDF 预览组件 (`PDFViewer`)
 
 - 基于 react-pdf 或 PDF.js
 - 支持在线预览已上传的 PDF

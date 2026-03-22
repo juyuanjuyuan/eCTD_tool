@@ -151,6 +151,33 @@ export interface ExtensionOption {
   titleEn: string;
 }
 
+// ==================== Document ====================
+export interface Document {
+  id: string | null;
+  nodeId: string;
+  contentJson: any;
+  contentHtml: string;
+  contentText: string;
+  wordCount: number;
+  version: number;
+  xmlLang: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface DocumentVersion {
+  id: string;
+  version: number;
+  wordCount: number;
+  xmlLang: string;
+  createdBy: string | null;
+  createdAt: string;
+  contentJson?: any;
+  contentHtml?: string;
+}
+
 // ==================== API ====================
 export interface ApiResponse<T> {
   code: number;

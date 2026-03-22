@@ -9,6 +9,7 @@ import ProjectListPage from './pages/project/ProjectListPage';
 import ProjectDetailPage from './pages/project/ProjectDetailPage';
 import ApplicationDetailPage from './pages/application/ApplicationDetailPage';
 import SequenceDetailPage from './pages/sequence/SequenceDetailPage';
+import EditorPage from './pages/editor/EditorPage';
 
 function App() {
   return (
@@ -16,6 +17,15 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* Editor page — full-screen, no BasicLayout wrapper */}
+          <Route
+            path="/sequences/:seqId/editor"
+            element={
+              <ProtectedRoute>
+                <EditorPage />
+              </ProtectedRoute>
+            }
+          />
           <Route
             element={
               <ProtectedRoute>

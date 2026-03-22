@@ -93,7 +93,7 @@
 | GET | `/extension-options` | 获取扩展节点类型列表（3.2.R.1~3.2.R.6） | ALL | ✅ |
 | GET | `/tree?appType=cnapt2&ratType=cnrat1` | 按申请类型+注册行为类型过滤并标记必填章节 | ALL | 待开发 |
 
-## 10. 文档编辑 `/api/v1/nodes/:nodeId/document`
+## 10. 文档编辑 `/api/v1/nodes/:nodeId/document` ✅ (WP-03 已实现)
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
@@ -116,15 +116,21 @@
 | DELETE | `/:id` | 删除文件 | EDITOR+ |
 | POST | `/:id/reference` | 创建文件引用（同一申请跨序列复用） | EDITOR+ |
 
-## 12. STF 管理 `/api/v1/nodes/:nodeId/stf`
+## 12. STF 管理 `/api/v1/nodes/:nodeId/stf` ✅ (WP-05 已实现)
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
 | GET | `/` | 获取 STF 数据 | 成员 |
 | PUT | `/` | 保存/更新 STF 数据（study-id, title, categories, file-tags） | EDITOR+ |
-| GET | `/preview-xml` | 预览生成的 STF XML | 成员 |
 
-## 13. 文档导出 `/api/v1/sequences/:seqId/export`
+## 12b. STF 参考数据 `/api/v1/stf` ✅ (WP-05 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/categories` | 获取 STF category 名称和合法值（从 valid-values.xml） | 已登录 |
+| GET | `/file-tags` | 获取 STF file-tag 合法值列表（145+ 标签） | 已登录 |
+
+## 13. 文档导出 `/api/v1/sequences/:seqId/export` ✅ (WP-04 已实现)
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
@@ -132,18 +138,37 @@
 | POST | `/word/batch` | 批量导出为 Word（按模块或全部） | EDITOR+ |
 | POST | `/pdf` | 导出单个章节为 PDF（自动合规检查） | EDITOR+ |
 | POST | `/pdf/batch` | 批量导出为 PDF | EDITOR+ |
-| POST | `/ectd-package` | 生成完整 eCTD 提交包（含验证，有错误则阻止） | MANAGER+ |
 | GET | `/status/:taskId` | 查询导出任务进度 | 成员 |
-| GET | `/download/:taskId` | 下载导出结果 | 成员 |
 
-## 14. eCTD 验证 `/api/v1/sequences/:seqId/validation`
+## 13b. eCTD 包导出 `/api/v1/sequences/:seqId/export` ✅ (WP-05 已实现)
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| POST | `/run` | 执行完整 eCTD 验证（80+ 条规则） | EDITOR+ |
+| GET | `/ectd-preview` | 预览 eCTD 包文件结构树 | 成员 |
+| POST | `/ectd-package` | 生成完整 eCTD 提交包 ZIP（含验证前置，有错误则阻止） | MANAGER+ |
+
+## 13c. XML 骨架预览 `/api/v1/sequences/:seqId/xml` ✅ (WP-05 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/cn-regional` | 预览 cn-regional.xml（模块一骨架） | 成员 |
+| GET | `/index` | 预览 index.xml（模块二至五 ICH 骨架） | 成员 |
+
+## 14. eCTD 验证 `/api/v1/sequences/:seqId/validate` ✅ (WP-05 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| POST | `/` | 执行完整 eCTD 验证（80+ 条规则，6 大类） | EDITOR+ |
 | GET | `/latest` | 获取最新验证报告 | 成员 |
-| GET | `/reports` | 获取历史验证报告列表 | 成员 |
-| GET | `/reports/:id` | 获取验证报告详情（含每条规则结果） | 成员 |
+| GET | `/report/:id` | 获取验证报告详情（含每条规则结果） | 成员 |
+
+## 14b. 生命周期操作 ✅ (WP-05 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| POST | `/api/v1/sequences/:seqId/nodes/:nodeId/validate-operation` | 验证操作是否合法（状态转换表+首序列规则） | EDITOR+ |
+| GET | `/api/v1/sequences/:seqId/parallel-conflicts` | 检测并行变更冲突 | 成员 |
+| POST | `/api/v1/sequences/:seqId/withdraw-preview` | 预览撤回序列自动生成的操作 | EDITOR+ |
 
 ## 15. 编辑锁 `/api/v1/nodes/:nodeId/lock`
 

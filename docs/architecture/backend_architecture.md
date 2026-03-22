@@ -14,9 +14,9 @@
 | `sequence` | 序列管理（序列号、序列类型、联系人） | SequenceService |
 | `controlled-vocabulary` | 受控词汇解析与查询（4种申请类型×9种注册行为×4种序列类型关联） | ControlledVocabularyService |
 | `ctd-template` ✅ | CTD 五模块目录模板管理、序列目录初始化、内容完整性检查、骨架属性、扩展节点 | CtdTemplateService |
-| `document` | 文档内容管理（富文本内容、版本历史） | DocumentService |
-| `export` | 文档导出（Word/PDF） | WordExportService, PDFExportService, PDFComplianceService |
-| `ectd` | eCTD 核心逻辑（XML 骨架、验证、MD5、生命周期、STF） | XmlBackboneService, ValidatorService, LifecycleService, STFService, Md5ChecksumService |
+| `document` ✅ | 文档内容管理（富文本内容、版本历史、字数统计、语言属性） | DocumentService |
+| `export` ✅ | 文档导出（Word/PDF）+ eCTD PDF 合规检查 + Bull Queue 异步任务 | ExportService, WordExportService, PDFExportService, PDFComplianceService, ExportProcessor |
+| `ectd` ✅ | eCTD 核心逻辑（XML 骨架生成、验证引擎、MD5 校验、生命周期状态机、STF 生成、提交包组装） | CnRegionalXmlService, IndexXmlService, ValidatorService, LifecycleService, StfService, Md5Service, PackageAssemblerService |
 | `file` | 文件存储（MinIO 操作、命名规范化、PDF 分析） | FileService, FileNameNormalizer |
 
 ### 1.2 模块依赖关系

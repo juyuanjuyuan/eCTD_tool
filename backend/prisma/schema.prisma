@@ -71,6 +71,18 @@ enum CompletenessRuleType {
   FORBIDDEN   // 不能包含
 }
 
+enum ValidationSeverity {
+  ERROR
+  WARNING
+  INFO
+}
+
+enum ComplianceStatus {
+  PASS
+  WARNING
+  ERROR
+}
+
 // ==================== User ====================
 
 model User {
@@ -178,6 +190,7 @@ model Sequence {
 
   regulatoryActivity RegulatoryActivity @relation(fields: [regulatoryActivityId], references: [id], onDelete: Cascade)
   sequenceNodes      SequenceNode[]
+  validationReports  ValidationReport[]
 
   @@unique([regulatoryActivityId, sequenceNumber])
   @@index([regulatoryActivityId])
@@ -249,15 +262,61 @@ model SequenceNode {
   dosageForm       String?            @map("dosage_form") @db.VarChar(200)
   indication       String?            @db.VarChar(500)
 
-  sequence     Sequence        @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
-  templateNode CtdTemplateNode @relation(fields: [templateNodeId], references: [id])
-  parent       SequenceNode?   @relation("SequenceNodeTree", fields: [parentId], references: [id])
-  children     SequenceNode[]  @relation("SequenceNodeTree")
+  sequence        Sequence        @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  templateNode    CtdTemplateNode @relation(fields: [templateNodeId], references: [id])
+  parent          SequenceNode?   @relation("SequenceNodeTree", fields: [parentId], references: [id])
+  children        SequenceNode[]  @relation("SequenceNodeTree")
+  document        Document?
+  fileAttachments FileAttachment[]
+  studyTaggingFile StudyTaggingFile?
 
   @@index([sequenceId])
   @@index([templateNodeId])
   @@index([parentId])
   @@map("sequence_node")
+}
+
+// ==================== Document (章节文档内容) ====================
+
+model Document {
+  id          String   @id @default(uuid())
+  nodeId      String   @unique @map("node_id")
+  contentJson Json?    @map("content_json")
+  contentHtml String?  @map("content_html") @db.Text
+  contentText String?  @map("content_text") @db.Text
+  wordCount   Int      @default(0) @map("word_count")
+  version     Int      @default(1)
+  xmlLang     String   @default("zh") @map("xml_lang") @db.VarChar(10)
+  createdBy   String?  @map("created_by")
+  updatedBy   String?  @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  node     SequenceNode      @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  versions DocumentVersion[]
+
+  @@index([nodeId])
+  @@map("document")
+}
+
+// ==================== Document Version (文档历史版本快照) ====================
+
+model DocumentVersion {
+  id          String   @id @default(uuid())
+  documentId  String   @map("document_id")
+  version     Int
+  contentJson Json?    @map("content_json")
+  contentHtml String?  @map("content_html") @db.Text
+  wordCount   Int      @default(0) @map("word_count")
+  xmlLang     String   @default("zh") @map("xml_lang") @db.VarChar(10)
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([documentId, version])
+  @@map("document_version")
 }
 
 // ==================== Controlled Vocabulary ====================
@@ -288,4 +347,114 @@ model CvDependency {
 
   @@index([applicationTypeCode, regulatoryActivityTypeCode])
   @@map("cv_dependency")
+}
+
+// ==================== File Attachment (上传的文件) ====================
+
+model FileAttachment {
+  id                String   @id @default(uuid())
+  sequenceNodeId    String   @map("sequence_node_id")
+  originalName      String   @map("original_name") @db.VarChar(255)
+  storedName        String   @map("stored_name") @db.VarChar(255)
+  storagePath       String   @map("storage_path") @db.VarChar(500)
+  ectdRelativePath  String   @map("ectd_relative_path") @db.VarChar(180)
+  fileType          String   @map("file_type") @db.VarChar(10)
+  fileSize          BigInt   @map("file_size")
+  md5Checksum       String   @map("md5_checksum") @db.Char(32)
+  xmlLang           String   @default("zh") @map("xml_lang") @db.VarChar(10)
+  isReference       Boolean  @default(false) @map("is_reference")
+  referenceFileId   String?  @map("reference_file_id")
+  uploadedBy        String?  @map("uploaded_by")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  sequenceNode  SequenceNode    @relation(fields: [sequenceNodeId], references: [id], onDelete: Cascade)
+  referenceFile FileAttachment? @relation("FileReference", fields: [referenceFileId], references: [id])
+  referencedBy  FileAttachment[] @relation("FileReference")
+  pdfAnalysis   FilePdfAnalysis?
+
+  @@index([sequenceNodeId])
+  @@map("file_attachment")
+}
+
+// ==================== File PDF Analysis (PDF 合规分析) ====================
+
+model FilePdfAnalysis {
+  id                   String           @id @default(uuid())
+  fileAttachmentId     String           @unique @map("file_attachment_id")
+  pdfVersion           String?          @map("pdf_version") @db.VarChar(10)
+  pageCount            Int              @default(0) @map("page_count")
+  hasBookmarks         Boolean          @default(false) @map("has_bookmarks")
+  bookmarkZoomInherit  Boolean          @default(false) @map("bookmark_zoom_inherit")
+  isEncrypted          Boolean          @default(false) @map("is_encrypted")
+  hasJavascript        Boolean          @default(false) @map("has_javascript")
+  hasExternalLinks     Boolean          @default(false) @map("has_external_links")
+  hasAttachments       Boolean          @default(false) @map("has_attachments")
+  hasMultimedia        Boolean          @default(false) @map("has_multimedia")
+  isTextSearchable     Boolean          @default(true) @map("is_text_searchable")
+  fontsEmbedded        Boolean          @default(true) @map("fonts_embedded")
+  hasESeal             Boolean          @default(false) @map("has_e_seal")
+  complianceStatus     ComplianceStatus @default(PASS) @map("compliance_status")
+  complianceDetails    Json?            @map("compliance_details")
+  analyzedAt           DateTime         @default(now()) @map("analyzed_at")
+
+  fileAttachment FileAttachment @relation(fields: [fileAttachmentId], references: [id], onDelete: Cascade)
+
+  @@map("file_pdf_analysis")
+}
+
+// ==================== Study Tagging File (STF 研究标签文件) ====================
+
+model StudyTaggingFile {
+  id               String         @id @default(uuid())
+  sequenceNodeId   String         @unique @map("sequence_node_id")
+  studyTitle       String         @map("study_title") @db.VarChar(500)
+  studyId          String         @map("study_id") @db.VarChar(100)
+  categories       Json?          // {species, routeOfAdmin, duration, typeOfControl}
+  fileTags         Json?          @map("file_tags") // [{name, infoType}]
+  stfXmlContent    String?        @map("stf_xml_content") @db.Text
+  operation        LeafOperation  @default(NEW)
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  sequenceNode SequenceNode @relation(fields: [sequenceNodeId], references: [id], onDelete: Cascade)
+
+  @@map("study_tagging_file")
+}
+
+// ==================== Validation Report ====================
+
+model ValidationReport {
+  id            String   @id @default(uuid())
+  sequenceId    String   @map("sequence_id")
+  totalErrors   Int      @default(0) @map("total_errors")
+  totalWarnings Int      @default(0) @map("total_warnings")
+  totalInfos    Int      @default(0) @map("total_infos")
+  isPassed      Boolean  @default(false) @map("is_passed")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  sequence Sequence         @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  items    ValidationItem[]
+
+  @@index([sequenceId])
+  @@map("validation_report")
+}
+
+// ==================== Validation Item ====================
+
+model ValidationItem {
+  id           String             @id @default(uuid())
+  reportId     String             @map("report_id")
+  ruleCode     String             @map("rule_code") @db.VarChar(10)
+  ruleCategory String             @map("rule_category") @db.VarChar(50)
+  severity     ValidationSeverity
+  description  String             @db.Text
+  detail       String?            @db.Text
+  filePath     String?            @map("file_path") @db.VarChar(500)
+  suggestion   String?            @db.Text
+
+  report ValidationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@index([reportId, severity])
+  @@map("validation_item")
 }
