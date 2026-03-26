@@ -76,6 +76,25 @@ export class UserService {
     });
   }
 
+  async searchUsers(q: string) {
+    const where: Prisma.UserWhereInput = {
+      status: 'ACTIVE',
+      ...(q && {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' as const } },
+          { email: { contains: q, mode: 'insensitive' as const } },
+        ],
+      }),
+    };
+
+    return this.prisma.user.findMany({
+      where,
+      take: 10,
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, email: true },
+    });
+  }
+
   async disable(id: string) {
     await this.findOne(id);
     return this.prisma.user.update({

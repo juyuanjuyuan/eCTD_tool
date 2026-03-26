@@ -81,6 +81,23 @@ let UserService = class UserService {
             },
         });
     }
+    async searchUsers(q) {
+        const where = {
+            status: 'ACTIVE',
+            ...(q && {
+                OR: [
+                    { name: { contains: q, mode: 'insensitive' } },
+                    { email: { contains: q, mode: 'insensitive' } },
+                ],
+            }),
+        };
+        return this.prisma.user.findMany({
+            where,
+            take: 10,
+            orderBy: { name: 'asc' },
+            select: { id: true, name: true, email: true },
+        });
+    }
     async disable(id) {
         await this.findOne(id);
         return this.prisma.user.update({

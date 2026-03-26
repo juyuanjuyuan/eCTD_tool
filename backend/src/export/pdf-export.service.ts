@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
 import { PDFDocument } from 'pdf-lib';
 
@@ -14,23 +14,49 @@ interface HeadingInfo {
 }
 
 @Injectable()
-export class PDFExportService implements OnModuleInit, OnModuleDestroy {
+export class PDFExportService implements OnModuleDestroy {
   private browser: puppeteer.Browser | null = null;
-
-  async onModuleInit() {
-    this.browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--font-render-hinting=none',
-      ],
-    });
-  }
+  private readonly pagePool: puppeteer.Page[] = [];
+  private readonly maxPoolSize = parseInt(process.env.PUPPETEER_POOL_SIZE || '3', 10);
+  private readonly pageWaiters: Array<(page: puppeteer.Page) => void> = [];
 
   async onModuleDestroy() {
+    // Close all pooled pages
+    for (const page of this.pagePool) {
+      await page.close().catch(() => {});
+    }
+    this.pagePool.length = 0;
     await this.browser?.close();
+  }
+
+  private async acquirePage(): Promise<puppeteer.Page> {
+    // Return a pooled page if available
+    if (this.pagePool.length > 0) {
+      return this.pagePool.pop()!;
+    }
+    // Create a new page
+    if (!this.browser) {
+      this.browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      });
+    }
+    return this.browser.newPage();
+  }
+
+  private releasePage(page: puppeteer.Page): void {
+    // If someone is waiting, give the page directly
+    if (this.pageWaiters.length > 0) {
+      const waiter = this.pageWaiters.shift()!;
+      waiter(page);
+      return;
+    }
+    // Pool the page if below max size, otherwise close it
+    if (this.pagePool.length < this.maxPoolSize) {
+      this.pagePool.push(page);
+    } else {
+      page.close().catch(() => {});
+    }
   }
 
   // ==================== Main Export ====================
@@ -40,14 +66,7 @@ export class PDFExportService implements OnModuleInit, OnModuleDestroy {
     headings: HeadingInfo[],
     options: PDFExportOptions = {},
   ): Promise<Buffer> {
-    if (!this.browser) {
-      this.browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-      });
-    }
-
-    const page = await this.browser.newPage();
+    const page = await this.acquirePage();
 
     try {
       // Set content with eCTD compliant CSS
@@ -87,7 +106,7 @@ export class PDFExportService implements OnModuleInit, OnModuleDestroy {
 
       return processedPdf;
     } finally {
-      await page.close();
+      this.releasePage(page);
     }
   }
 

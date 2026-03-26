@@ -16,12 +16,18 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 
 @Controller('api/v1/users')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@UseGuards(JwtAuthGuard)
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  @Get('search')
+  async searchUsers(@Query('q') q: string) {
+    return this.userService.searchUsers(q || '');
+  }
+
   @Get()
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
   findAll(@Query() query: QueryUserDto) {
     return this.userService.findAll(query);
   }

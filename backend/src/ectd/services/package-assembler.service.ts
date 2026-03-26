@@ -8,7 +8,7 @@ import { MinioService } from '../../file/minio.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import archiver from 'archiver';
-import { Writable } from 'stream';
+import { PassThrough, Writable } from 'stream';
 
 // Module folder mapping based on ctdSectionNumber
 const MODULE_FOLDER_MAP: Record<number, string> = {
@@ -156,6 +156,124 @@ export class PackageAssemblerService {
 
     return {
       buffer,
+      fileName: `${appNumber}_${seqNumber}_ectd.zip`,
+    };
+  }
+
+  /**
+   * Assemble and return a stream for large packages (avoids buffering entire ZIP in memory).
+   */
+  async assemblePackageStream(sequenceId: string): Promise<{
+    stream: PassThrough;
+    fileName: string;
+  }> {
+    // Same validation as assemblePackage
+    const requiredNodes = await this.prisma.sequenceNode.findMany({
+      where: { sequenceId, isRequired: true, isLeaf: true },
+      select: { id: true, ctdSectionNumber: true, title: true, approvalStatus: true },
+    });
+    const unapproved = requiredNodes.filter((n) => n.approvalStatus !== 'APPROVED');
+    if (unapproved.length > 0) {
+      throw new BadRequestException({
+        message: `${unapproved.length} 个必填章节尚未审批通过，无法生成 eCTD 包`,
+        unapprovedSections: unapproved.map((n) => ({
+          section: n.ctdSectionNumber,
+          title: n.title,
+          status: n.approvalStatus,
+        })),
+      });
+    }
+
+    const validationResult = await this.validator.validate(sequenceId);
+    if (!validationResult.isPassed) {
+      throw new BadRequestException({
+        message: `验证未通过，有 ${validationResult.totalErrors} 个错误需要修复`,
+        reportId: validationResult.reportId,
+      });
+    }
+
+    const sequence = await this.prisma.sequence.findUnique({
+      where: { id: sequenceId },
+      include: {
+        regulatoryActivity: { include: { application: true } },
+        sequenceNodes: {
+          include: {
+            templateNode: { select: { module: true } },
+            fileAttachments: true,
+            studyTaggingFile: true,
+          },
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+    });
+
+    if (!sequence) throw new BadRequestException('序列不存在');
+
+    const appNumber = sequence.regulatoryActivity.application.applicationNumber;
+    const seqNumber = sequence.sequenceNumber;
+    const basePath = `${appNumber}/${seqNumber}`;
+
+    const cnRegionalContent = await this.cnRegionalXml.generateCnRegionalXml(sequenceId);
+    const indexContent = await this.indexXml.generateIndexXml(sequenceId);
+    const indexMd5Content = this.md5Service.generateIndexMd5([
+      { fileName: 'index.xml', content: indexContent },
+      { fileName: 'cn-regional.xml', content: cnRegionalContent },
+    ]);
+
+    // Create streaming archive
+    const passThrough = new PassThrough();
+    const archive = archiver('zip', { zlib: { level: 6 } }); // level 6 for speed/size balance
+    archive.on('error', (err) => passThrough.destroy(err));
+    archive.pipe(passThrough);
+
+    // Add backbone files
+    archive.append(indexContent, { name: `${basePath}/index.xml` });
+    archive.append(indexMd5Content, { name: `${basePath}/index-md5.txt` });
+    archive.append(cnRegionalContent, { name: `${basePath}/m1/cn/cn-regional.xml` });
+
+    this.addUtilFiles(archive, basePath);
+
+    // Add content files using streams from MinIO where possible
+    for (const node of sequence.sequenceNodes) {
+      if (!node.isLeaf || !node.operation || node.operation === 'DELETE') continue;
+      const files = node.fileAttachments || [];
+      if (files.length === 0) continue;
+
+      for (const file of files) {
+        if (file.isReference && file.referenceFileId) continue;
+        const filePath = `${basePath}/${file.ectdRelativePath}`;
+
+        if (this.minioService && file.storagePath) {
+          try {
+            const fileStream = await this.minioService.getFileStream(file.storagePath);
+            archive.append(fileStream, { name: filePath });
+            continue;
+          } catch (err) {
+            this.logger.warn(`MinIO stream read failed for ${file.storagePath}: ${err}`);
+          }
+        }
+
+        if (file.storagePath && fs.existsSync(file.storagePath)) {
+          archive.append(fs.createReadStream(file.storagePath), { name: filePath });
+        }
+      }
+
+      if (node.studyTaggingFile?.stfXmlContent) {
+        const stfPath = this.getStfPath(node, basePath);
+        if (stfPath) archive.append(node.studyTaggingFile.stfXmlContent, { name: stfPath });
+      }
+    }
+
+    // Finalize in background - don't await, let it stream
+    archive.finalize().then(() => {
+      this.prisma.sequence.update({
+        where: { id: sequenceId },
+        data: { status: 'EXPORTED' },
+      }).catch((e) => this.logger.warn(`Failed to update sequence status: ${e}`));
+    });
+
+    return {
+      stream: passThrough,
       fileName: `${appNumber}_${seqNumber}_ectd.zip`,
     };
   }

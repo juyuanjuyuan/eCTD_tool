@@ -5,6 +5,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
   UseInterceptors,
   UploadedFile,
@@ -58,6 +59,36 @@ export class FileController {
   ) {
     if (!files || files.length === 0) throw new BadRequestException('未上传文件');
     return this.fileService.uploadFiles(nodeId, files, req.user?.id);
+  }
+
+  /**
+   * Upload a file chunk for large file upload.
+   * POST /api/v1/nodes/:nodeId/files/chunk
+   */
+  @Post('nodes/:nodeId/files/chunk')
+  @UseInterceptors(
+    FileInterceptor('chunk', {
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per chunk
+    }),
+  )
+  async uploadChunk(
+    @Param('nodeId') nodeId: string,
+    @UploadedFile() chunk: Express.Multer.File,
+    @Body('uploadId') uploadId: string,
+    @Body('chunkIndex') chunkIndex: string,
+    @Body('totalChunks') totalChunks: string,
+    @Body('fileName') fileName: string,
+    @Req() req: any,
+  ) {
+    if (!chunk) throw new BadRequestException('未上传分片');
+    return this.fileService.handleChunk(nodeId, {
+      uploadId,
+      chunkIndex: parseInt(chunkIndex, 10),
+      totalChunks: parseInt(totalChunks, 10),
+      fileName,
+      chunkBuffer: chunk.buffer,
+      userId: req.user?.id,
+    });
   }
 
   /**

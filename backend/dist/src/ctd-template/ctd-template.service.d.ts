@@ -1,120 +1,12 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisCacheService } from '../common/redis-cache.service';
 import { UpdateSequenceNodeDto, UpdateBackboneAttributesDto, CreateExtensionNodeDto } from './dto';
 export declare class CtdTemplateService {
     private prisma;
-    constructor(prisma: PrismaService);
-    getTemplateTree(): Promise<({
-        children: ({
-            children: ({
-                children: ({
-                    children: ({
-                        children: ({
-                            children: {
-                                id: string;
-                                module: number;
-                                elementName: string;
-                                ctdSectionNumber: string;
-                                titleZh: string;
-                                titleEn: string;
-                                nodeType: import("@prisma/client").$Enums.CtdNodeType;
-                                isLeaf: boolean;
-                                requiresStf: boolean;
-                                requiresESeal: boolean;
-                                allowsExtension: boolean;
-                                sortOrder: number;
-                                parentId: string | null;
-                            }[];
-                        } & {
-                            id: string;
-                            module: number;
-                            elementName: string;
-                            ctdSectionNumber: string;
-                            titleZh: string;
-                            titleEn: string;
-                            nodeType: import("@prisma/client").$Enums.CtdNodeType;
-                            isLeaf: boolean;
-                            requiresStf: boolean;
-                            requiresESeal: boolean;
-                            allowsExtension: boolean;
-                            sortOrder: number;
-                            parentId: string | null;
-                        })[];
-                    } & {
-                        id: string;
-                        module: number;
-                        elementName: string;
-                        ctdSectionNumber: string;
-                        titleZh: string;
-                        titleEn: string;
-                        nodeType: import("@prisma/client").$Enums.CtdNodeType;
-                        isLeaf: boolean;
-                        requiresStf: boolean;
-                        requiresESeal: boolean;
-                        allowsExtension: boolean;
-                        sortOrder: number;
-                        parentId: string | null;
-                    })[];
-                } & {
-                    id: string;
-                    module: number;
-                    elementName: string;
-                    ctdSectionNumber: string;
-                    titleZh: string;
-                    titleEn: string;
-                    nodeType: import("@prisma/client").$Enums.CtdNodeType;
-                    isLeaf: boolean;
-                    requiresStf: boolean;
-                    requiresESeal: boolean;
-                    allowsExtension: boolean;
-                    sortOrder: number;
-                    parentId: string | null;
-                })[];
-            } & {
-                id: string;
-                module: number;
-                elementName: string;
-                ctdSectionNumber: string;
-                titleZh: string;
-                titleEn: string;
-                nodeType: import("@prisma/client").$Enums.CtdNodeType;
-                isLeaf: boolean;
-                requiresStf: boolean;
-                requiresESeal: boolean;
-                allowsExtension: boolean;
-                sortOrder: number;
-                parentId: string | null;
-            })[];
-        } & {
-            id: string;
-            module: number;
-            elementName: string;
-            ctdSectionNumber: string;
-            titleZh: string;
-            titleEn: string;
-            nodeType: import("@prisma/client").$Enums.CtdNodeType;
-            isLeaf: boolean;
-            requiresStf: boolean;
-            requiresESeal: boolean;
-            allowsExtension: boolean;
-            sortOrder: number;
-            parentId: string | null;
-        })[];
-    } & {
-        id: string;
-        module: number;
-        elementName: string;
-        ctdSectionNumber: string;
-        titleZh: string;
-        titleEn: string;
-        nodeType: import("@prisma/client").$Enums.CtdNodeType;
-        isLeaf: boolean;
-        requiresStf: boolean;
-        requiresESeal: boolean;
-        allowsExtension: boolean;
-        sortOrder: number;
-        parentId: string | null;
-    })[]>;
-    getTemplateTreeWithRules(appTypeCode: string, ratTypeCode: string): Promise<any[]>;
+    private cache;
+    constructor(prisma: PrismaService, cache: RedisCacheService);
+    getTemplateTree(): Promise<{}>;
+    getTemplateTreeWithRules(appTypeCode: string, ratTypeCode: string): Promise<{}>;
     initializeSequenceNodes(sequenceId: string): Promise<{
         message: string;
         nodeCount: number;
@@ -138,6 +30,12 @@ export declare class CtdTemplateService {
         indication: string | null;
         sequenceId: string;
         isRequired: boolean;
+        approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
+        submittedBy: string | null;
+        submittedAt: Date | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rejectionReason: string | null;
     }>;
     updateBackboneAttributes(sequenceId: string, nodeId: string, dto: UpdateBackboneAttributesDto): Promise<{
         id: string;
@@ -157,7 +55,14 @@ export declare class CtdTemplateService {
         indication: string | null;
         sequenceId: string;
         isRequired: boolean;
+        approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
+        submittedBy: string | null;
+        submittedAt: Date | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rejectionReason: string | null;
     }>;
+    private getDescendantIds;
     createExtensionNode(sequenceId: string, parentNodeId: string, dto: CreateExtensionNodeDto): Promise<{
         id: string;
         elementName: string;
@@ -176,6 +81,12 @@ export declare class CtdTemplateService {
         indication: string | null;
         sequenceId: string;
         isRequired: boolean;
+        approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
+        submittedBy: string | null;
+        submittedAt: Date | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rejectionReason: string | null;
     }>;
     deleteExtensionNode(sequenceId: string, nodeId: string): Promise<{
         id: string;
@@ -195,6 +106,12 @@ export declare class CtdTemplateService {
         indication: string | null;
         sequenceId: string;
         isRequired: boolean;
+        approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
+        submittedBy: string | null;
+        submittedAt: Date | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rejectionReason: string | null;
     }>;
     checkCompleteness(sequenceId: string): Promise<{
         totalSections: number;
@@ -216,6 +133,22 @@ export declare class CtdTemplateService {
             required: number;
             completed: number;
         }>;
+    }>;
+    previewRequiredSections(sequenceId: string): Promise<{
+        applicationTypeCode: string;
+        regulatoryActivityTypeCode: string;
+        requiredSections: {
+            section: string;
+            title: string;
+            module: number;
+            severity: import("@prisma/client").$Enums.CompletenessRuleSeverity;
+        }[];
+        forbiddenSections: {
+            section: string;
+            title: string;
+            module: number;
+        }[];
+        totalRequired: number;
     }>;
     getExtensionNodeOptions(): {
         type: string;

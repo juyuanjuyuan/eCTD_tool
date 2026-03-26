@@ -35,6 +35,11 @@ export declare class UserService {
         role: import("@prisma/client").$Enums.Role;
         status: import("@prisma/client").$Enums.UserStatus;
     }>;
+    searchUsers(q: string): Promise<{
+        id: string;
+        name: string;
+        email: string;
+    }[]>;
     disable(id: string): Promise<{
         id: string;
         name: string;

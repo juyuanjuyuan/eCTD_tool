@@ -13,6 +13,8 @@ import {
   Select,
   message,
   Breadcrumb,
+  Spin,
+  Result,
 } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useParams, useNavigate, Link } from 'react-router-dom';
@@ -35,11 +37,15 @@ const ProjectDetailPage: React.FC = () => {
   const [appTypes, setAppTypes] = useState<ControlledVocabulary[]>([]);
   const [productTypes, setProductTypes] = useState<ControlledVocabulary[]>([]);
   const [form] = Form.useForm();
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!id) return;
-    projectApi.detail(id).then(setProject).catch((e) => message.error(e.message));
-    applicationApi.list(id).then(setApplications).catch((e) => message.error(e.message));
+    setLoading(true);
+    Promise.all([
+      projectApi.detail(id).then(setProject).catch((e) => message.error(e.message)),
+      applicationApi.list(id).then(setApplications).catch((e) => message.error(e.message)),
+    ]).finally(() => setLoading(false));
   }, [id]);
 
   const openAppModal = async () => {
@@ -112,7 +118,17 @@ const ProjectDetailPage: React.FC = () => {
     },
   ];
 
-  if (!project) return null;
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!project) {
+    return <Result status="404" title="项目不存在" subTitle="请检查链接是否正确，或返回项目列表" />;
+  }
 
   return (
     <div>
@@ -194,7 +210,7 @@ const ProjectDetailPage: React.FC = () => {
       <Modal
         title="创建申请"
         open={appModalOpen}
-        onCancel={() => setAppModalOpen(false)}
+        onCancel={() => { setAppModalOpen(false); form.resetFields(); }}
         onOk={() => form.submit()}
         width={520}
       >

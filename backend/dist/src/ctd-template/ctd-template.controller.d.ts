@@ -3,7 +3,7 @@ import { UpdateSequenceNodeDto, UpdateBackboneAttributesDto, CreateExtensionNode
 export declare class CtdTemplateController {
     private readonly ctdTemplateService;
     constructor(ctdTemplateService: CtdTemplateService);
-    getTemplateTree(appType?: string, ratType?: string): Promise<any[]>;
+    getTemplateTree(appType?: string, ratType?: string): Promise<{}>;
     getExtensionOptions(): {
         type: string;
         titleZh: string;
@@ -12,6 +12,22 @@ export declare class CtdTemplateController {
     initializeSequence(seqId: string): Promise<{
         message: string;
         nodeCount: number;
+    }>;
+    previewRequired(seqId: string): Promise<{
+        applicationTypeCode: string;
+        regulatoryActivityTypeCode: string;
+        requiredSections: {
+            section: string;
+            title: string;
+            module: number;
+            severity: import("@prisma/client").$Enums.CompletenessRuleSeverity;
+        }[];
+        forbiddenSections: {
+            section: string;
+            title: string;
+            module: number;
+        }[];
+        totalRequired: number;
     }>;
     getSequenceNodeTree(seqId: string): Promise<any[]>;
     updateSequenceNode(seqId: string, nodeId: string, dto: UpdateSequenceNodeDto): Promise<{
@@ -32,6 +48,12 @@ export declare class CtdTemplateController {
         indication: string | null;
         sequenceId: string;
         isRequired: boolean;
+        approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
+        submittedBy: string | null;
+        submittedAt: Date | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rejectionReason: string | null;
     }>;
     updateBackboneAttributes(seqId: string, nodeId: string, dto: UpdateBackboneAttributesDto): Promise<{
         id: string;
@@ -51,6 +73,12 @@ export declare class CtdTemplateController {
         indication: string | null;
         sequenceId: string;
         isRequired: boolean;
+        approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
+        submittedBy: string | null;
+        submittedAt: Date | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rejectionReason: string | null;
     }>;
     createExtensionNode(seqId: string, parentNodeId: string, dto: CreateExtensionNodeDto): Promise<{
         id: string;
@@ -70,6 +98,12 @@ export declare class CtdTemplateController {
         indication: string | null;
         sequenceId: string;
         isRequired: boolean;
+        approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
+        submittedBy: string | null;
+        submittedAt: Date | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rejectionReason: string | null;
     }>;
     deleteExtensionNode(seqId: string, nodeId: string): Promise<{
         id: string;
@@ -89,6 +123,12 @@ export declare class CtdTemplateController {
         indication: string | null;
         sequenceId: string;
         isRequired: boolean;
+        approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
+        submittedBy: string | null;
+        submittedAt: Date | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rejectionReason: string | null;
     }>;
     checkCompleteness(seqId: string): Promise<{
         totalSections: number;

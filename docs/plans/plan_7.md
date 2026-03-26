@@ -87,7 +87,7 @@ eCTD 规范要求以下 6 类章节的 PDF 文件必须加盖电子签章:
 - [x] GET `/api/v1/nodes/:nodeId/comments` — 获取评论列表
 - [x] DELETE `/api/v1/nodes/:nodeId/comments/:id` — 删除评论
 - [x] 支持回复（嵌套评论）
-- [ ] @提及用户
+- [x] @提及用户 — Comment.mentions JSON 字段 + 用户搜索 API + 前端 @ 触发下拉选择 + 提及高亮
 
 ### 4.2 前端评论面板
 - [x] 属性面板中的评论 Tab

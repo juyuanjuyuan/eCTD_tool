@@ -13,6 +13,8 @@ import {
   Collapse,
   message,
   Breadcrumb,
+  Spin,
+  Result,
 } from 'antd';
 import { PlusOutlined, EditOutlined } from '@ant-design/icons';
 import { useParams, Link, useNavigate } from 'react-router-dom';
@@ -56,9 +58,11 @@ const ApplicationDetailPage: React.FC = () => {
   const [sqtOptions, setSqtOptions] = useState<ControlledVocabulary[]>([]);
   const [raForm] = Form.useForm();
   const [seqForm] = Form.useForm();
+  const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     if (!appId) return;
+    setLoading(true);
     try {
       // Get applications for this project
       const apps = await applicationApi.list(projectId!);
@@ -76,6 +80,8 @@ const ApplicationDetailPage: React.FC = () => {
       setRaList(rasWithSeqs);
     } catch (error: any) {
       message.error(error.message);
+    } finally {
+      setLoading(false);
     }
   }, [appId, projectId]);
 
@@ -128,7 +134,17 @@ const ApplicationDetailPage: React.FC = () => {
     }
   };
 
-  if (!application) return null;
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!application) {
+    return <Result status="404" title="申请不存在" subTitle="请检查链接是否正确，或返回项目详情" />;
+  }
 
   return (
     <div>
@@ -238,7 +254,7 @@ const ApplicationDetailPage: React.FC = () => {
       <Modal
         title="创建注册行为"
         open={raModalOpen}
-        onCancel={() => setRaModalOpen(false)}
+        onCancel={() => { setRaModalOpen(false); raForm.resetFields(); }}
         onOk={() => raForm.submit()}
       >
         <Form form={raForm} layout="vertical" onFinish={handleCreateRa}>
@@ -262,7 +278,7 @@ const ApplicationDetailPage: React.FC = () => {
       <Modal
         title="创建序列"
         open={seqModalOpen}
-        onCancel={() => setSeqModalOpen(false)}
+        onCancel={() => { setSeqModalOpen(false); seqForm.resetFields(); }}
         onOk={() => seqForm.submit()}
         width={520}
       >

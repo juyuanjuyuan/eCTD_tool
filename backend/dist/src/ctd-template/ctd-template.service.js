@@ -12,7 +12,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CtdTemplateService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const redis_cache_service_1 = require("../common/redis-cache.service");
 const client_1 = require("@prisma/client");
+const crypto_1 = require("crypto");
 const EXTENSION_NODE_DEFS = {
     '3.2.R.1': { titleZh: '3.2.R.1工艺验证', titleEn: 'Process Validation' },
     '3.2.R.2': { titleZh: '3.2.R.2批记录', titleEn: 'Batch Records' },
@@ -26,37 +28,41 @@ const PRODUCT_SECTIONS = new Set(['2.3.P', '3.2.P']);
 const INDICATION_SECTIONS = new Set(['2.7.3']);
 let CtdTemplateService = class CtdTemplateService {
     prisma;
-    constructor(prisma) {
+    cache;
+    constructor(prisma, cache) {
         this.prisma = prisma;
+        this.cache = cache;
     }
     async getTemplateTree() {
-        return this.prisma.ctdTemplateNode.findMany({
-            where: { parentId: null },
-            include: {
-                children: {
-                    include: {
-                        children: {
-                            include: {
-                                children: {
-                                    include: {
-                                        children: {
-                                            include: {
-                                                children: {
-                                                    include: { children: true },
-                                                },
-                                            },
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
+        const cacheKey = 'ctd:template-tree';
+        const cached = await this.cache.get(cacheKey);
+        if (cached)
+            return cached;
+        const allNodes = await this.prisma.ctdTemplateNode.findMany({
             orderBy: { sortOrder: 'asc' },
         });
+        const nodeMap = new Map();
+        for (const node of allNodes) {
+            nodeMap.set(node.id, { ...node, children: [] });
+        }
+        const roots = [];
+        for (const node of allNodes) {
+            const treeNode = nodeMap.get(node.id);
+            if (node.parentId && nodeMap.has(node.parentId)) {
+                nodeMap.get(node.parentId).children.push(treeNode);
+            }
+            else {
+                roots.push(treeNode);
+            }
+        }
+        await this.cache.set(cacheKey, roots, 86400);
+        return roots;
     }
     async getTemplateTreeWithRules(appTypeCode, ratTypeCode) {
+        const cacheKey = `ctd:template-tree:${appTypeCode}:${ratTypeCode}`;
+        const cached = await this.cache.get(cacheKey);
+        if (cached)
+            return cached;
         const allNodes = await this.prisma.ctdTemplateNode.findMany({
             orderBy: { sortOrder: 'asc' },
         });
@@ -95,6 +101,7 @@ let CtdTemplateService = class CtdTemplateService {
                 roots.push(treeNode);
             }
         }
+        await this.cache.set(cacheKey, roots, 86400);
         return roots;
     }
     async initializeSequenceNodes(sequenceId) {
@@ -138,34 +145,105 @@ let CtdTemplateService = class CtdTemplateService {
                 requiredNodeIds.add(rule.templateNodeId);
             }
         }
-        const templateToSequenceId = new Map();
-        for (const tmpl of templateNodes) {
-            const operation = isFirstSequence && tmpl.isLeaf ? client_1.LeafOperation.NEW : null;
-            const seqNode = await this.prisma.sequenceNode.create({
-                data: {
-                    sequenceId,
-                    templateNodeId: tmpl.id,
-                    elementName: tmpl.elementName,
-                    ctdSectionNumber: tmpl.ctdSectionNumber,
-                    title: tmpl.titleZh,
-                    operation,
-                    status: client_1.SequenceNodeStatus.EMPTY,
-                    isRequired: requiredNodeIds.has(tmpl.id),
-                    isLeaf: tmpl.isLeaf,
-                    sortOrder: tmpl.sortOrder,
+        let priorNodesByTemplate = null;
+        if (!isFirstSequence) {
+            const priorSequences = await this.prisma.sequence.findMany({
+                where: {
+                    regulatoryActivityId: sequence.regulatoryActivity.id,
+                    id: { not: sequenceId },
                 },
+                orderBy: { sequenceNumber: 'desc' },
+                take: 1,
             });
-            templateToSequenceId.set(tmpl.id, seqNode.id);
-        }
-        for (const tmpl of templateNodes) {
-            if (tmpl.parentId) {
-                const seqNodeId = templateToSequenceId.get(tmpl.id);
-                const parentSeqNodeId = templateToSequenceId.get(tmpl.parentId);
-                if (seqNodeId && parentSeqNodeId) {
-                    await this.prisma.sequenceNode.update({
-                        where: { id: seqNodeId },
-                        data: { parentId: parentSeqNodeId },
+            if (priorSequences.length > 0) {
+                const priorNodes = await this.prisma.sequenceNode.findMany({
+                    where: { sequenceId: priorSequences[0].id },
+                });
+                priorNodesByTemplate = new Map();
+                for (const pn of priorNodes) {
+                    priorNodesByTemplate.set(pn.templateNodeId, {
+                        status: pn.status,
+                        operation: null,
                     });
+                }
+            }
+        }
+        const templateToSequenceId = new Map();
+        const nodeDataList = [];
+        for (const tmpl of templateNodes) {
+            const nodeId = (0, crypto_1.randomUUID)();
+            templateToSequenceId.set(tmpl.id, nodeId);
+            let operation = null;
+            let status = client_1.SequenceNodeStatus.EMPTY;
+            if (isFirstSequence && tmpl.isLeaf) {
+                operation = client_1.LeafOperation.NEW;
+            }
+            else if (priorNodesByTemplate && tmpl.isLeaf) {
+                const priorNode = priorNodesByTemplate.get(tmpl.id);
+                if (priorNode) {
+                    status = priorNode.status;
+                }
+            }
+            nodeDataList.push({
+                id: nodeId,
+                sequenceId,
+                templateNodeId: tmpl.id,
+                parentId: null,
+                elementName: tmpl.elementName,
+                ctdSectionNumber: tmpl.ctdSectionNumber,
+                title: tmpl.titleZh,
+                operation,
+                status,
+                isRequired: requiredNodeIds.has(tmpl.id),
+                isLeaf: tmpl.isLeaf,
+                sortOrder: tmpl.sortOrder,
+            });
+        }
+        for (let i = 0; i < templateNodes.length; i++) {
+            const tmpl = templateNodes[i];
+            if (tmpl.parentId) {
+                const parentSeqNodeId = templateToSequenceId.get(tmpl.parentId);
+                if (parentSeqNodeId) {
+                    nodeDataList[i].parentId = parentSeqNodeId;
+                }
+            }
+        }
+        await this.prisma.$transaction(nodeDataList.map((data) => this.prisma.sequenceNode.create({ data })));
+        if (!isFirstSequence && priorNodesByTemplate) {
+            const priorSequences = await this.prisma.sequence.findMany({
+                where: {
+                    regulatoryActivityId: sequence.regulatoryActivity.id,
+                    id: { not: sequenceId },
+                },
+                orderBy: { sequenceNumber: 'desc' },
+                take: 1,
+            });
+            if (priorSequences.length > 0) {
+                const priorExtensions = await this.prisma.sequenceNode.findMany({
+                    where: {
+                        sequenceId: priorSequences[0].id,
+                        elementName: 'node-extension',
+                    },
+                });
+                for (const ext of priorExtensions) {
+                    const parentSeqNodeId = templateToSequenceId.get(ext.templateNodeId);
+                    if (parentSeqNodeId) {
+                        await this.prisma.sequenceNode.create({
+                            data: {
+                                sequenceId,
+                                templateNodeId: ext.templateNodeId,
+                                parentId: parentSeqNodeId,
+                                elementName: 'node-extension',
+                                ctdSectionNumber: ext.ctdSectionNumber,
+                                title: ext.title,
+                                operation: null,
+                                status: ext.status,
+                                isRequired: false,
+                                isLeaf: true,
+                                sortOrder: ext.sortOrder,
+                            },
+                        });
+                    }
                 }
             }
         }
@@ -241,10 +319,48 @@ let CtdTemplateService = class CtdTemplateService {
         else {
             throw new common_1.BadRequestException(`章节 ${sno} 不支持骨架属性`);
         }
+        if (SUBSTANCE_SECTIONS.has(sno)) {
+            const hasSubstanceChange = (dto.substance !== undefined && dto.substance !== node.substance) ||
+                (dto.manufacturer !== undefined && dto.manufacturer !== node.manufacturer);
+            if (hasSubstanceChange) {
+                const sequence = await this.prisma.sequence.findUnique({
+                    where: { id: sequenceId },
+                });
+                if (sequence && sequence.sequenceNumber !== '0000') {
+                    const childLeaves = await this.prisma.sequenceNode.findMany({
+                        where: {
+                            sequenceId,
+                            isLeaf: true,
+                        },
+                    });
+                    const allNodes = await this.prisma.sequenceNode.findMany({
+                        where: { sequenceId },
+                    });
+                    const descendantIds = this.getDescendantIds(node.id, allNodes);
+                    const sectionLeaves = childLeaves.filter((l) => descendantIds.has(l.id));
+                    for (const leaf of sectionLeaves) {
+                        await this.prisma.sequenceNode.update({
+                            where: { id: leaf.id },
+                            data: { operation: client_1.LeafOperation.NEW },
+                        });
+                    }
+                }
+            }
+        }
         return this.prisma.sequenceNode.update({
             where: { id: nodeId },
             data,
         });
+    }
+    getDescendantIds(parentId, allNodes) {
+        const result = new Set();
+        const children = allNodes.filter((n) => n.parentId === parentId);
+        for (const child of children) {
+            result.add(child.id);
+            const grandChildren = this.getDescendantIds(child.id, allNodes);
+            grandChildren.forEach((id) => result.add(id));
+        }
+        return result;
     }
     async createExtensionNode(sequenceId, parentNodeId, dto) {
         const parentNode = await this.prisma.sequenceNode.findFirst({
@@ -403,6 +519,62 @@ let CtdTemplateService = class CtdTemplateService {
         }
         return results;
     }
+    async previewRequiredSections(sequenceId) {
+        const sequence = await this.prisma.sequence.findUnique({
+            where: { id: sequenceId },
+            include: {
+                regulatoryActivity: {
+                    include: {
+                        application: {
+                            select: { applicationTypeCode: true, productTypeCode: true },
+                        },
+                    },
+                },
+            },
+        });
+        if (!sequence)
+            throw new common_1.NotFoundException(`序列 ${sequenceId} 不存在`);
+        const appTypeCode = sequence.regulatoryActivity.application.applicationTypeCode;
+        const ratTypeCode = sequence.regulatoryActivity.regulatoryActivityTypeCode;
+        const rules = await this.prisma.ctdCompletenessRule.findMany({
+            where: {
+                applicationTypeCode: appTypeCode,
+                regulatoryActivityTypeCode: ratTypeCode,
+            },
+            include: {
+                templateNode: {
+                    select: {
+                        elementName: true,
+                        ctdSectionNumber: true,
+                        titleZh: true,
+                        module: true,
+                    },
+                },
+            },
+        });
+        const required = rules
+            .filter((r) => r.ruleType === 'REQUIRED')
+            .map((r) => ({
+            section: r.templateNode.ctdSectionNumber,
+            title: r.templateNode.titleZh,
+            module: r.templateNode.module,
+            severity: r.severity,
+        }));
+        const forbidden = rules
+            .filter((r) => r.ruleType === 'FORBIDDEN')
+            .map((r) => ({
+            section: r.templateNode.ctdSectionNumber,
+            title: r.templateNode.titleZh,
+            module: r.templateNode.module,
+        }));
+        return {
+            applicationTypeCode: appTypeCode,
+            regulatoryActivityTypeCode: ratTypeCode,
+            requiredSections: required,
+            forbiddenSections: forbidden,
+            totalRequired: required.length,
+        };
+    }
     getExtensionNodeOptions() {
         return Object.entries(EXTENSION_NODE_DEFS).map(([type, def]) => ({
             type,
@@ -414,6 +586,7 @@ let CtdTemplateService = class CtdTemplateService {
 exports.CtdTemplateService = CtdTemplateService;
 exports.CtdTemplateService = CtdTemplateService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        redis_cache_service_1.RedisCacheService])
 ], CtdTemplateService);
 //# sourceMappingURL=ctd-template.service.js.map

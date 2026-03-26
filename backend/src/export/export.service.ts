@@ -9,7 +9,7 @@ import { MinioService } from '../file/minio.service';
 
 export interface ExportResult {
   taskId: string;
-  status: 'completed' | 'failed';
+  status: 'completed' | 'failed' | 'compliance_warning';
   buffer?: Buffer;
   fileName?: string;
   contentType?: string;
@@ -79,7 +79,7 @@ export class ExportService {
 
     return {
       taskId: `pdf-${nodeId}-${Date.now()}`,
-      status: complianceResult.isCompliant ? 'completed' : 'completed',
+      status: complianceResult.isCompliant ? 'completed' : 'compliance_warning',
       buffer: pdfBuffer,
       fileName,
       contentType: 'application/pdf',

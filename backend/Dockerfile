@@ -1,6 +1,31 @@
-FROM node:20-slim
+# ============================================================
+# Stage 1: Build
+# ============================================================
+FROM node:20-slim AS builder
 
-# Install dependencies for Puppeteer (Chromium)
+WORKDIR /app
+
+# Copy package files and install dependencies
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Copy prisma schema and generate client
+COPY prisma ./prisma/
+RUN npx prisma generate
+
+# Copy source code and build
+COPY . .
+RUN npm run build
+
+# Remove dev dependencies for smaller production image
+RUN npm prune --production && npx prisma generate
+
+# ============================================================
+# Stage 2: Production
+# ============================================================
+FROM node:20-slim AS production
+
+# Install runtime dependencies for Puppeteer (Chromium) and Chinese fonts
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     fonts-liberation \
@@ -20,33 +45,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrandr2 \
     xdg-utils \
     wget \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Chinese fonts (SimSun/SimHei for eCTD compliance)
-RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-wqy-zenhei \
     fonts-wqy-microhei \
     && rm -rf /var/lib/apt/lists/*
 
+# Create non-root user for security
+RUN groupadd -r ectd && useradd -r -g ectd -m ectd
+
 WORKDIR /app
 
-# Copy package files
-COPY package.json package-lock.json ./
+# Copy built artifacts and production dependencies from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/package.json ./
 
-# Install dependencies
-RUN npm ci
+# Copy reference files needed at runtime (CV XMLs, DTDs, etc.)
+# These are accessed by services via process.cwd()/../reference/
+COPY --from=builder /app/../reference /reference 2>/dev/null || true
 
-# Copy prisma schema and generate client
-COPY prisma ./prisma/
-RUN npx prisma generate
+# Set ownership
+RUN chown -R ectd:ectd /app
 
-# Copy source code
-COPY . .
-
-# Build
-RUN npm run build
+USER ectd
 
 EXPOSE 3000
 
-# Development mode: use ts-node with watch
-CMD ["npm", "run", "start:dev"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+
+# Production mode
+CMD ["node", "dist/main.js"]

@@ -1,8 +1,10 @@
 import React from 'react';
-import { Card, Progress, Row, Col, List, Tag, Statistic, Empty } from 'antd';
+import { Card, Progress, Row, Col, List, Tag, Statistic, Empty, Tooltip } from 'antd';
 import {
   ExclamationCircleOutlined,
   CloseCircleOutlined,
+  CheckCircleOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import type { CompletenessResult } from '../types';
 
@@ -17,10 +19,10 @@ export const CompletenessPanel: React.FC<CompletenessPanelProps> = ({
     return <Empty description="暂无完整性数据" />;
   }
 
-  const completionPercent =
-    data.requiredSections > 0
-      ? Math.round((data.completedRequired / data.requiredSections) * 100)
-      : 100;
+  const hasRequiredSections = data.requiredSections > 0;
+  const completionPercent = hasRequiredSections
+    ? Math.round((data.completedRequired / data.requiredSections) * 100)
+    : 0;
 
   return (
     <div>
@@ -38,22 +40,32 @@ export const CompletenessPanel: React.FC<CompletenessPanelProps> = ({
           <Card size="small">
             <Statistic
               title="必填章节"
-              value={data.requiredSections}
-              suffix="个"
+              value={hasRequiredSections ? data.requiredSections : undefined}
+              formatter={hasRequiredSections ? undefined : () => '无'}
+              suffix={hasRequiredSections ? '个' : undefined}
               valueStyle={{ color: '#1890ff' }}
             />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic
-              title="已完成必填"
-              value={data.completedRequired}
-              suffix={`/ ${data.requiredSections}`}
-              valueStyle={{
-                color: data.completedRequired === data.requiredSections ? '#52c41a' : '#faad14',
-              }}
-            />
+            {hasRequiredSections ? (
+              <Statistic
+                title="已完成必填"
+                value={data.completedRequired}
+                suffix={`/ ${data.requiredSections}`}
+                valueStyle={{
+                  color: data.completedRequired === data.requiredSections ? '#52c41a' : '#faad14',
+                }}
+              />
+            ) : (
+              <Statistic
+                title="已完成必填"
+                value={undefined}
+                formatter={() => '无必填要求'}
+                valueStyle={{ color: '#8c8c8c', fontSize: 16 }}
+              />
+            )}
           </Card>
         </Col>
         <Col span={6}>
@@ -62,36 +74,62 @@ export const CompletenessPanel: React.FC<CompletenessPanelProps> = ({
               <div style={{ fontSize: 14, color: '#8c8c8c', marginBottom: 8 }}>
                 完成度
               </div>
-              <Progress
-                type="circle"
-                percent={completionPercent}
-                size={64}
-                status={completionPercent === 100 ? 'success' : 'active'}
-              />
+              {hasRequiredSections ? (
+                <Progress
+                  type="circle"
+                  percent={completionPercent}
+                  size={64}
+                  status={completionPercent === 100 ? 'success' : 'active'}
+                />
+              ) : (
+                <Progress
+                  type="circle"
+                  percent={0}
+                  size={64}
+                  format={() => 'N/A'}
+                />
+              )}
             </div>
           </Card>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        {Object.entries(data.moduleStats).map(([mod, stats]) => (
-          <Col span={Math.floor(24 / Object.keys(data.moduleStats).length)} key={mod}>
-            <Card size="small" title={mod}>
-              <Progress
-                percent={
-                  stats.required > 0
-                    ? Math.round((stats.completed / stats.required) * 100)
-                    : 100
-                }
-                size="small"
-                status={stats.completed >= stats.required ? 'success' : 'active'}
-              />
-              <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>
-                {stats.completed}/{stats.required} 必填 · {stats.total} 总计
-              </div>
-            </Card>
-          </Col>
-        ))}
+        {Object.entries(data.moduleStats).map(([mod, stats]) => {
+          const hasRules = stats.required > 0;
+          const percent = hasRules
+            ? Math.round((stats.completed / stats.required) * 100)
+            : (stats.total > 0 ? undefined : undefined);
+
+          return (
+            <Col span={Math.floor(24 / Object.keys(data.moduleStats).length)} key={mod}>
+              <Card size="small" title={mod}>
+                {hasRules ? (
+                  <>
+                    <Progress
+                      percent={percent}
+                      size="small"
+                      status={stats.completed >= stats.required ? 'success' : 'active'}
+                    />
+                    <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>
+                      {stats.completed}/{stats.required} 必填 · {stats.total} 总计
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '4px 0' }}>
+                    <Tooltip title="根据 eCTD 验证标准 V1.1 第 4.3 节，该模块无自动化必填规则，内容由申报人根据申请类型自行决定">
+                      <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 20 }} />
+                      <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>
+                        无必填规则 · {stats.total} 总计
+                        <InfoCircleOutlined style={{ marginLeft: 4, cursor: 'help' }} />
+                      </div>
+                    </Tooltip>
+                  </div>
+                )}
+              </Card>
+            </Col>
+          );
+        })}
       </Row>
 
       {data.missingRequired.length > 0 && (

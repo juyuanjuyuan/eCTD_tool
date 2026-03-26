@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { Editor } from '@tiptap/react';
 import { Button, Space, Divider, Select, Tooltip, Dropdown } from 'antd';
 import {
@@ -16,6 +16,7 @@ import {
   AlignCenterOutlined,
   AlignRightOutlined,
   MenuOutlined,
+  LinkOutlined,
 } from '@ant-design/icons';
 
 // eCTD compliant font sizes (小四号=12pt, 五号=10.5pt)
@@ -39,10 +40,11 @@ function getHeadingLevel(editor: Editor): number {
 interface ToolbarProps {
   editor: Editor;
   onInsertImage?: () => void;
+  onInsertCrossReference?: () => void;
 }
 
-const Toolbar: React.FC<ToolbarProps> = ({ editor, onInsertImage }) => {
-  const tableMenuItems = [
+const Toolbar: React.FC<ToolbarProps> = React.memo(({ editor, onInsertImage, onInsertCrossReference }) => {
+  const tableMenuItems = useMemo(() => [
     {
       key: 'insert',
       label: '插入 3×3 表格',
@@ -105,7 +107,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ editor, onInsertImage }) => {
       onClick: () => editor.chain().focus().splitCell().run(),
       disabled: !editor.can().splitCell(),
     },
-  ];
+  ], [editor]);
 
   return (
     <div className="editor-toolbar">
@@ -251,6 +253,16 @@ const Toolbar: React.FC<ToolbarProps> = ({ editor, onInsertImage }) => {
           />
         </Tooltip>
 
+        {/* Cross Reference */}
+        <Tooltip title="交叉引用">
+          <Button
+            type="text"
+            icon={<LinkOutlined />}
+            size="small"
+            onClick={onInsertCrossReference}
+          />
+        </Tooltip>
+
         <Divider type="vertical" />
 
         {/* Undo/Redo */}
@@ -275,6 +287,8 @@ const Toolbar: React.FC<ToolbarProps> = ({ editor, onInsertImage }) => {
       </Space>
     </div>
   );
-};
+});
+
+Toolbar.displayName = 'Toolbar';
 
 export default Toolbar;

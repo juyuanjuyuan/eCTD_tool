@@ -9,14 +9,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PrismaModule = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("./prisma.service");
+const redis_cache_service_1 = require("../common/redis-cache.service");
 let PrismaModule = class PrismaModule {
 };
 exports.PrismaModule = PrismaModule;
 exports.PrismaModule = PrismaModule = __decorate([
     (0, common_1.Global)(),
     (0, common_1.Module)({
-        providers: [prisma_service_1.PrismaService],
-        exports: [prisma_service_1.PrismaService],
+        providers: [prisma_service_1.PrismaService, redis_cache_service_1.RedisCacheService],
+        exports: [prisma_service_1.PrismaService, redis_cache_service_1.RedisCacheService],
     })
 ], PrismaModule);
 //# sourceMappingURL=prisma.module.js.map

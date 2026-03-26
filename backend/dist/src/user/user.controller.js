@@ -25,6 +25,9 @@ let UserController = class UserController {
     constructor(userService) {
         this.userService = userService;
     }
+    async searchUsers(q) {
+        return this.userService.searchUsers(q || '');
+    }
     findAll(query) {
         return this.userService.findAll(query);
     }
@@ -40,7 +43,16 @@ let UserController = class UserController {
 };
 exports.UserController = UserController;
 __decorate([
+    (0, common_1.Get)('search'),
+    __param(0, (0, common_1.Query)('q')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], UserController.prototype, "searchUsers", null);
+__decorate([
     (0, common_1.Get)(),
+    (0, common_1.UseGuards)(roles_guard_1.RolesGuard),
+    (0, roles_decorator_1.Roles)(client_1.Role.ADMIN),
     __param(0, (0, common_1.Query)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [dto_1.QueryUserDto]),
@@ -70,8 +82,7 @@ __decorate([
 ], UserController.prototype, "disable", null);
 exports.UserController = UserController = __decorate([
     (0, common_1.Controller)('api/v1/users'),
-    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
-    (0, roles_decorator_1.Roles)(client_1.Role.ADMIN),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     __metadata("design:paramtypes", [user_service_1.UserService])
 ], UserController);
 //# sourceMappingURL=user.controller.js.map

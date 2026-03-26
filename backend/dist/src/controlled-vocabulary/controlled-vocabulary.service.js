@@ -46,19 +46,22 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ControlledVocabularyService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const redis_cache_service_1 = require("../common/redis-cache.service");
 const fast_xml_parser_1 = require("fast-xml-parser");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 let ControlledVocabularyService = ControlledVocabularyService_1 = class ControlledVocabularyService {
     prisma;
+    cache;
     logger = new common_1.Logger(ControlledVocabularyService_1.name);
     xmlParser = new fast_xml_parser_1.XMLParser({
         ignoreAttributes: false,
         attributeNamePrefix: '@_',
     });
     cvBasePath = path.resolve(process.cwd(), '../reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包');
-    constructor(prisma) {
+    constructor(prisma, cache) {
         this.prisma = prisma;
+        this.cache = cache;
     }
     async onModuleInit() {
         await this.seedControlledVocabularies();
@@ -149,62 +152,92 @@ let ControlledVocabularyService = ControlledVocabularyService_1 = class Controll
         return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
     }
     async getApplicationTypes() {
-        return this.prisma.controlledVocabulary.findMany({
+        const cacheKey = 'cv:application-types';
+        const cached = await this.cache.get(cacheKey);
+        if (cached)
+            return cached;
+        const result = await this.prisma.controlledVocabulary.findMany({
             where: { vocabularyName: 'application-type' },
             orderBy: { code: 'asc' },
         });
+        await this.cache.set(cacheKey, result, 86400);
+        return result;
     }
     async getProductTypes() {
-        return this.prisma.controlledVocabulary.findMany({
+        const cacheKey = 'cv:product-types';
+        const cached = await this.cache.get(cacheKey);
+        if (cached)
+            return cached;
+        const result = await this.prisma.controlledVocabulary.findMany({
             where: { vocabularyName: 'product-type' },
             orderBy: { code: 'asc' },
         });
+        await this.cache.set(cacheKey, result, 86400);
+        return result;
     }
     async getRegulatoryActivityTypes(appType) {
+        const cacheKey = `cv:rat-types:${appType || 'all'}`;
+        const cached = await this.cache.get(cacheKey);
+        if (cached)
+            return cached;
+        let result;
         if (!appType) {
-            return this.prisma.controlledVocabulary.findMany({
+            result = await this.prisma.controlledVocabulary.findMany({
                 where: { vocabularyName: 'regulatory-activity-type' },
                 orderBy: { code: 'asc' },
             });
         }
-        const deps = await this.prisma.cvDependency.findMany({
-            where: { applicationTypeCode: appType },
-            select: { regulatoryActivityTypeCode: true },
-            distinct: ['regulatoryActivityTypeCode'],
-        });
-        const ratCodes = deps.map((d) => d.regulatoryActivityTypeCode);
-        return this.prisma.controlledVocabulary.findMany({
-            where: {
-                vocabularyName: 'regulatory-activity-type',
-                code: { in: ratCodes },
-            },
-            orderBy: { code: 'asc' },
-        });
+        else {
+            const deps = await this.prisma.cvDependency.findMany({
+                where: { applicationTypeCode: appType },
+                select: { regulatoryActivityTypeCode: true },
+                distinct: ['regulatoryActivityTypeCode'],
+            });
+            const ratCodes = deps.map((d) => d.regulatoryActivityTypeCode);
+            result = await this.prisma.controlledVocabulary.findMany({
+                where: {
+                    vocabularyName: 'regulatory-activity-type',
+                    code: { in: ratCodes },
+                },
+                orderBy: { code: 'asc' },
+            });
+        }
+        await this.cache.set(cacheKey, result, 86400);
+        return result;
     }
     async getSequenceTypes(appType, ratType) {
+        const cacheKey = `cv:sqt-types:${appType || 'all'}:${ratType || 'all'}`;
+        const cached = await this.cache.get(cacheKey);
+        if (cached)
+            return cached;
+        let result;
         if (!appType || !ratType) {
-            return this.prisma.controlledVocabulary.findMany({
+            result = await this.prisma.controlledVocabulary.findMany({
                 where: { vocabularyName: 'sequence-type' },
                 orderBy: { code: 'asc' },
             });
         }
-        const deps = await this.prisma.cvDependency.findMany({
-            where: {
-                applicationTypeCode: appType,
-                regulatoryActivityTypeCode: ratType,
-            },
-            select: { sequenceTypeCode: true },
-        });
-        const sqtCodes = deps
-            .map((d) => d.sequenceTypeCode)
-            .filter((c) => c !== null);
-        return this.prisma.controlledVocabulary.findMany({
-            where: {
-                vocabularyName: 'sequence-type',
-                code: { in: sqtCodes },
-            },
-            orderBy: { code: 'asc' },
-        });
+        else {
+            const deps = await this.prisma.cvDependency.findMany({
+                where: {
+                    applicationTypeCode: appType,
+                    regulatoryActivityTypeCode: ratType,
+                },
+                select: { sequenceTypeCode: true },
+            });
+            const sqtCodes = deps
+                .map((d) => d.sequenceTypeCode)
+                .filter((c) => c !== null);
+            result = await this.prisma.controlledVocabulary.findMany({
+                where: {
+                    vocabularyName: 'sequence-type',
+                    code: { in: sqtCodes },
+                },
+                orderBy: { code: 'asc' },
+            });
+        }
+        await this.cache.set(cacheKey, result, 86400);
+        return result;
     }
     async validateDependency(appType, ratType, sqtType) {
         const where = {
@@ -228,6 +261,7 @@ let ControlledVocabularyService = ControlledVocabularyService_1 = class Controll
 exports.ControlledVocabularyService = ControlledVocabularyService;
 exports.ControlledVocabularyService = ControlledVocabularyService = ControlledVocabularyService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        redis_cache_service_1.RedisCacheService])
 ], ControlledVocabularyService);
 //# sourceMappingURL=controlled-vocabulary.service.js.map

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsUUID, IsArray } from 'class-validator';
 
 export class CreateCommentDto {
   @IsString()
@@ -8,4 +8,9 @@ export class CreateCommentDto {
   @IsOptional()
   @IsUUID('4', { message: '无效的父评论 ID' })
   parentId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  mentions?: string[];
 }

@@ -36,4 +36,16 @@ export class Md5Service {
     const uuid = crypto.randomUUID().replace(/-/g, '');
     return `N${uuid}`;
   }
+
+  /**
+   * Generate a deterministic leaf ID based on sequenceId + nodeId + fileIndex.
+   * This allows referencing the leaf ID in modified-file attributes
+   * when a REPLACE/DELETE/APPEND operation targets a prior leaf.
+   */
+  generateDeterministicLeafId(sequenceId: string, nodeId: string, fileIndex: number = 0): string {
+    const hash = crypto.createHash('md5')
+      .update(`${sequenceId}:${nodeId}:${fileIndex}`)
+      .digest('hex');
+    return `N${hash}`;
+  }
 }

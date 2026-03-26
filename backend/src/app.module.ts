@@ -18,6 +18,7 @@ import { EditLockModule } from './edit-lock/edit-lock.module';
 import { ApprovalModule } from './approval/approval.module';
 import { CommentModule } from './comment/comment.module';
 import { ActivityLogModule } from './activity-log/activity-log.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -26,9 +27,11 @@ import { ActivityLogModule } from './activity-log/activity-log.module';
       redis: {
         host: process.env.REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT || '6379', 10),
+        password: process.env.REDIS_PASSWORD || undefined,
       },
     }),
     PrismaModule,
+    HealthModule,
     AuthModule,
     UserModule,
     ProjectModule,

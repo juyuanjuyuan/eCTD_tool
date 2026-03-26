@@ -34,6 +34,9 @@ let CtdTemplateController = class CtdTemplateController {
     initializeSequence(seqId) {
         return this.ctdTemplateService.initializeSequenceNodes(seqId);
     }
+    previewRequired(seqId) {
+        return this.ctdTemplateService.previewRequiredSections(seqId);
+    }
     getSequenceNodeTree(seqId) {
         return this.ctdTemplateService.getSequenceNodeTree(seqId);
     }
@@ -75,6 +78,13 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
 ], CtdTemplateController.prototype, "initializeSequence", null);
+__decorate([
+    (0, common_1.Get)('sequences/:seqId/preview-required'),
+    __param(0, (0, common_1.Param)('seqId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], CtdTemplateController.prototype, "previewRequired", null);
 __decorate([
     (0, common_1.Get)('sequences/:seqId/nodes/tree'),
     __param(0, (0, common_1.Param)('seqId')),

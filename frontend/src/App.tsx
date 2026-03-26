@@ -1,10 +1,21 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, Spin } from 'antd';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import zhCN from 'antd/locale/zh_CN';
 import BasicLayout from './layouts/BasicLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import LoginPage from './pages/auth/LoginPage';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 // Lazy-loaded page components for code splitting
 const DashboardPage = lazy(() => import('./pages/dashboard/DashboardPage'));
@@ -22,6 +33,7 @@ const PageLoader = () => (
 
 function App() {
   return (
+    <QueryClientProvider client={queryClient}>
     <ConfigProvider locale={zhCN}>
       <BrowserRouter>
         <Suspense fallback={<PageLoader />}>
@@ -55,6 +67,7 @@ function App() {
         </Suspense>
       </BrowserRouter>
     </ConfigProvider>
+    </QueryClientProvider>
   );
 }
 

@@ -148,7 +148,7 @@ const EctdPackagePanel: React.FC<Props> = ({ sequenceId, validationPassed }) => 
         }
       >
         {!previewed ? (
-          <Empty description="点击"预览结构"查看即将生成的文件夹结构" />
+          <Empty description={'点击"预览结构"查看即将生成的文件夹结构'} />
         ) : loading ? (
           <Spin />
         ) : (

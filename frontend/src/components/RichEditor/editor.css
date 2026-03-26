@@ -185,6 +185,22 @@
   text-decoration: underline;
 }
 
+/* ==================== Cross Reference ==================== */
+
+.editor-content .tiptap a.cross-reference {
+  color: #1890ff;
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 500;
+  background: rgba(24, 144, 255, 0.05);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.editor-content .tiptap a.cross-reference:hover {
+  background: rgba(24, 144, 255, 0.12);
+}
+
 /* ==================== Horizontal Rule ==================== */
 
 .editor-content .tiptap hr {

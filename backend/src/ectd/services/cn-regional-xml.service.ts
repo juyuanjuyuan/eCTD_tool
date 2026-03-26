@@ -14,6 +14,7 @@ interface LeafData {
 
 interface SequenceNodeWithChildren {
   id: string;
+  templateNodeId: string;
   elementName: string;
   ctdSectionNumber: string;
   title: string;
@@ -59,12 +60,56 @@ export class CnRegionalXmlService {
     const app = sequence.regulatoryActivity.application;
     const ra = sequence.regulatoryActivity;
 
+    // Load prior sequence leaf ID map for modified-file references
+    const priorLeafIdMap = await this.buildPriorLeafIdMap(sequence);
+
     // Load module 1 sequence nodes (tree structure)
     const module1Nodes = await this.loadModule1Nodes(sequenceId);
 
     // Build XML
-    const xml = this.buildXml(sequence, app, ra, module1Nodes);
+    const xml = this.buildXml(sequence, app, ra, module1Nodes, priorLeafIdMap);
     return xml;
+  }
+
+  /**
+   * Build a map from templateNodeId -> prior sequence leaf ID
+   * for REPLACE/DELETE/APPEND operations' modified-file attribute
+   */
+  private async buildPriorLeafIdMap(
+    sequence: { id: string; sequenceNumber: string; regulatoryActivityId: string },
+  ): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    if (sequence.sequenceNumber === '0000') return map;
+
+    const priorSequences = await this.prisma.sequence.findMany({
+      where: {
+        regulatoryActivityId: sequence.regulatoryActivityId,
+        sequenceNumber: { lt: sequence.sequenceNumber },
+      },
+      orderBy: { sequenceNumber: 'desc' },
+      select: { id: true },
+    });
+
+    for (const priorSeq of priorSequences) {
+      const priorNodes = await this.prisma.sequenceNode.findMany({
+        where: {
+          sequenceId: priorSeq.id,
+          isLeaf: true,
+          operation: { not: null },
+          templateNode: { module: 1 },
+        },
+        select: { id: true, templateNodeId: true },
+      });
+
+      for (const node of priorNodes) {
+        if (!map.has(node.templateNodeId)) {
+          map.set(node.templateNodeId, this.md5Service.generateDeterministicLeafId(priorSeq.id, node.id));
+        }
+      }
+      break;
+    }
+
+    return map;
   }
 
   private async loadModule1Nodes(sequenceId: string): Promise<SequenceNodeWithChildren[]> {
@@ -91,6 +136,7 @@ export class CnRegionalXmlService {
     for (const node of m1Nodes) {
       nodeMap.set(node.id, {
         id: node.id,
+        templateNodeId: node.templateNodeId,
         elementName: node.elementName,
         ctdSectionNumber: node.ctdSectionNumber,
         title: node.title,
@@ -119,6 +165,7 @@ export class CnRegionalXmlService {
     app: any,
     ra: any,
     module1Nodes: SequenceNodeWithChildren[],
+    priorLeafIdMap: Map<string, string>,
   ): string {
     const lines: string[] = [];
 
@@ -168,7 +215,7 @@ export class CnRegionalXmlService {
 
     // cn-content
     lines.push('  <cn-content>');
-    this.buildContentElements(lines, module1Nodes, '    ');
+    this.buildContentElements(lines, module1Nodes, '    ', sequence.id, priorLeafIdMap);
     lines.push('  </cn-content>');
 
     // Close root
@@ -185,16 +232,18 @@ export class CnRegionalXmlService {
     lines: string[],
     nodes: SequenceNodeWithChildren[],
     indent: string,
+    sequenceId: string,
+    priorLeafIdMap: Map<string, string>,
   ): void {
     for (const node of nodes) {
       if (node.isLeaf) {
         // Leaf node — generate leaf elements for each file attachment
-        this.buildLeafElements(lines, node, indent);
+        this.buildLeafElements(lines, node, indent, sequenceId, priorLeafIdMap);
       } else if (node.children.length > 0) {
         // Section node — only emit if it has any descendant leaves with content
         if (this.hasActiveLeaves(node)) {
           lines.push(`${indent}<${node.elementName}>`);
-          this.buildContentElements(lines, node.children, indent + '  ');
+          this.buildContentElements(lines, node.children, indent + '  ', sequenceId, priorLeafIdMap);
           lines.push(`${indent}</${node.elementName}>`);
         }
       }
@@ -205,24 +254,34 @@ export class CnRegionalXmlService {
     lines: string[],
     node: SequenceNodeWithChildren,
     indent: string,
+    sequenceId: string,
+    priorLeafIdMap: Map<string, string>,
   ): void {
     if (!node.operation) return;
 
     const op = node.operation.toLowerCase();
+    const modifiedFile = ['replace', 'delete', 'append'].includes(op)
+      ? priorLeafIdMap.get(node.templateNodeId)
+      : undefined;
 
     // If node has file attachments, generate one leaf per file
     if (node.fileAttachments.length > 0) {
-      for (const file of node.fileAttachments) {
-        const leafId = this.md5Service.generateLeafId();
-        const attrs = this.buildLeafAttributes(leafId, op, file);
+      for (let i = 0; i < node.fileAttachments.length; i++) {
+        const file = node.fileAttachments[i];
+        const leafId = this.md5Service.generateDeterministicLeafId(sequenceId, node.id, i);
+        const attrs = this.buildLeafAttributes(leafId, op, file, modifiedFile);
         lines.push(`${indent}<leaf ${attrs}>`);
         lines.push(`${indent}  <title>${this.escapeXml(node.title)}</title>`);
         lines.push(`${indent}</leaf>`);
       }
     } else if (op === 'delete') {
       // Delete operations have no file reference
-      const leafId = this.md5Service.generateLeafId();
-      lines.push(`${indent}<leaf ID="${leafId}" operation="delete">`);
+      const leafId = this.md5Service.generateDeterministicLeafId(sequenceId, node.id);
+      const deleteAttrs = [`ID="${leafId}"`, `operation="delete"`];
+      if (modifiedFile) {
+        deleteAttrs.push(`modified-file="${modifiedFile}"`);
+      }
+      lines.push(`${indent}<leaf ${deleteAttrs.join(' ')}>`);
       lines.push(`${indent}  <title>${this.escapeXml(node.title)}</title>`);
       lines.push(`${indent}</leaf>`);
     }
@@ -233,8 +292,13 @@ export class CnRegionalXmlService {
     leafId: string,
     operation: string,
     file: { ectdRelativePath: string; md5Checksum: string; xmlLang: string },
+    modifiedFile?: string,
   ): string {
     const parts: string[] = [`ID="${leafId}"`, `operation="${operation}"`];
+
+    if (modifiedFile) {
+      parts.push(`modified-file="${modifiedFile}"`);
+    }
 
     if (operation !== 'delete') {
       parts.push(`xlink:href="${this.escapeXml(file.ectdRelativePath)}"`);

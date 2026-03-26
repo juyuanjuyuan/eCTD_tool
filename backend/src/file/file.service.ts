@@ -24,6 +24,7 @@ const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg']);
 @Injectable()
 export class FileService {
   private readonly logger = new Logger(FileService.name);
+  private readonly chunkStore = new Map<string, { chunks: Map<number, Buffer>; totalChunks: number; fileName: string }>();
 
   constructor(
     private prisma: PrismaService,
@@ -31,6 +32,66 @@ export class FileService {
     private normalizer: FileNameNormalizerService,
     private pdfCompliance: PDFComplianceService,
   ) {}
+
+  /**
+   * Handle a file chunk for chunked upload.
+   * When all chunks are received, assemble and process the file.
+   */
+  async handleChunk(
+    nodeId: string,
+    params: {
+      uploadId: string;
+      chunkIndex: number;
+      totalChunks: number;
+      fileName: string;
+      chunkBuffer: Buffer;
+      userId?: string;
+    },
+  ) {
+    const { uploadId, chunkIndex, totalChunks, fileName, chunkBuffer, userId } = params;
+
+    if (!this.chunkStore.has(uploadId)) {
+      this.chunkStore.set(uploadId, { chunks: new Map(), totalChunks, fileName });
+    }
+
+    const entry = this.chunkStore.get(uploadId)!;
+    entry.chunks.set(chunkIndex, chunkBuffer);
+
+    this.logger.log(`Chunk ${chunkIndex + 1}/${totalChunks} received for upload ${uploadId}`);
+
+    // Check if all chunks are received
+    if (entry.chunks.size === totalChunks) {
+      // Assemble chunks in order
+      const buffers: Buffer[] = [];
+      for (let i = 0; i < totalChunks; i++) {
+        const chunk = entry.chunks.get(i);
+        if (!chunk) {
+          this.chunkStore.delete(uploadId);
+          throw new BadRequestException(`分片 ${i} 缺失`);
+        }
+        buffers.push(chunk);
+      }
+      const fullBuffer = Buffer.concat(buffers);
+      this.chunkStore.delete(uploadId);
+
+      // Create a multer-like file object
+      const assembledFile = {
+        originalname: fileName,
+        buffer: fullBuffer,
+        size: fullBuffer.length,
+        mimetype: 'application/octet-stream',
+      } as Express.Multer.File;
+
+      return this.uploadFile(nodeId, assembledFile, userId);
+    }
+
+    return {
+      status: 'chunk_received',
+      chunkIndex,
+      receivedChunks: entry.chunks.size,
+      totalChunks,
+    };
+  }
 
   /**
    * Upload a file to a sequence node.

@@ -31,11 +31,15 @@ export class CommentService {
       }
     }
 
+    // Extract @mentions from content if not provided explicitly
+    const mentions = dto.mentions || this.extractMentions(dto.content);
+
     return this.prisma.comment.create({
       data: {
         sequenceNodeId: nodeId,
         userId,
         content: dto.content,
+        mentions: mentions,
         parentId: dto.parentId || null,
       },
       include: {
@@ -91,5 +95,11 @@ export class CommentService {
     return this.prisma.comment.count({
       where: { sequenceNodeId: nodeId },
     });
+  }
+
+  private extractMentions(content: string): string[] {
+    const matches = content.match(/@(\S+)/g);
+    if (!matches) return [];
+    return [...new Set(matches.map((m) => m.slice(1)))];
   }
 }

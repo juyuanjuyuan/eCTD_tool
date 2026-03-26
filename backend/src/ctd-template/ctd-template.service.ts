@@ -12,6 +12,7 @@ import {
   CreateExtensionNodeDto,
 } from './dto';
 import { LeafOperation, SequenceNodeStatus } from '@prisma/client';
+import { randomUUID } from 'crypto';
 
 // Extension node definitions from node-extension-property_CN.xml
 const EXTENSION_NODE_DEFS: Record<string, { titleZh: string; titleEn: string }> = {
@@ -42,34 +43,29 @@ export class CtdTemplateService {
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const result = await this.prisma.ctdTemplateNode.findMany({
-      where: { parentId: null },
-      include: {
-        children: {
-          include: {
-            children: {
-              include: {
-                children: {
-                  include: {
-                    children: {
-                      include: {
-                        children: {
-                          include: { children: true },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
+    // Use flat query + in-memory tree building instead of deeply nested includes
+    // This is a single DB query instead of 7 levels of nested queries
+    const allNodes = await this.prisma.ctdTemplateNode.findMany({
       orderBy: { sortOrder: 'asc' },
     });
 
-    await this.cache.set(cacheKey, result, 86400); // 24h - template data is static
-    return result;
+    const nodeMap = new Map<string, any>();
+    for (const node of allNodes) {
+      nodeMap.set(node.id, { ...node, children: [] });
+    }
+
+    const roots: any[] = [];
+    for (const node of allNodes) {
+      const treeNode = nodeMap.get(node.id);
+      if (node.parentId && nodeMap.has(node.parentId)) {
+        nodeMap.get(node.parentId).children.push(treeNode);
+      } else {
+        roots.push(treeNode);
+      }
+    }
+
+    await this.cache.set(cacheKey, roots, 86400); // 24h - template data is static
+    return roots;
   }
 
   async getTemplateTreeWithRules(appTypeCode: string, ratTypeCode: string) {
@@ -208,54 +204,73 @@ export class CtdTemplateService {
       }
     }
 
-    // Map template node IDs to sequence node IDs
+    // Pre-generate IDs and build all node data in memory
     const templateToSequenceId = new Map<string, string>();
+    const nodeDataList: Array<{
+      id: string;
+      sequenceId: string;
+      templateNodeId: string;
+      parentId: string | null;
+      elementName: string;
+      ctdSectionNumber: string;
+      title: string;
+      operation: LeafOperation | null;
+      status: SequenceNodeStatus;
+      isRequired: boolean;
+      isLeaf: boolean;
+      sortOrder: number;
+    }> = [];
 
-    // Create sequence nodes from template
+    // First pass: generate IDs and compute node data
     for (const tmpl of templateNodes) {
+      const nodeId = randomUUID();
+      templateToSequenceId.set(tmpl.id, nodeId);
+
       let operation: LeafOperation | null = null;
       let status: SequenceNodeStatus = SequenceNodeStatus.EMPTY;
 
       if (isFirstSequence && tmpl.isLeaf) {
         operation = LeafOperation.NEW;
       } else if (priorNodesByTemplate && tmpl.isLeaf) {
-        // Inherit status from prior sequence
         const priorNode = priorNodesByTemplate.get(tmpl.id);
         if (priorNode) {
           status = priorNode.status;
         }
       }
 
-      const seqNode = await this.prisma.sequenceNode.create({
-        data: {
-          sequenceId,
-          templateNodeId: tmpl.id,
-          elementName: tmpl.elementName,
-          ctdSectionNumber: tmpl.ctdSectionNumber,
-          title: tmpl.titleZh,
-          operation,
-          status,
-          isRequired: requiredNodeIds.has(tmpl.id),
-          isLeaf: tmpl.isLeaf,
-          sortOrder: tmpl.sortOrder,
-        },
+      nodeDataList.push({
+        id: nodeId,
+        sequenceId,
+        templateNodeId: tmpl.id,
+        parentId: null, // set in second pass
+        elementName: tmpl.elementName,
+        ctdSectionNumber: tmpl.ctdSectionNumber,
+        title: tmpl.titleZh,
+        operation,
+        status,
+        isRequired: requiredNodeIds.has(tmpl.id),
+        isLeaf: tmpl.isLeaf,
+        sortOrder: tmpl.sortOrder,
       });
-      templateToSequenceId.set(tmpl.id, seqNode.id);
     }
 
-    // Set parent references
-    for (const tmpl of templateNodes) {
+    // Second pass: resolve parent references using pre-generated IDs
+    for (let i = 0; i < templateNodes.length; i++) {
+      const tmpl = templateNodes[i];
       if (tmpl.parentId) {
-        const seqNodeId = templateToSequenceId.get(tmpl.id);
         const parentSeqNodeId = templateToSequenceId.get(tmpl.parentId);
-        if (seqNodeId && parentSeqNodeId) {
-          await this.prisma.sequenceNode.update({
-            where: { id: seqNodeId },
-            data: { parentId: parentSeqNodeId },
-          });
+        if (parentSeqNodeId) {
+          nodeDataList[i].parentId = parentSeqNodeId;
         }
       }
     }
+
+    // Batch insert all nodes in a single transaction (instead of ~458 individual operations)
+    await this.prisma.$transaction(
+      nodeDataList.map((data) =>
+        this.prisma.sequenceNode.create({ data }),
+      ),
+    );
 
     // For subsequent sequences, also copy extension nodes from prior sequence
     if (!isFirstSequence && priorNodesByTemplate) {

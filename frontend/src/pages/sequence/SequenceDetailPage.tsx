@@ -21,6 +21,7 @@ import {
   EditOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
+import { Link } from 'react-router-dom';
 import { sequenceApi } from '../../services/application';
 import { ctdApi } from '../../services/ctd';
 import CTDTree from '../../components/CTDTree';
@@ -206,7 +207,18 @@ const SequenceDetailPage: React.FC = () => {
   return (
     <div style={{ padding: 24 }}>
       <Space style={{ marginBottom: 16 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
+        <Button
+          icon={<ArrowLeftOutlined />}
+          onClick={() => {
+            const projectId = appInfo?.project?.id;
+            const appId = appInfo?.id;
+            if (projectId && appId) {
+              navigate(`/projects/${projectId}/applications/${appId}`);
+            } else {
+              navigate('/projects');
+            }
+          }}
+        >
           返回
         </Button>
         {!needsInit && (
@@ -222,9 +234,15 @@ const SequenceDetailPage: React.FC = () => {
 
       <Breadcrumb
         items={[
-          { title: '项目' },
-          { title: appInfo?.project?.name || '项目' },
-          { title: `申请 ${appInfo?.applicationNumber || ''}` },
+          { title: <Link to="/projects">项目列表</Link> },
+          { title: appInfo?.project?.id
+            ? <Link to={`/projects/${appInfo.project.id}`}>{appInfo.project.name || '项目'}</Link>
+            : (appInfo?.project?.name || '项目')
+          },
+          { title: appInfo?.project?.id && appInfo?.id
+            ? <Link to={`/projects/${appInfo.project.id}/applications/${appInfo.id}`}>{`申请 ${appInfo.applicationNumber || ''}`}</Link>
+            : `申请 ${appInfo?.applicationNumber || ''}`
+          },
           { title: `序列 ${sequence.sequenceNumber}` },
         ]}
         style={{ marginBottom: 16 }}

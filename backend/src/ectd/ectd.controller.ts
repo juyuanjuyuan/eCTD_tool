@@ -118,13 +118,14 @@ export class EctdController {
 
   @Post('sequences/:seqId/export/ectd-package')
   async exportPackage(@Param('seqId') seqId: string, @Res() res: Response) {
-    const { buffer, fileName } = await this.packageAssembler.assemblePackage(seqId);
+    // Use streaming to avoid buffering large ZIP files in memory
+    const { stream, fileName } = await this.packageAssembler.assemblePackageStream(seqId);
 
     res.set({
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
-      'Content-Length': buffer.length.toString(),
+      'Transfer-Encoding': 'chunked',
     });
-    res.send(buffer);
+    stream.pipe(res);
   }
 }

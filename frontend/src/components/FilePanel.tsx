@@ -1,22 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Upload,
-  List,
+  Table,
   Button,
   Tag,
   Space,
   Tooltip,
   Progress,
   Modal,
-  Table,
   message,
   Popconfirm,
-  Badge,
   Typography,
   Empty,
 } from 'antd';
 import {
-  UploadOutlined,
+  CloudUploadOutlined,
   DownloadOutlined,
   DeleteOutlined,
   EyeOutlined,
@@ -29,15 +27,13 @@ import {
   CloseCircleFilled,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import type { UploadProps } from 'antd';
+import type { UploadProps, ColumnsType } from 'antd';
 import { fileApi, type FileAttachment, type ReferenceableFile } from '../services/file';
 
 const { Text } = Typography;
 
-/** Allowed eCTD file extensions */
 const ALLOWED_EXTENSIONS = ['.pdf', '.xml', '.xpt', '.txt', '.xsl'];
 
-/** Format file size from string (bytes) to human-readable */
 function formatSize(sizeStr: string): string {
   const size = parseInt(sizeStr, 10);
   if (size < 1024) return `${size} B`;
@@ -46,30 +42,28 @@ function formatSize(sizeStr: string): string {
   return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-/** Get compliance status icon */
-function getComplianceIcon(status?: string) {
+function getComplianceTag(status?: string) {
   switch (status) {
     case 'PASS':
-      return <CheckCircleFilled style={{ color: '#52c41a', fontSize: 14 }} />;
+      return <Tag icon={<CheckCircleFilled />} color="success" style={{ margin: 0 }}>合规</Tag>;
     case 'WARNING':
-      return <WarningFilled style={{ color: '#faad14', fontSize: 14 }} />;
+      return <Tag icon={<WarningFilled />} color="warning" style={{ margin: 0 }}>警告</Tag>;
     case 'ERROR':
-      return <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: 14 }} />;
+      return <Tag icon={<CloseCircleFilled />} color="error" style={{ margin: 0 }}>错误</Tag>;
     default:
       return null;
   }
 }
 
-/** Get file icon */
 function getFileIcon(fileType: string) {
   switch (fileType) {
     case '.pdf':
-      return <FilePdfOutlined style={{ color: '#ff4d4f' }} />;
+      return <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 18 }} />;
     case '.xml':
     case '.xsl':
-      return <FileTextOutlined style={{ color: '#1890ff' }} />;
+      return <FileTextOutlined style={{ color: '#1890ff', fontSize: 18 }} />;
     default:
-      return <FileOutlined />;
+      return <FileOutlined style={{ fontSize: 18 }} />;
   }
 }
 
@@ -89,7 +83,6 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
   const [refFiles, setRefFiles] = useState<ReferenceableFile[]>([]);
   const [refLoading, setRefLoading] = useState(false);
 
-  // Load files
   const loadFiles = useCallback(async () => {
     if (!nodeId || !isLeaf) return;
     setLoading(true);
@@ -107,7 +100,6 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
     loadFiles();
   }, [loadFiles]);
 
-  // Upload handler
   const handleUpload: UploadProps['customRequest'] = async (options) => {
     const { file, onSuccess, onError } = options;
     setUploading(true);
@@ -128,7 +120,6 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
     }
   };
 
-  // Delete file
   const handleDelete = async (fileId: string) => {
     try {
       await fileApi.delete(nodeId, fileId);
@@ -139,7 +130,6 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
     }
   };
 
-  // Download file
   const handleDownload = async (fileId: string) => {
     try {
       const { url, originalName } = await fileApi.download(nodeId, fileId);
@@ -152,7 +142,6 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
     }
   };
 
-  // Preview file
   const handlePreview = async (fileId: string) => {
     try {
       const { url } = await fileApi.preview(nodeId, fileId);
@@ -162,13 +151,11 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
     }
   };
 
-  // Show compliance details
   const showComplianceDetails = (file: FileAttachment) => {
     setSelectedFile(file);
     setComplianceModalOpen(true);
   };
 
-  // Open reference modal
   const openReferenceModal = async () => {
     setRefModalOpen(true);
     setRefLoading(true);
@@ -182,7 +169,6 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
     }
   };
 
-  // Create reference
   const handleCreateRef = async (sourceFileId: string) => {
     try {
       await fileApi.createReference(nodeId, sourceFileId);
@@ -194,14 +180,12 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
     }
   };
 
-  // Validate before upload
   const beforeUpload = (file: File) => {
     const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
       message.error(`不支持的文件类型 ${ext}。仅允许: ${ALLOWED_EXTENSIONS.join(', ')}`);
       return Upload.LIST_IGNORE;
     }
-    // Size check: 200MB for non-xpt, 4GB for xpt
     const maxSize = ext === '.xpt' ? 4 * 1024 * 1024 * 1024 : 200 * 1024 * 1024;
     if (file.size > maxSize) {
       message.error(`文件大小超过限制 (${ext === '.xpt' ? '4GB' : '200MB'})`);
@@ -212,14 +196,83 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
 
   if (!isLeaf) {
     return (
-      <div style={{ padding: '16px', textAlign: 'center', color: '#8c8c8c' }}>
+      <div style={{ padding: 24, textAlign: 'center', color: '#8c8c8c' }}>
         请选择叶节点查看文件
       </div>
     );
   }
 
+  // File table columns
+  const columns: ColumnsType<FileAttachment> = [
+    {
+      title: '文件',
+      key: 'name',
+      render: (_, file) => (
+        <Space size={10}>
+          {getFileIcon(file.fileType)}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 500, fontSize: 13, lineHeight: '20px' }}>
+              {file.originalName}
+            </div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {formatSize(file.fileSize)}
+              {file.isReference && (
+                <Tag color="blue" style={{ fontSize: 10, marginLeft: 6, padding: '0 4px', lineHeight: '16px' }}>
+                  引用
+                </Tag>
+              )}
+            </Text>
+          </div>
+        </Space>
+      ),
+    },
+    {
+      title: '合规',
+      key: 'compliance',
+      width: 100,
+      align: 'center',
+      render: (_, file) => {
+        if (!file.pdfAnalysis) return <Text type="secondary" style={{ fontSize: 12 }}>—</Text>;
+        const tag = getComplianceTag(file.pdfAnalysis.complianceStatus);
+        if (file.pdfAnalysis.complianceStatus !== 'PASS') {
+          return (
+            <Tooltip title="查看合规详情">
+              <span style={{ cursor: 'pointer' }} onClick={() => showComplianceDetails(file)}>
+                {tag}
+              </span>
+            </Tooltip>
+          );
+        }
+        return tag;
+      },
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 120,
+      align: 'center',
+      render: (_, file) => (
+        <Space size={4}>
+          {file.fileType === '.pdf' && (
+            <Tooltip title="预览">
+              <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => handlePreview(file.id)} />
+            </Tooltip>
+          )}
+          <Tooltip title="下载">
+            <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(file.id)} />
+          </Tooltip>
+          <Popconfirm title="确认删除此文件？" onConfirm={() => handleDelete(file.id)}>
+            <Tooltip title="删除">
+              <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+            </Tooltip>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
   return (
-    <div style={{ padding: '0 12px' }}>
+    <div>
       {/* Upload area */}
       <Upload.Dragger
         customRequest={handleUpload}
@@ -227,123 +280,71 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
         showUploadList={false}
         multiple={false}
         disabled={uploading}
-        style={{ marginBottom: 12 }}
+        style={{
+          marginBottom: 16,
+          padding: '20px 0',
+          borderRadius: 8,
+          background: '#fafafa',
+        }}
       >
-        <p style={{ margin: 0, fontSize: 13 }}>
-          <UploadOutlined style={{ marginRight: 4 }} />
-          点击或拖拽文件上传
-        </p>
-        <p style={{ margin: 0, fontSize: 11, color: '#8c8c8c' }}>
-          支持: {ALLOWED_EXTENSIONS.join(', ')}
-        </p>
+        <div style={{ padding: '8px 0' }}>
+          <CloudUploadOutlined style={{ fontSize: 36, color: '#1890ff', marginBottom: 12 }} />
+          <p style={{ margin: '0 0 4px', fontSize: 15, color: '#262626' }}>
+            点击或拖拽文件到此区域上传
+          </p>
+          <p style={{ margin: 0, fontSize: 13, color: '#8c8c8c' }}>
+            支持格式: {ALLOWED_EXTENSIONS.join('  ')}，单文件最大 200MB（XPT 4GB）
+          </p>
+        </div>
       </Upload.Dragger>
 
       {/* Upload progress */}
       {uploading && (
-        <Progress percent={uploadProgress} size="small" style={{ marginBottom: 8 }} />
+        <Progress
+          percent={uploadProgress}
+          strokeColor="#1890ff"
+          style={{ marginBottom: 16 }}
+        />
       )}
 
-      {/* Reference button */}
-      <Button
-        size="small"
-        icon={<LinkOutlined />}
-        onClick={openReferenceModal}
-        style={{ marginBottom: 12 }}
-        block
-      >
-        引用前序序列文件
-      </Button>
+      {/* Actions bar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+      }}>
+        <Text strong style={{ fontSize: 14 }}>
+          已上传文件 {files.length > 0 && <Text type="secondary" style={{ fontWeight: 400 }}>({files.length})</Text>}
+        </Text>
+        <Button
+          size="small"
+          icon={<LinkOutlined />}
+          onClick={openReferenceModal}
+        >
+          引用前序文件
+        </Button>
+      </div>
 
-      {/* File list */}
-      <List
-        size="small"
-        loading={loading}
-        dataSource={files}
-        locale={{ emptyText: <Empty description="暂无文件" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-        renderItem={(file) => (
-          <List.Item
-            style={{ padding: '6px 0' }}
-            actions={[
-              file.fileType === '.pdf' && (
-                <Tooltip key="preview" title="预览">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<EyeOutlined />}
-                    onClick={() => handlePreview(file.id)}
-                  />
-                </Tooltip>
-              ),
-              <Tooltip key="download" title="下载">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<DownloadOutlined />}
-                  onClick={() => handleDownload(file.id)}
-                />
-              </Tooltip>,
-              <Popconfirm
-                key="delete"
-                title="确认删除此文件？"
-                onConfirm={() => handleDelete(file.id)}
-              >
-                <Tooltip title="删除">
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                </Tooltip>
-              </Popconfirm>,
-            ].filter(Boolean)}
-          >
-            <List.Item.Meta
-              avatar={
-                <Badge
-                  count={
-                    file.pdfAnalysis
-                      ? getComplianceIcon(file.pdfAnalysis.complianceStatus)
-                      : file.isReference
-                        ? <LinkOutlined style={{ color: '#1890ff', fontSize: 12 }} />
-                        : undefined
-                  }
-                  offset={[-2, 2]}
-                >
-                  {getFileIcon(file.fileType)}
-                </Badge>
-              }
-              title={
-                <Space size={4} style={{ width: '100%' }}>
-                  <Text
-                    style={{ fontSize: 12, maxWidth: 140 }}
-                    ellipsis={{ tooltip: file.originalName }}
-                  >
-                    {file.originalName}
-                  </Text>
-                  {file.isReference && (
-                    <Tag color="blue" style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', margin: 0 }}>
-                      引用
-                    </Tag>
-                  )}
-                  {file.pdfAnalysis && file.pdfAnalysis.complianceStatus !== 'PASS' && (
-                    <Tooltip title="查看合规详情">
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<InfoCircleOutlined style={{ fontSize: 12 }} />}
-                        onClick={() => showComplianceDetails(file)}
-                        style={{ padding: 0, height: 'auto' }}
-                      />
-                    </Tooltip>
-                  )}
-                </Space>
-              }
-              description={
-                <Space size={8} style={{ fontSize: 11 }}>
-                  <span>{formatSize(file.fileSize)}</span>
-                  <span>{file.storedName}</span>
-                </Space>
-              }
-            />
-          </List.Item>
-        )}
-      />
+      {/* File table */}
+      {files.length === 0 && !loading ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={<Text type="secondary">暂无文件，请上传申报资料</Text>}
+          style={{ margin: '40px 0' }}
+        />
+      ) : (
+        <Table
+          dataSource={files}
+          columns={columns}
+          rowKey="id"
+          loading={loading}
+          pagination={false}
+          size="middle"
+          showHeader={files.length > 0}
+          style={{ marginBottom: 16 }}
+        />
+      )}
 
       {/* Compliance Detail Modal */}
       <Modal
@@ -351,27 +352,25 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
         open={complianceModalOpen}
         onCancel={() => setComplianceModalOpen(false)}
         footer={null}
-        width={600}
+        width={640}
       >
         {selectedFile?.pdfAnalysis && (
           <div>
-            <Space style={{ marginBottom: 16 }}>
-              <Tag color={
-                selectedFile.pdfAnalysis.complianceStatus === 'PASS' ? 'success' :
-                selectedFile.pdfAnalysis.complianceStatus === 'WARNING' ? 'warning' : 'error'
-              }>
-                {selectedFile.pdfAnalysis.complianceStatus === 'PASS' ? '合规' :
-                 selectedFile.pdfAnalysis.complianceStatus === 'WARNING' ? '有警告' : '有错误'}
-              </Tag>
-              <Text type="secondary">
-                PDF {selectedFile.pdfAnalysis.pdfVersion} | {selectedFile.pdfAnalysis.pageCount} 页
-              </Text>
-            </Space>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, padding: '12px 16px', background: '#fafafa', borderRadius: 8 }}>
+              <div style={{ flex: 1 }}>
+                <Text strong style={{ fontSize: 14 }}>{selectedFile.originalName}</Text>
+                <div style={{ marginTop: 4 }}>
+                  <Text type="secondary" style={{ fontSize: 13 }}>
+                    PDF {selectedFile.pdfAnalysis.pdfVersion} &middot; {selectedFile.pdfAnalysis.pageCount} 页 &middot; {formatSize(selectedFile.fileSize)}
+                  </Text>
+                </div>
+              </div>
+              {getComplianceTag(selectedFile.pdfAnalysis.complianceStatus)}
+            </div>
 
-            {/* Errors */}
             {selectedFile.pdfAnalysis.complianceDetails?.errors?.length > 0 && (
-              <>
-                <Text strong style={{ color: '#ff4d4f', display: 'block', marginBottom: 8 }}>
+              <div style={{ marginBottom: 20 }}>
+                <Text strong style={{ color: '#ff4d4f', display: 'block', marginBottom: 10, fontSize: 14 }}>
                   错误 ({selectedFile.pdfAnalysis.complianceDetails.errors.length})
                 </Text>
                 <Table
@@ -380,19 +379,17 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
                   dataSource={selectedFile.pdfAnalysis.complianceDetails.errors}
                   rowKey="ruleId"
                   columns={[
-                    { title: '规则', dataIndex: 'ruleId', width: 60 },
+                    { title: '规则', dataIndex: 'ruleId', width: 70 },
                     { title: '描述', dataIndex: 'message' },
-                    { title: '详情', dataIndex: 'detail', ellipsis: true },
+                    { title: '详情', dataIndex: 'detail', ellipsis: true, width: 180 },
                   ]}
-                  style={{ marginBottom: 16 }}
                 />
-              </>
+              </div>
             )}
 
-            {/* Warnings */}
             {selectedFile.pdfAnalysis.complianceDetails?.warnings?.length > 0 && (
-              <>
-                <Text strong style={{ color: '#faad14', display: 'block', marginBottom: 8 }}>
+              <div>
+                <Text strong style={{ color: '#faad14', display: 'block', marginBottom: 10, fontSize: 14 }}>
                   警告 ({selectedFile.pdfAnalysis.complianceDetails.warnings.length})
                 </Text>
                 <Table
@@ -401,11 +398,11 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
                   dataSource={selectedFile.pdfAnalysis.complianceDetails.warnings}
                   rowKey="ruleId"
                   columns={[
-                    { title: '规则', dataIndex: 'ruleId', width: 60 },
+                    { title: '规则', dataIndex: 'ruleId', width: 70 },
                     { title: '描述', dataIndex: 'message' },
                   ]}
                 />
-              </>
+              </div>
             )}
           </div>
         )}
@@ -417,26 +414,29 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
         open={refModalOpen}
         onCancel={() => setRefModalOpen(false)}
         footer={null}
-        width={700}
+        width={720}
       >
+        <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+          从同一申请的前序序列中引用已有文件，避免重复上传
+        </Text>
         <Table
           size="small"
           loading={refLoading}
           dataSource={refFiles}
           rowKey="id"
           locale={{ emptyText: '无可引用的文件（需要前序序列且状态非草稿）' }}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 10, hideOnSinglePage: true }}
           columns={[
             {
               title: '序列',
               dataIndex: 'sequenceNumber',
-              width: 70,
-              render: (v: string) => <Tag>{v}</Tag>,
+              width: 80,
+              render: (v: string) => <Tag style={{ margin: 0 }}>{v}</Tag>,
             },
             {
               title: '章节',
               dataIndex: 'sectionNumber',
-              width: 80,
+              width: 90,
             },
             {
               title: '文件名',
@@ -446,18 +446,15 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
             {
               title: '大小',
               dataIndex: 'fileSize',
-              width: 80,
+              width: 90,
               render: (v: string) => formatSize(v),
             },
             {
               title: '操作',
               width: 80,
+              align: 'center',
               render: (_: any, record: ReferenceableFile) => (
-                <Button
-                  type="link"
-                  size="small"
-                  onClick={() => handleCreateRef(record.id)}
-                >
+                <Button type="link" size="small" onClick={() => handleCreateRef(record.id)}>
                   引用
                 </Button>
               ),

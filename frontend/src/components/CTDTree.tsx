@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import {
   Tree,
   Input,
@@ -10,12 +10,13 @@ import {
 } from 'antd';
 import {
   FolderOutlined,
+  FolderOpenOutlined,
   FileOutlined,
   AppstoreAddOutlined,
   SearchOutlined,
-  CheckCircleOutlined,
-  ClockCircleOutlined,
-  CloseCircleOutlined,
+  CheckCircleFilled,
+  ClockCircleFilled,
+  CloseCircleFilled,
 } from '@ant-design/icons';
 import type { SequenceNode, ExtensionOption } from '../types';
 import type { DataNode } from 'antd/es/tree';
@@ -27,25 +28,18 @@ interface CTDTreeProps {
   onDeleteExtension?: (_nodeId: string) => void;
   extensionOptions?: ExtensionOption[];
   isbiological?: boolean;
+  selectedNodeId?: string;
 }
 
-const statusColorMap: Record<string, string> = {
-  EMPTY: '#d9d9d9',
-  EDITING: '#1890ff',
-  COMPLETED: '#52c41a',
+const statusDot: Record<string, { color: string; label: string }> = {
+  EDITING: { color: '#1890ff', label: '编辑中' },
+  COMPLETED: { color: '#52c41a', label: '已完成' },
 };
 
-const statusLabelMap: Record<string, string> = {
-  EMPTY: '未开始',
-  EDITING: '编辑中',
-  COMPLETED: '已完成',
-};
-
-const operationLabels: Record<string, string> = {
-  NEW: '新建',
-  REPLACE: '替换',
-  APPEND: '增补',
-  DELETE: '删除',
+const approvalIcon: Record<string, React.ReactNode> = {
+  APPROVED: <CheckCircleFilled style={{ color: '#52c41a', fontSize: 12 }} />,
+  SUBMITTED: <ClockCircleFilled style={{ color: '#1890ff', fontSize: 12 }} />,
+  REJECTED: <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: 12 }} />,
 };
 
 export const CTDTree: React.FC<CTDTreeProps> = ({
@@ -55,6 +49,7 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
   onDeleteExtension: _onDeleteExtension,
   extensionOptions = [],
   isbiological = false,
+  selectedNodeId,
 }) => {
   const [searchValue, setSearchValue] = useState('');
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
@@ -64,8 +59,22 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
     parentNodeId: string;
   }>({ visible: false, parentNodeId: '' });
   const [selectedExtType, setSelectedExtType] = useState<string>('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [treeHeight, setTreeHeight] = useState(500);
 
-  // Build flat list for search
+  // Dynamic height
+  useEffect(() => {
+    const update = () => {
+      if (containerRef.current) {
+        setTreeHeight(containerRef.current.clientHeight - 48);
+      }
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    if (containerRef.current) ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
   const flatNodes = useMemo(() => {
     const result: SequenceNode[] = [];
     function flatten(items: SequenceNode[]) {
@@ -78,7 +87,6 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
     return result;
   }, [nodes]);
 
-  // Search handling
   const handleSearch = (value: string) => {
     setSearchValue(value);
     if (!value) {
@@ -93,7 +101,6 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
     );
     const keys = new Set<React.Key>();
     for (const m of matched) {
-      // Find all ancestor keys
       let current = flatNodes.find((n) => n.id === m.parentId);
       while (current) {
         keys.add(current.id);
@@ -104,94 +111,87 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
     setAutoExpandParent(true);
   };
 
-  // Build tree data
   const treeData = useMemo(() => {
     function buildNode(node: SequenceNode): DataNode {
-      const isSearch = searchValue && (
+      const isMatch = searchValue && (
         node.title.includes(searchValue) ||
         node.ctdSectionNumber.includes(searchValue)
       );
+      const isSelected = node.id === selectedNodeId;
 
-      // Node icon
+      // Icon
       let icon: React.ReactNode;
       if (node.isLeaf && node.elementName === 'node-extension') {
-        icon = <AppstoreAddOutlined style={{ color: '#722ed1' }} />;
+        icon = <AppstoreAddOutlined style={{ color: '#722ed1', fontSize: 14 }} />;
       } else if (node.isLeaf) {
-        icon = <FileOutlined />;
+        icon = <FileOutlined style={{ fontSize: 13, color: '#8c8c8c' }} />;
       } else if (node.ctdSectionNumber.length === 1) {
-        icon = <FolderOutlined style={{ color: '#faad14' }} />;
+        icon = <FolderOutlined style={{ color: '#faad14', fontSize: 14 }} />;
       } else {
-        icon = <FolderOutlined />;
+        icon = <FolderOutlined style={{ fontSize: 13, color: '#8c8c8c' }} />;
       }
 
-      // Title with status indicators
+      // Status dot + approval icon (only for leaves)
+      const dot = node.isLeaf && statusDot[node.status];
+      const appIcon = node.isLeaf && approvalIcon[node.approvalStatus];
+
       const titleContent = (
-        <Space size={4} align="center">
-          <span
-            style={{
-              fontWeight: isSearch ? 'bold' : 'normal',
-              color: isSearch ? '#1890ff' : undefined,
-            }}
-          >
-            {node.ctdSectionNumber} {node.title}
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontWeight: isMatch ? 600 : (node.ctdSectionNumber.length === 1 ? 500 : 400),
+            color: isMatch ? '#1890ff' : (isSelected ? '#1890ff' : undefined),
+            fontSize: 13,
+            lineHeight: '22px',
+          }}
+        >
+          <span style={{ flexShrink: 0, color: '#8c8c8c', fontSize: 12, fontFamily: 'monospace' }}>
+            {node.ctdSectionNumber}
+          </span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {node.title}
           </span>
           {node.isRequired && node.status !== 'COMPLETED' && (
-            <Tag color="red" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
-              必填
-            </Tag>
+            <span style={{
+              flexShrink: 0,
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: '#ff4d4f',
+              display: 'inline-block',
+            }} title="必填" />
           )}
-          {node.isLeaf && node.status !== 'EMPTY' && (
-            <Tag
-              color={statusColorMap[node.status]}
-              style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}
-            >
-              {statusLabelMap[node.status]}
-            </Tag>
+          {dot && (
+            <span style={{
+              flexShrink: 0,
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: dot.color,
+              display: 'inline-block',
+            }} title={dot.label} />
           )}
-          {node.isLeaf && node.operation && (
-            <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
-              {operationLabels[node.operation]}
-            </Tag>
-          )}
-          {node.isLeaf && node.approvalStatus === 'APPROVED' && (
-            <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 12 }} />
-          )}
-          {node.isLeaf && node.approvalStatus === 'SUBMITTED' && (
-            <ClockCircleOutlined style={{ color: '#1890ff', fontSize: 12 }} />
-          )}
-          {node.isLeaf && node.approvalStatus === 'REJECTED' && (
-            <CloseCircleOutlined style={{ color: '#ff4d4f', fontSize: 12 }} />
-          )}
-          {flatNodes.find((n) => n.id === node.templateNodeId)?.ctdSectionNumber === '3.2.R' ||
-            (node.ctdSectionNumber === '3.2.R' && isbiological && (
-              <Tooltip title="可添加扩展节点">
-                <AppstoreAddOutlined style={{ color: '#722ed1', fontSize: 12 }} />
-              </Tooltip>
-            ))}
-        </Space>
+          {appIcon && <span style={{ flexShrink: 0, lineHeight: 1 }}>{appIcon}</span>}
+        </span>
       );
-
-      const children = node.children?.map(buildNode) || [];
 
       return {
         key: node.id,
         title: titleContent,
         icon,
-        children,
+        children: node.children?.map(buildNode) || [],
         isLeaf: node.isLeaf && !(node.children?.length),
       };
     }
-
     return nodes.map(buildNode);
-  }, [nodes, searchValue, flatNodes, isbiological]);
+  }, [nodes, searchValue, flatNodes, isbiological, selectedNodeId]);
 
-  // Context menu for extension nodes
   const handleRightClick = (info: { node: DataNode }) => {
     const nodeId = info.node.key as string;
     const seqNode = flatNodes.find((n) => n.id === nodeId);
     if (!seqNode) return;
-
-    // Allow adding extensions to 3.2.R node (if biological)
     if (seqNode.ctdSectionNumber === '3.2.R' && isbiological && onAddExtension) {
       setExtensionModal({ visible: true, parentNodeId: nodeId });
     }
@@ -205,33 +205,38 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
   };
 
   return (
-    <div>
+    <div ref={containerRef} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Input
-        prefix={<SearchOutlined />}
-        placeholder="搜索章节..."
+        size="small"
+        prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+        placeholder="搜索章节编号或标题..."
         allowClear
         onChange={(e) => handleSearch(e.target.value)}
-        style={{ marginBottom: 12 }}
+        style={{ marginBottom: 8, flexShrink: 0 }}
       />
-      <Tree
-        showIcon
-        treeData={treeData}
-        expandedKeys={expandedKeys}
-        autoExpandParent={autoExpandParent}
-        onExpand={(keys) => {
-          setExpandedKeys(keys);
-          setAutoExpandParent(false);
-        }}
-        onSelect={(keys) => {
-          if (keys.length > 0) {
-            const selected = flatNodes.find((n) => n.id === keys[0]);
-            if (selected) onNodeSelect?.(selected);
-          }
-        }}
-        onRightClick={({ node }) => handleRightClick({ node })}
-        defaultExpandedKeys={nodes.map((n) => n.id)}
-        style={{ maxHeight: 'calc(100vh - 300px)', overflow: 'auto' }}
-      />
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <Tree
+          showIcon
+          virtual
+          height={Math.max(treeHeight, 200)}
+          treeData={treeData}
+          expandedKeys={expandedKeys}
+          selectedKeys={selectedNodeId ? [selectedNodeId] : []}
+          autoExpandParent={autoExpandParent}
+          onExpand={(keys) => {
+            setExpandedKeys(keys);
+            setAutoExpandParent(false);
+          }}
+          onSelect={(keys) => {
+            if (keys.length > 0) {
+              const selected = flatNodes.find((n) => n.id === keys[0]);
+              if (selected) onNodeSelect?.(selected);
+            }
+          }}
+          onRightClick={({ node }) => handleRightClick({ node })}
+          defaultExpandedKeys={nodes.map((n) => n.id)}
+        />
+      </div>
 
       <Modal
         title="添加扩展节点"
