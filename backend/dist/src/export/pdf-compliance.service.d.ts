@@ -17,7 +17,9 @@ export interface ComplianceResult {
     };
 }
 export declare class PDFComplianceService {
+    private readonly logger;
     checkCompliance(pdfBuffer: Buffer): Promise<ComplianceResult>;
+    private safeCheck;
     private extractPDFVersion;
     private checkEncryption;
     private checkJavaScript;

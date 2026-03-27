@@ -38,6 +38,7 @@ import { approvalApi } from '../../services/approval';
 import { commentApi } from '../../services/comment';
 import { assignmentApi } from '../../services/assignment';
 import { userApi, type UserSearchResult } from '../../services/user';
+import { useAuthStore } from '../../stores/useAuthStore';
 import type {
   SequenceNode,
   Document,
@@ -125,9 +126,8 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const [selectedAssignUser, setSelectedAssignUser] = useState<string | null>(null);
   const [selectedPermission, setSelectedPermission] = useState<string>('EDIT');
 
-  const userStr = localStorage.getItem('user');
-  const currentUser = userStr ? JSON.parse(userStr) : null;
-  const isManager = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER';
+  const { user: currentUser } = useAuthStore();
+  const isManager = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER' || currentUser?.role === 'EDITOR';
   const isFirstSequence = sequenceNumber === '0000';
   const hasBackboneAttrs =
     SUBSTANCE_SECTIONS.has(node.ctdSectionNumber) ||
@@ -284,19 +284,44 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       {node.isLeaf && (
         <>
           <Field label="文档状态">
-            <Select value={node.status} options={statusOptions} onChange={handleStatusChange} style={{ width: '100%' }} />
+            <Select
+              value={node.status}
+              options={statusOptions}
+              onChange={handleStatusChange}
+              style={{ width: '100%' }}
+              disabled={node.approvalStatus === 'APPROVED' || node.approvalStatus === 'SUBMITTED'}
+            />
           </Field>
 
           <Field label="操作类型 (operation)">
             {isFirstSequence ? (
               <Tag color="blue">new (首次提交固定)</Tag>
             ) : (
-              <Select value={node.operation || undefined} options={operationOptions} onChange={handleOperationChange} style={{ width: '100%' }} placeholder="选择操作类型" />
+              <Select
+                value={node.operation || undefined}
+                options={operationOptions}
+                onChange={handleOperationChange}
+                style={{ width: '100%' }}
+                placeholder="选择操作类型"
+                disabled={node.approvalStatus === 'APPROVED' || node.approvalStatus === 'SUBMITTED'}
+              />
             )}
           </Field>
 
           <Field label="语言属性 (xml:lang)">
-            <Select value={doc?.xmlLang || 'zh'} options={langOptions} style={{ width: '100%' }} />
+            <Select
+              value={node.xmlLang || 'zh'}
+              options={langOptions}
+              style={{ width: '100%' }}
+              disabled={node.approvalStatus === 'APPROVED' || node.approvalStatus === 'SUBMITTED'}
+              onChange={async (val) => {
+                try {
+                  await ctdApi.updateSequenceNode(sequenceId, node.id, { xmlLang: val });
+                  message.success('语言属性已更新');
+                  onNodeUpdated();
+                } catch (err: any) { message.error(err.message); }
+              }}
+            />
           </Field>
 
           {doc && (
@@ -338,10 +363,10 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           {SUBSTANCE_SECTIONS.has(node.ctdSectionNumber) && (
             <>
               <Field label="活性成分 (substance)" required>
-                <Input defaultValue={node.substance || ''} onBlur={(e) => handleBackboneUpdate('substance', e.target.value)} placeholder="必填" />
+                <Input key={`${node.id}-substance`} defaultValue={node.substance || ''} onBlur={(e) => handleBackboneUpdate('substance', e.target.value)} placeholder="必填" />
               </Field>
               <Field label="生产商 (manufacturer)" required>
-                <Input defaultValue={node.manufacturer || ''} onBlur={(e) => handleBackboneUpdate('manufacturer', e.target.value)} placeholder="必填" />
+                <Input key={`${node.id}-s-manufacturer`} defaultValue={node.manufacturer || ''} onBlur={(e) => handleBackboneUpdate('manufacturer', e.target.value)} placeholder="必填" />
               </Field>
             </>
           )}
@@ -349,20 +374,20 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           {PRODUCT_SECTIONS.has(node.ctdSectionNumber) && (
             <>
               <Field label="产品名称 (product-name)">
-                <Input defaultValue={node.productName || ''} onBlur={(e) => handleBackboneUpdate('productName', e.target.value)} />
+                <Input key={`${node.id}-productName`} defaultValue={node.productName || ''} onBlur={(e) => handleBackboneUpdate('productName', e.target.value)} />
               </Field>
               <Field label="剂型 (dosageform)">
-                <Input defaultValue={node.dosageForm || ''} onBlur={(e) => handleBackboneUpdate('dosageForm', e.target.value)} />
+                <Input key={`${node.id}-dosageForm`} defaultValue={node.dosageForm || ''} onBlur={(e) => handleBackboneUpdate('dosageForm', e.target.value)} />
               </Field>
               <Field label="生产商 (manufacturer)">
-                <Input defaultValue={node.manufacturer || ''} onBlur={(e) => handleBackboneUpdate('manufacturer', e.target.value)} />
+                <Input key={`${node.id}-p-manufacturer`} defaultValue={node.manufacturer || ''} onBlur={(e) => handleBackboneUpdate('manufacturer', e.target.value)} />
               </Field>
             </>
           )}
 
           {INDICATION_SECTIONS.has(node.ctdSectionNumber) && (
             <Field label="适应症 (indication)" required>
-              <Input.TextArea rows={2} defaultValue={node.indication || ''} onBlur={(e) => handleBackboneUpdate('indication', e.target.value)} placeholder="必填" />
+              <Input.TextArea key={`${node.id}-indication`} rows={2} defaultValue={node.indication || ''} onBlur={(e) => handleBackboneUpdate('indication', e.target.value)} placeholder="必填" />
             </Field>
           )}
         </div>

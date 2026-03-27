@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import {
   Layout,
   Button,
@@ -47,6 +47,8 @@ const approvalConfig: Record<string, { label: string; color: string; icon: React
 const EditorPage: React.FC = () => {
   const { seqId } = useParams<{ seqId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialNodeId = searchParams.get('nodeId');
 
   const {
     selectedNode,
@@ -92,6 +94,24 @@ const EditorPage: React.FC = () => {
     };
   }, [seqId, setSelectedNode, setDocument]);
 
+  // Auto-select node from URL query param
+  useEffect(() => {
+    if (initialNodeId && nodes.length > 0 && !selectedNode) {
+      const findNode = (items: SequenceNode[]): SequenceNode | null => {
+        for (const n of items) {
+          if (n.id === initialNodeId) return n;
+          if (n.children?.length) {
+            const found = findNode(n.children);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      const target = findNode(nodes);
+      if (target) setSelectedNode(target);
+    }
+  }, [initialNodeId, nodes, selectedNode, setSelectedNode]);
+
   const handleNodeSelect = useCallback((node: SequenceNode) => {
     setSelectedNode(node);
   }, [setSelectedNode]);
@@ -130,10 +150,25 @@ const EditorPage: React.FC = () => {
     try {
       const tree = await ctdApi.getSequenceNodeTree(seqId);
       setNodes(tree);
+      // Update selectedNode with fresh data from tree
+      if (selectedNode) {
+        const findNode = (items: SequenceNode[]): SequenceNode | null => {
+          for (const n of items) {
+            if (n.id === selectedNode.id) return n;
+            if (n.children?.length) {
+              const found = findNode(n.children);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+        const updated = findNode(tree);
+        if (updated) setSelectedNode(updated);
+      }
     } catch {
       // Ignore
     }
-  }, [seqId]);
+  }, [seqId, selectedNode?.id, setSelectedNode]);
 
   if (loading) {
     return (
@@ -245,6 +280,7 @@ const EditorPage: React.FC = () => {
                 type="text"
                 icon={<ExportOutlined />}
                 onClick={() => setExportModalOpen(true)}
+                disabled={!selectedNode?.isLeaf}
               />
             </Tooltip>
           </Space>

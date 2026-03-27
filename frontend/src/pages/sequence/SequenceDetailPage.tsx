@@ -163,7 +163,7 @@ const SequenceDetailPage: React.FC = () => {
 
   const handleNodeSelect = (node: SequenceNode) => {
     if (node.isLeaf) {
-      navigate(`/sequences/${seqId}/editor`);
+      navigate(`/sequences/${seqId}/editor?nodeId=${node.id}`);
     }
   };
 
@@ -214,6 +214,8 @@ const SequenceDetailPage: React.FC = () => {
             const appId = appInfo?.id;
             if (projectId && appId) {
               navigate(`/projects/${projectId}/applications/${appId}`);
+            } else if (window.history.length > 1) {
+              navigate(-1);
             } else {
               navigate('/projects');
             }

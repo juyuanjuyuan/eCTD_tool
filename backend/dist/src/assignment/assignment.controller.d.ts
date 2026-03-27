@@ -1,8 +1,9 @@
-import { AssignmentService, CreateAssignmentDto } from './assignment.service';
+import { AssignmentService } from './assignment.service';
+import { CreateAssignmentDto } from './dto/create-assignment.dto';
 export declare class AssignmentController {
     private readonly assignmentService;
     constructor(assignmentService: AssignmentService);
-    assignNode(nodeId: string, body: CreateAssignmentDto | CreateAssignmentDto[], userId: string): Promise<({
+    assignNode(nodeId: string, body: CreateAssignmentDto, userId: string): Promise<({
         user: {
             id: string;
             name: string;

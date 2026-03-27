@@ -5,12 +5,14 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
+var PDFComplianceService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PDFComplianceService = void 0;
 const common_1 = require("@nestjs/common");
 const pdf_lib_1 = require("pdf-lib");
 const MAX_FILE_SIZE_MB = 200;
-let PDFComplianceService = class PDFComplianceService {
+let PDFComplianceService = PDFComplianceService_1 = class PDFComplianceService {
+    logger = new common_1.Logger(PDFComplianceService_1.name);
     async checkCompliance(pdfBuffer) {
         const errors = [];
         const warnings = [];
@@ -65,8 +67,8 @@ let PDFComplianceService = class PDFComplianceService {
                 detail: 'eCTD 不允许 PDF 加密或设置密码保护',
             });
         }
-        const hasJavaScript = this.checkJavaScript(pdfDoc);
-        if (hasJavaScript) {
+        const jsResult = this.safeCheck(() => this.checkJavaScript(pdfDoc), false, '6.20', 'JavaScript 检查', warnings);
+        if (jsResult) {
             errors.push({
                 ruleId: '6.20',
                 severity: 'error',
@@ -74,7 +76,7 @@ let PDFComplianceService = class PDFComplianceService {
                 detail: 'eCTD 不允许 PDF 中包含 JavaScript 代码',
             });
         }
-        const externalLinks = this.checkExternalLinks(pdfDoc);
+        const externalLinks = this.safeCheck(() => this.checkExternalLinks(pdfDoc), [], '6.21', '外部链接检查', warnings);
         if (externalLinks.length > 0) {
             errors.push({
                 ruleId: '6.21',
@@ -83,7 +85,7 @@ let PDFComplianceService = class PDFComplianceService {
                 detail: `外部链接: ${externalLinks.slice(0, 5).join(', ')}${externalLinks.length > 5 ? '...' : ''}`,
             });
         }
-        const hasMultimedia = this.checkMultimedia(pdfDoc);
+        const hasMultimedia = this.safeCheck(() => this.checkMultimedia(pdfDoc), false, '6.22', '多媒体检查', warnings);
         if (hasMultimedia) {
             errors.push({
                 ruleId: '6.22',
@@ -92,7 +94,7 @@ let PDFComplianceService = class PDFComplianceService {
                 detail: 'eCTD 不允许 PDF 中包含多媒体内容',
             });
         }
-        const hasBookmarks = this.checkBookmarks(pdfDoc);
+        const hasBookmarks = this.safeCheck(() => this.checkBookmarks(pdfDoc), false, '6.1', '书签检查', warnings);
         if (pageCount > 5 && !hasBookmarks) {
             errors.push({
                 ruleId: '6.1',
@@ -102,7 +104,7 @@ let PDFComplianceService = class PDFComplianceService {
             });
         }
         if (hasBookmarks) {
-            const badZoomBookmarks = this.checkBookmarkZoom(pdfDoc);
+            const badZoomBookmarks = this.safeCheck(() => this.checkBookmarkZoom(pdfDoc), 0, '6.23', '书签缩放检查', warnings);
             if (badZoomBookmarks > 0) {
                 errors.push({
                     ruleId: '6.23',
@@ -112,7 +114,7 @@ let PDFComplianceService = class PDFComplianceService {
                 });
             }
         }
-        const hasAttachments = this.checkAttachments(pdfDoc);
+        const hasAttachments = this.safeCheck(() => this.checkAttachments(pdfDoc), false, '6.24', '附件检查', warnings);
         if (hasAttachments) {
             errors.push({
                 ruleId: '6.24',
@@ -128,7 +130,7 @@ let PDFComplianceService = class PDFComplianceService {
                 message: `PDF 文件大小 ${fileSizeMB.toFixed(1)}MB 超过 ${MAX_FILE_SIZE_MB}MB 限制`,
             });
         }
-        const unembeddedFonts = this.checkFontEmbedding(pdfDoc);
+        const unembeddedFonts = this.safeCheck(() => this.checkFontEmbedding(pdfDoc), [], '6.W2', '字体嵌入检查', warnings);
         if (unembeddedFonts.length > 0) {
             warnings.push({
                 ruleId: '6.W2',
@@ -150,224 +152,200 @@ let PDFComplianceService = class PDFComplianceService {
             },
         };
     }
+    safeCheck(checkFn, defaultVal, ruleId, checkName, warnings) {
+        try {
+            return checkFn();
+        }
+        catch (e) {
+            this.logger.warn(`PDF compliance check failed for ${checkName}: ${e.message}`);
+            warnings.push({
+                ruleId: `${ruleId}-SKIP`,
+                severity: 'warning',
+                message: `无法执行${checkName}`,
+                detail: `PDF 内部结构解析失败，请人工确认。错误: ${e.message}`,
+            });
+            return defaultVal;
+        }
+    }
     extractPDFVersion(buffer) {
         const header = buffer.subarray(0, 20).toString('ascii');
         const match = header.match(/%PDF-(\d+\.\d+)/);
         return match ? match[1] : 'unknown';
     }
     checkEncryption(buffer) {
-        const content = buffer.toString('ascii', 0, Math.min(buffer.length, 4096));
+        const content = buffer.toString('ascii');
         return content.includes('/Encrypt');
     }
     checkJavaScript(pdfDoc) {
-        try {
-            const catalog = pdfDoc.catalog;
-            const names = catalog.lookup(pdf_lib_1.PDFName.of('Names'));
-            if (names instanceof pdf_lib_1.PDFDict) {
-                const js = names.lookup(pdf_lib_1.PDFName.of('JavaScript'));
-                if (js)
-                    return true;
-            }
-            const aa = catalog.lookup(pdf_lib_1.PDFName.of('AA'));
-            if (aa)
+        const catalog = pdfDoc.catalog;
+        const names = catalog.lookup(pdf_lib_1.PDFName.of('Names'));
+        if (names instanceof pdf_lib_1.PDFDict) {
+            const js = names.lookup(pdf_lib_1.PDFName.of('JavaScript'));
+            if (js)
                 return true;
-            const openAction = catalog.lookup(pdf_lib_1.PDFName.of('OpenAction'));
-            if (openAction instanceof pdf_lib_1.PDFDict) {
-                const s = openAction.lookup(pdf_lib_1.PDFName.of('S'));
-                if (s && s.toString() === '/JavaScript')
-                    return true;
-            }
-            return false;
         }
-        catch {
-            return false;
+        const aa = catalog.lookup(pdf_lib_1.PDFName.of('AA'));
+        if (aa)
+            return true;
+        const openAction = catalog.lookup(pdf_lib_1.PDFName.of('OpenAction'));
+        if (openAction instanceof pdf_lib_1.PDFDict) {
+            const s = openAction.lookup(pdf_lib_1.PDFName.of('S'));
+            if (s && s.toString() === '/JavaScript')
+                return true;
         }
+        return false;
     }
     checkExternalLinks(pdfDoc) {
         const externalLinks = [];
-        try {
-            const pages = pdfDoc.getPages();
-            for (const page of pages) {
-                const annots = page.node.lookup(pdf_lib_1.PDFName.of('Annots'));
-                if (!(annots instanceof pdf_lib_1.PDFArray))
+        const pages = pdfDoc.getPages();
+        for (const page of pages) {
+            const annots = page.node.lookup(pdf_lib_1.PDFName.of('Annots'));
+            if (!(annots instanceof pdf_lib_1.PDFArray))
+                continue;
+            for (let i = 0; i < annots.size(); i++) {
+                const annot = annots.lookup(i);
+                if (!(annot instanceof pdf_lib_1.PDFDict))
                     continue;
-                for (let i = 0; i < annots.size(); i++) {
-                    const annot = annots.lookup(i);
-                    if (!(annot instanceof pdf_lib_1.PDFDict))
-                        continue;
-                    const a = annot.lookup(pdf_lib_1.PDFName.of('A'));
-                    if (a instanceof pdf_lib_1.PDFDict) {
-                        const s = a.lookup(pdf_lib_1.PDFName.of('S'));
-                        if (s && s.toString() === '/URI') {
-                            const uri = a.lookup(pdf_lib_1.PDFName.of('URI'));
-                            if (uri instanceof pdf_lib_1.PDFString || uri instanceof pdf_lib_1.PDFHexString) {
-                                externalLinks.push(uri.decodeText());
-                            }
+                const a = annot.lookup(pdf_lib_1.PDFName.of('A'));
+                if (a instanceof pdf_lib_1.PDFDict) {
+                    const s = a.lookup(pdf_lib_1.PDFName.of('S'));
+                    if (s && s.toString() === '/URI') {
+                        const uri = a.lookup(pdf_lib_1.PDFName.of('URI'));
+                        if (uri instanceof pdf_lib_1.PDFString || uri instanceof pdf_lib_1.PDFHexString) {
+                            externalLinks.push(uri.decodeText());
                         }
                     }
                 }
             }
-        }
-        catch {
         }
         return externalLinks;
     }
     checkMultimedia(pdfDoc) {
-        try {
-            const catalog = pdfDoc.catalog;
-            const names = catalog.lookup(pdf_lib_1.PDFName.of('Names'));
-            if (names instanceof pdf_lib_1.PDFDict) {
-                const embeddedFiles = names.lookup(pdf_lib_1.PDFName.of('EmbeddedFiles'));
-                if (embeddedFiles) {
-                }
-            }
-            const pages = pdfDoc.getPages();
-            for (const page of pages) {
-                const annots = page.node.lookup(pdf_lib_1.PDFName.of('Annots'));
-                if (!(annots instanceof pdf_lib_1.PDFArray))
+        const pages = pdfDoc.getPages();
+        for (const page of pages) {
+            const annots = page.node.lookup(pdf_lib_1.PDFName.of('Annots'));
+            if (!(annots instanceof pdf_lib_1.PDFArray))
+                continue;
+            for (let i = 0; i < annots.size(); i++) {
+                const annot = annots.lookup(i);
+                if (!(annot instanceof pdf_lib_1.PDFDict))
                     continue;
-                for (let i = 0; i < annots.size(); i++) {
-                    const annot = annots.lookup(i);
-                    if (!(annot instanceof pdf_lib_1.PDFDict))
-                        continue;
-                    const subtype = annot.lookup(pdf_lib_1.PDFName.of('Subtype'));
-                    if (subtype) {
-                        const st = subtype.toString();
-                        if (st === '/RichMedia' ||
-                            st === '/Screen' ||
-                            st === '/Sound' ||
-                            st === '/Movie' ||
-                            st === '/3D') {
-                            return true;
-                        }
+                const subtype = annot.lookup(pdf_lib_1.PDFName.of('Subtype'));
+                if (subtype) {
+                    const st = subtype.toString();
+                    if (st === '/RichMedia' ||
+                        st === '/Screen' ||
+                        st === '/Sound' ||
+                        st === '/Movie' ||
+                        st === '/3D') {
+                        return true;
                     }
                 }
             }
-            return false;
         }
-        catch {
-            return false;
-        }
+        return false;
     }
     checkBookmarks(pdfDoc) {
-        try {
-            const outlines = pdfDoc.catalog.lookup(pdf_lib_1.PDFName.of('Outlines'));
-            if (!(outlines instanceof pdf_lib_1.PDFDict))
-                return false;
-            const first = outlines.lookup(pdf_lib_1.PDFName.of('First'));
-            return !!first;
-        }
-        catch {
+        const outlines = pdfDoc.catalog.lookup(pdf_lib_1.PDFName.of('Outlines'));
+        if (!(outlines instanceof pdf_lib_1.PDFDict))
             return false;
-        }
+        const first = outlines.lookup(pdf_lib_1.PDFName.of('First'));
+        return !!first;
     }
     checkBookmarkZoom(pdfDoc) {
         let badZoomCount = 0;
-        try {
-            const outlines = pdfDoc.catalog.lookup(pdf_lib_1.PDFName.of('Outlines'));
-            if (!(outlines instanceof pdf_lib_1.PDFDict))
-                return 0;
-            const traverseOutline = (entry) => {
-                if (!(entry instanceof pdf_lib_1.PDFDict))
-                    return;
-                const dest = entry.lookup(pdf_lib_1.PDFName.of('Dest'));
-                if (dest instanceof pdf_lib_1.PDFArray && dest.size() >= 2) {
-                    const fitType = dest.lookup(1);
-                    if (fitType) {
-                        const ft = fitType.toString();
-                        if (ft !== '/Fit' && ft !== '/FitH' && ft !== '/FitV' && ft !== '/FitB') {
-                            if (ft === '/XYZ') {
-                                if (dest.size() >= 5) {
-                                    const zoom = dest.lookup(4);
-                                    if (zoom && zoom.toString() !== 'null') {
-                                        badZoomCount++;
-                                    }
+        const outlines = pdfDoc.catalog.lookup(pdf_lib_1.PDFName.of('Outlines'));
+        if (!(outlines instanceof pdf_lib_1.PDFDict))
+            return 0;
+        const traverseOutline = (entry) => {
+            if (!(entry instanceof pdf_lib_1.PDFDict))
+                return;
+            const dest = entry.lookup(pdf_lib_1.PDFName.of('Dest'));
+            if (dest instanceof pdf_lib_1.PDFArray && dest.size() >= 2) {
+                const fitType = dest.lookup(1);
+                if (fitType) {
+                    const ft = fitType.toString();
+                    if (ft !== '/Fit' && ft !== '/FitH' && ft !== '/FitV' && ft !== '/FitB') {
+                        if (ft === '/XYZ') {
+                            if (dest.size() >= 5) {
+                                const zoom = dest.lookup(4);
+                                if (zoom && zoom.toString() !== 'null') {
+                                    badZoomCount++;
                                 }
                             }
-                            else {
-                                badZoomCount++;
-                            }
+                        }
+                        else {
+                            badZoomCount++;
                         }
                     }
                 }
-                const next = entry.lookup(pdf_lib_1.PDFName.of('Next'));
-                if (next)
-                    traverseOutline(pdfDoc.context.lookup(next));
-                const first = entry.lookup(pdf_lib_1.PDFName.of('First'));
-                if (first)
-                    traverseOutline(pdfDoc.context.lookup(first));
-            };
-            const first = outlines.lookup(pdf_lib_1.PDFName.of('First'));
+            }
+            const next = entry.lookup(pdf_lib_1.PDFName.of('Next'));
+            if (next)
+                traverseOutline(pdfDoc.context.lookup(next));
+            const first = entry.lookup(pdf_lib_1.PDFName.of('First'));
             if (first)
                 traverseOutline(pdfDoc.context.lookup(first));
-        }
-        catch {
-        }
+        };
+        const first = outlines.lookup(pdf_lib_1.PDFName.of('First'));
+        if (first)
+            traverseOutline(pdfDoc.context.lookup(first));
         return badZoomCount;
     }
     checkAttachments(pdfDoc) {
-        try {
-            const catalog = pdfDoc.catalog;
-            const names = catalog.lookup(pdf_lib_1.PDFName.of('Names'));
-            if (names instanceof pdf_lib_1.PDFDict) {
-                const embeddedFiles = names.lookup(pdf_lib_1.PDFName.of('EmbeddedFiles'));
-                if (embeddedFiles)
-                    return true;
-            }
-            const af = catalog.lookup(pdf_lib_1.PDFName.of('AF'));
-            if (af instanceof pdf_lib_1.PDFArray && af.size() > 0)
+        const catalog = pdfDoc.catalog;
+        const names = catalog.lookup(pdf_lib_1.PDFName.of('Names'));
+        if (names instanceof pdf_lib_1.PDFDict) {
+            const embeddedFiles = names.lookup(pdf_lib_1.PDFName.of('EmbeddedFiles'));
+            if (embeddedFiles)
                 return true;
-            return false;
         }
-        catch {
-            return false;
-        }
+        const af = catalog.lookup(pdf_lib_1.PDFName.of('AF'));
+        if (af instanceof pdf_lib_1.PDFArray && af.size() > 0)
+            return true;
+        return false;
     }
     checkFontEmbedding(pdfDoc) {
         const unembedded = [];
-        try {
-            const pages = pdfDoc.getPages();
-            for (const page of pages) {
-                const resources = page.node.lookup(pdf_lib_1.PDFName.of('Resources'));
-                if (!(resources instanceof pdf_lib_1.PDFDict))
+        const pages = pdfDoc.getPages();
+        for (const page of pages) {
+            const resources = page.node.lookup(pdf_lib_1.PDFName.of('Resources'));
+            if (!(resources instanceof pdf_lib_1.PDFDict))
+                continue;
+            const fonts = resources.lookup(pdf_lib_1.PDFName.of('Font'));
+            if (!(fonts instanceof pdf_lib_1.PDFDict))
+                continue;
+            const fontEntries = fonts.entries();
+            for (const [, fontRef] of fontEntries) {
+                const font = pdfDoc.context.lookup(fontRef);
+                if (!(font instanceof pdf_lib_1.PDFDict))
                     continue;
-                const fonts = resources.lookup(pdf_lib_1.PDFName.of('Font'));
-                if (!(fonts instanceof pdf_lib_1.PDFDict))
-                    continue;
-                const fontEntries = fonts.entries();
-                for (const [, fontRef] of fontEntries) {
-                    const font = pdfDoc.context.lookup(fontRef);
-                    if (!(font instanceof pdf_lib_1.PDFDict))
-                        continue;
-                    const baseFont = font.lookup(pdf_lib_1.PDFName.of('BaseFont'));
-                    const fontDesc = font.lookup(pdf_lib_1.PDFName.of('FontDescriptor'));
-                    if (fontDesc instanceof pdf_lib_1.PDFDict) {
-                        const fontFile = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile'));
-                        const fontFile2 = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile2'));
-                        const fontFile3 = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile3'));
-                        if (!fontFile && !fontFile2 && !fontFile3) {
-                            const name = baseFont ? baseFont.toString().replace('/', '') : 'Unknown';
-                            const standard14 = [
-                                'Courier', 'Courier-Bold', 'Courier-BoldOblique', 'Courier-Oblique',
-                                'Helvetica', 'Helvetica-Bold', 'Helvetica-BoldOblique', 'Helvetica-Oblique',
-                                'Times-Roman', 'Times-Bold', 'Times-BoldItalic', 'Times-Italic',
-                                'Symbol', 'ZapfDingbats',
-                            ];
-                            if (!standard14.includes(name) && !unembedded.includes(name)) {
-                                unembedded.push(name);
-                            }
+                const baseFont = font.lookup(pdf_lib_1.PDFName.of('BaseFont'));
+                const fontDesc = font.lookup(pdf_lib_1.PDFName.of('FontDescriptor'));
+                if (fontDesc instanceof pdf_lib_1.PDFDict) {
+                    const fontFile = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile'));
+                    const fontFile2 = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile2'));
+                    const fontFile3 = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile3'));
+                    if (!fontFile && !fontFile2 && !fontFile3) {
+                        const name = baseFont ? baseFont.toString().replace('/', '') : 'Unknown';
+                        const standard14 = [
+                            'Courier', 'Courier-Bold', 'Courier-BoldOblique', 'Courier-Oblique',
+                            'Helvetica', 'Helvetica-Bold', 'Helvetica-BoldOblique', 'Helvetica-Oblique',
+                            'Times-Roman', 'Times-Bold', 'Times-BoldItalic', 'Times-Italic',
+                            'Symbol', 'ZapfDingbats',
+                        ];
+                        if (!standard14.includes(name) && !unembedded.includes(name)) {
+                            unembedded.push(name);
                         }
                     }
                 }
             }
-        }
-        catch {
         }
         return unembedded;
     }
 };
 exports.PDFComplianceService = PDFComplianceService;
-exports.PDFComplianceService = PDFComplianceService = __decorate([
+exports.PDFComplianceService = PDFComplianceService = PDFComplianceService_1 = __decorate([
     (0, common_1.Injectable)()
 ], PDFComplianceService);
 //# sourceMappingURL=pdf-compliance.service.js.map

@@ -85,9 +85,7 @@ const EctdPackagePanel: React.FC<Props> = ({ sequenceId, validationPassed }) => 
   const handleExport = async () => {
     setExporting(true);
     try {
-      const response = await ectdApi.exportPackage(sequenceId) as any;
-      // Handle blob download
-      const blob = new Blob([response], { type: 'application/zip' });
+      const blob = await ectdApi.exportPackage(sequenceId);
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;

@@ -285,6 +285,12 @@ let CtdTemplateService = class CtdTemplateService {
         });
         if (!node)
             throw new common_1.NotFoundException('序列节点不存在');
+        if (dto.status && (node.approvalStatus === 'APPROVED' || node.approvalStatus === 'SUBMITTED')) {
+            throw new common_1.BadRequestException('已提交审批或已审批的节点不允许修改状态');
+        }
+        if (dto.status === 'COMPLETED' && node.status === 'EMPTY') {
+            throw new common_1.BadRequestException('未开始的节点不能直接标记为已完成，请先编辑');
+        }
         return this.prisma.sequenceNode.update({
             where: { id: nodeId },
             data: dto,

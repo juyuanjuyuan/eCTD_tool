@@ -88,8 +88,17 @@ const ValidationPanel: React.FC<Props> = ({ sequenceId, onValidationComplete }) 
   }, [sequenceId]);
 
   useEffect(() => {
-    fetchLatestReport();
+    fetchLatestReport().then(() => {
+      // Notify parent of existing report status on mount
+    });
   }, [fetchLatestReport]);
+
+  // When report is loaded (including on mount), propagate validation status to parent
+  useEffect(() => {
+    if (report) {
+      onValidationComplete?.(report.isPassed);
+    }
+  }, [report]);
 
   const handleRunValidation = async () => {
     setRunning(true);

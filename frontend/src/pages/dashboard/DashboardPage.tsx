@@ -134,7 +134,7 @@ const DashboardPage: React.FC = () => {
                 renderItem={(item) => (
                   <List.Item
                     style={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/sequences/${item.sequenceId}/editor`)}
+                    onClick={() => navigate(`/sequences/${item.sequenceId}/editor?nodeId=${item.nodeId}`)}
                   >
                     <List.Item.Meta
                       title={
@@ -179,7 +179,7 @@ const DashboardPage: React.FC = () => {
                 renderItem={(item) => (
                   <List.Item
                     style={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/sequences/${item.sequenceId}/editor`)}
+                    onClick={() => navigate(`/sequences/${item.sequenceId}/editor?nodeId=${item.nodeId}`)}
                   >
                     <List.Item.Meta
                       title={
@@ -223,7 +223,7 @@ const DashboardPage: React.FC = () => {
             renderItem={(item) => (
               <List.Item
                 style={{ cursor: 'pointer' }}
-                onClick={() => navigate(`/sequences/${item.sequenceId}/editor`)}
+                onClick={() => navigate(`/sequences/${item.sequenceId}/editor?nodeId=${item.nodeId}`)}
               >
                 <List.Item.Meta
                   title={

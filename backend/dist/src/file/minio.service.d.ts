@@ -5,6 +5,7 @@ export declare class MinioService implements OnModuleInit {
     private config;
     private readonly logger;
     private client;
+    private presignClient;
     private bucket;
     constructor(config: ConfigService);
     onModuleInit(): Promise<void>;

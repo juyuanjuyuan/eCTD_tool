@@ -6,11 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NodePermission } from '@prisma/client';
-
-export interface CreateAssignmentDto {
-  userId: string;
-  permission: NodePermission;
-}
+import { CreateAssignmentDto } from './dto/create-assignment.dto';
 
 @Injectable()
 export class AssignmentService {
@@ -37,12 +33,12 @@ export class AssignmentService {
 
     const projectId = node.sequence.regulatoryActivity.application.projectId;
 
-    // Verify assigner is OWNER
+    // Verify assigner has sufficient role (OWNER or MEMBER can assign, VIEWER cannot)
     const assignerMember = await this.prisma.projectMember.findFirst({
       where: { projectId, userId: assignerId },
     });
-    if (!assignerMember || assignerMember.role !== 'OWNER') {
-      throw new ForbiddenException('只有项目所有者可以指派章节');
+    if (!assignerMember || assignerMember.role === 'VIEWER') {
+      throw new ForbiddenException('查看者无法指派章节');
     }
 
     // Verify all target users are project members
@@ -122,8 +118,8 @@ export class AssignmentService {
     const removerMember = await this.prisma.projectMember.findFirst({
       where: { projectId, userId: removerId },
     });
-    if (!removerMember || removerMember.role !== 'OWNER') {
-      throw new ForbiddenException('只有项目所有者可以取消指派');
+    if (!removerMember || removerMember.role === 'VIEWER') {
+      throw new ForbiddenException('查看者无法取消指派');
     }
 
     const assignment = await this.prisma.nodeAssignment.findUnique({

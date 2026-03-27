@@ -8,17 +8,40 @@ import * as crypto from 'crypto';
 export class MinioService implements OnModuleInit {
   private readonly logger = new Logger(MinioService.name);
   private client: Minio.Client;
+  private presignClient: Minio.Client;
   private bucket: string;
 
   constructor(private config: ConfigService) {
     this.bucket = this.config.get<string>('MINIO_BUCKET', 'ectd-files');
+    const endpoint = this.config.get<string>('MINIO_ENDPOINT', 'localhost');
+    const port = this.config.get<number>('MINIO_PORT', 9000);
+    const accessKey = this.config.get<string>('MINIO_ACCESS_KEY', 'ectd_minio');
+    const secretKey = this.config.get<string>('MINIO_SECRET_KEY', 'ectd_minio_password');
+
+    // Internal client for actual file operations (upload/download/delete)
     this.client = new Minio.Client({
-      endPoint: this.config.get<string>('MINIO_ENDPOINT', 'localhost'),
-      port: this.config.get<number>('MINIO_PORT', 9000),
+      endPoint: endpoint,
+      port,
       useSSL: false,
-      accessKey: this.config.get<string>('MINIO_ACCESS_KEY', 'ectd_minio'),
-      secretKey: this.config.get<string>('MINIO_SECRET_KEY', 'ectd_minio_password'),
+      accessKey,
+      secretKey,
     });
+
+    // Public client for generating presigned URLs with the correct public host
+    // so the signature matches when the browser accesses the URL
+    const publicUrl = this.config.get<string>('MINIO_PUBLIC_URL', '');
+    if (publicUrl) {
+      const url = new URL(publicUrl);
+      this.presignClient = new Minio.Client({
+        endPoint: url.hostname,
+        port: parseInt(url.port, 10) || (url.protocol === 'https:' ? 443 : 80),
+        useSSL: url.protocol === 'https:',
+        accessKey,
+        secretKey,
+      });
+    } else {
+      this.presignClient = this.client;
+    }
   }
 
   async onModuleInit() {
@@ -106,7 +129,7 @@ export class MinioService implements OnModuleInit {
     objectName: string,
     expirySeconds = 3600,
   ): Promise<string> {
-    return this.client.presignedGetObject(
+    return this.presignClient.presignedGetObject(
       this.bucket,
       objectName,
       expirySeconds,
@@ -120,7 +143,7 @@ export class MinioService implements OnModuleInit {
     objectName: string,
     expirySeconds = 3600,
   ): Promise<string> {
-    return this.client.presignedGetObject(
+    return this.presignClient.presignedGetObject(
       this.bucket,
       objectName,
       expirySeconds,

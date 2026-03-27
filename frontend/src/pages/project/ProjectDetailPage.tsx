@@ -17,6 +17,7 @@ import {
   Result,
   Popconfirm,
   Alert,
+  Divider,
 } from 'antd';
 import {
   PlusOutlined,
@@ -25,11 +26,14 @@ import {
   UserAddOutlined,
   CloseCircleOutlined,
   TeamOutlined,
+  SearchOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 import { useParams, Link } from 'react-router-dom';
 import { projectApi } from '../../services/project';
 import { applicationApi } from '../../services/application';
 import { cvApi } from '../../services/cv';
+import { userApi, type UserSearchResult } from '../../services/user';
 import { dashboardApi, type ProjectProgress, type MemberWorkload } from '../../services/dashboard';
 import { useAuthStore } from '../../stores/useAuthStore';
 import type {
@@ -54,19 +58,24 @@ const ProjectDetailPage: React.FC = () => {
   const [invitations, setInvitations] = useState<ProjectInvitation[]>([]);
   const [appModalOpen, setAppModalOpen] = useState(false);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [addMemberModalOpen, setAddMemberModalOpen] = useState(false);
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [appTypes, setAppTypes] = useState<ControlledVocabulary[]>([]);
   const [productTypes, setProductTypes] = useState<ControlledVocabulary[]>([]);
   const [appForm] = Form.useForm();
   const [inviteForm] = Form.useForm();
+  const [addMemberForm] = Form.useForm();
   const [transferForm] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState<ProjectProgress | null>(null);
   const [workload, setWorkload] = useState<MemberWorkload[]>([]);
+  const [searchUsers, setSearchUsers] = useState<UserSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
 
-  const isOwner = project?.members?.some(
-    (m) => m.userId === currentUser?.id && m.role === 'OWNER',
+  const currentMember = project?.members?.find(
+    (m) => m.userId === currentUser?.id,
   );
+  const isOwner = currentMember?.role === 'OWNER';
 
   const loadProject = useCallback(async () => {
     if (!id) return;
@@ -137,7 +146,7 @@ const ProjectDetailPage: React.FC = () => {
     }
   };
 
-  // ==================== Invite Modal ====================
+  // ==================== Invite by Email ====================
 
   const handleInvite = async (values: { email: string; role: string }) => {
     try {
@@ -175,6 +184,38 @@ const ProjectDetailPage: React.FC = () => {
       await projectApi.cancelInvitation(id!, invitationId);
       message.success('邀请已取消');
       loadInvitations();
+    } catch (error: any) {
+      message.error(error.message);
+    }
+  };
+
+  // ==================== Add Member (search existing users) ====================
+
+  const handleSearchUsers = async (query: string) => {
+    if (!query || query.length < 1) {
+      setSearchUsers([]);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const users = await userApi.search(query);
+      // Filter out existing members
+      const existingIds = new Set(project?.members?.map((m) => m.userId) || []);
+      setSearchUsers(users.filter((u) => !existingIds.has(u.id)));
+    } catch {
+      setSearchUsers([]);
+    }
+    setSearchLoading(false);
+  };
+
+  const handleAddMember = async (values: { userId: string; role: string }) => {
+    try {
+      await projectApi.addMember(id!, values);
+      message.success('成员添加成功');
+      addMemberForm.resetFields();
+      setAddMemberModalOpen(false);
+      setSearchUsers([]);
+      loadProject();
     } catch (error: any) {
       message.error(error.message);
     }
@@ -435,23 +476,38 @@ const ProjectDetailPage: React.FC = () => {
             label: `成员 (${project.members?.length || 0})`,
             children: (
               <>
-                {isOwner && (
-                  <Space style={{ marginBottom: 16 }}>
-                    <Button
-                      type="primary"
-                      icon={<UserAddOutlined />}
-                      onClick={() => setInviteModalOpen(true)}
-                    >
-                      邀请成员
-                    </Button>
-                    <Button
-                      icon={<SwapOutlined />}
-                      onClick={() => setTransferModalOpen(true)}
-                    >
-                      转移所有权
-                    </Button>
-                  </Space>
-                )}
+                {/* Action buttons — always show add member for OWNER */}
+                <Space style={{ marginBottom: 16 }}>
+                  {isOwner && (
+                    <>
+                      <Button
+                        type="primary"
+                        icon={<UserAddOutlined />}
+                        onClick={() => setAddMemberModalOpen(true)}
+                      >
+                        添加成员
+                      </Button>
+                      <Button
+                        icon={<MailOutlined />}
+                        onClick={() => setInviteModalOpen(true)}
+                      >
+                        邮箱邀请
+                      </Button>
+                      <Button
+                        icon={<SwapOutlined />}
+                        onClick={() => setTransferModalOpen(true)}
+                      >
+                        转移所有权
+                      </Button>
+                    </>
+                  )}
+                  {!isOwner && currentMember && (
+                    <Typography.Text type="secondary">
+                      您的角色: <Tag>{roleLabels[currentMember.role]}</Tag>
+                      {currentMember.role !== 'OWNER' && '（仅所有者可管理成员）'}
+                    </Typography.Text>
+                  )}
+                </Space>
                 <Table
                   rowKey="id"
                   dataSource={project.members}
@@ -617,14 +673,76 @@ const ProjectDetailPage: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* Invite Member Modal */}
+      {/* Add Member Modal (search existing users) */}
       <Modal
-        title="邀请成员"
+        title="添加成员"
+        open={addMemberModalOpen}
+        onCancel={() => { setAddMemberModalOpen(false); addMemberForm.resetFields(); setSearchUsers([]); }}
+        onOk={() => addMemberForm.submit()}
+        width={480}
+      >
+        <Form form={addMemberForm} layout="vertical" onFinish={handleAddMember}>
+          <Form.Item
+            name="userId"
+            label="搜索用户"
+            rules={[{ required: true, message: '请选择用户' }]}
+          >
+            <Select
+              showSearch
+              placeholder="输入姓名或邮箱搜索已注册用户"
+              filterOption={false}
+              onSearch={handleSearchUsers}
+              loading={searchLoading}
+              notFoundContent={searchLoading ? '搜索中...' : '未找到用户'}
+              options={searchUsers.map((u) => ({
+                value: u.id,
+                label: (
+                  <span>
+                    {u.name} <Typography.Text type="secondary">({u.email})</Typography.Text>
+                  </span>
+                ),
+              }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="role"
+            label="角色"
+            rules={[{ required: true, message: '请选择角色' }]}
+            initialValue="MEMBER"
+          >
+            <Select>
+              <Select.Option value="MEMBER">成员（可编辑）</Select.Option>
+              <Select.Option value="VIEWER">查看者（只读）</Select.Option>
+            </Select>
+          </Form.Item>
+        </Form>
+        <Divider plain style={{ fontSize: 12 }}>
+          找不到用户？
+        </Divider>
+        <Button
+          block
+          icon={<MailOutlined />}
+          onClick={() => { setAddMemberModalOpen(false); setInviteModalOpen(true); }}
+        >
+          通过邮箱邀请未注册用户
+        </Button>
+      </Modal>
+
+      {/* Invite by Email Modal */}
+      <Modal
+        title="邮箱邀请"
         open={inviteModalOpen}
         onCancel={() => { setInviteModalOpen(false); inviteForm.resetFields(); }}
         onOk={() => inviteForm.submit()}
         width={480}
       >
+        <Alert
+          type="info"
+          showIcon
+          message="输入邮箱地址邀请用户加入项目"
+          description="如果对方已注册，将直接添加为成员；如果未注册，将生成邀请链接。"
+          style={{ marginBottom: 16 }}
+        />
         <Form form={inviteForm} layout="vertical" onFinish={handleInvite}>
           <Form.Item
             name="email"

@@ -9,7 +9,8 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { AssignmentService, CreateAssignmentDto } from './assignment.service';
+import { AssignmentService } from './assignment.service';
+import { CreateAssignmentDto } from './dto/create-assignment.dto';
 
 @Controller('api/v1')
 @UseGuards(JwtAuthGuard)
@@ -19,11 +20,10 @@ export class AssignmentController {
   @Post('nodes/:nodeId/assignments')
   assignNode(
     @Param('nodeId') nodeId: string,
-    @Body() body: CreateAssignmentDto | CreateAssignmentDto[],
+    @Body() body: CreateAssignmentDto,
     @CurrentUser('id') userId: string,
   ) {
-    const assignments = Array.isArray(body) ? body : [body];
-    return this.assignmentService.assignNode(nodeId, assignments, userId);
+    return this.assignmentService.assignNode(nodeId, [body], userId);
   }
 
   @Get('nodes/:nodeId/assignments')

@@ -1,4 +1,7 @@
 import api from './api';
+import axios from 'axios';
+
+const token = () => localStorage.getItem('accessToken');
 
 export const ectdApi = {
   // XML Preview
@@ -31,6 +34,15 @@ export const ectdApi = {
   // Package
   previewPackage: (seqId: string) =>
     api.get(`/sequences/${seqId}/export/ectd-preview`),
-  exportPackage: (seqId: string) =>
-    api.post(`/sequences/${seqId}/export/ectd-package`, {}, { responseType: 'blob' }),
+  exportPackage: async (seqId: string): Promise<Blob> => {
+    const res = await axios.post(
+      `/api/v1/sequences/${seqId}/export/ectd-package`,
+      {},
+      {
+        responseType: 'blob',
+        headers: { Authorization: `Bearer ${token()}` },
+      },
+    );
+    return res.data;
+  },
 };

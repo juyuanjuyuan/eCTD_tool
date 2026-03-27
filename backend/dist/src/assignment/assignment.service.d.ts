@@ -1,9 +1,6 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { NodePermission } from '@prisma/client';
-export interface CreateAssignmentDto {
-    userId: string;
-    permission: NodePermission;
-}
+import { CreateAssignmentDto } from './dto/create-assignment.dto';
 export declare class AssignmentService {
     private readonly prisma;
     constructor(prisma: PrismaService);

@@ -36,8 +36,8 @@ let AssignmentService = class AssignmentService {
         const assignerMember = await this.prisma.projectMember.findFirst({
             where: { projectId, userId: assignerId },
         });
-        if (!assignerMember || assignerMember.role !== 'OWNER') {
-            throw new common_1.ForbiddenException('只有项目所有者可以指派章节');
+        if (!assignerMember || assignerMember.role === 'VIEWER') {
+            throw new common_1.ForbiddenException('查看者无法指派章节');
         }
         for (const a of assignments) {
             const member = await this.prisma.projectMember.findFirst({
@@ -108,8 +108,8 @@ let AssignmentService = class AssignmentService {
         const removerMember = await this.prisma.projectMember.findFirst({
             where: { projectId, userId: removerId },
         });
-        if (!removerMember || removerMember.role !== 'OWNER') {
-            throw new common_1.ForbiddenException('只有项目所有者可以取消指派');
+        if (!removerMember || removerMember.role === 'VIEWER') {
+            throw new common_1.ForbiddenException('查看者无法取消指派');
         }
         const assignment = await this.prisma.nodeAssignment.findUnique({
             where: { nodeId_userId: { nodeId, userId } },

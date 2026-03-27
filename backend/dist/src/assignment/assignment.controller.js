@@ -17,14 +17,14 @@ const common_1 = require("@nestjs/common");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
 const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 const assignment_service_1 = require("./assignment.service");
+const create_assignment_dto_1 = require("./dto/create-assignment.dto");
 let AssignmentController = class AssignmentController {
     assignmentService;
     constructor(assignmentService) {
         this.assignmentService = assignmentService;
     }
     assignNode(nodeId, body, userId) {
-        const assignments = Array.isArray(body) ? body : [body];
-        return this.assignmentService.assignNode(nodeId, assignments, userId);
+        return this.assignmentService.assignNode(nodeId, [body], userId);
     }
     getNodeAssignments(nodeId) {
         return this.assignmentService.getNodeAssignments(nodeId);
@@ -43,7 +43,7 @@ __decorate([
     __param(1, (0, common_1.Body)()),
     __param(2, (0, current_user_decorator_1.CurrentUser)('id')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object, String]),
+    __metadata("design:paramtypes", [String, create_assignment_dto_1.CreateAssignmentDto, String]),
     __metadata("design:returntype", void 0)
 ], AssignmentController.prototype, "assignNode", null);
 __decorate([

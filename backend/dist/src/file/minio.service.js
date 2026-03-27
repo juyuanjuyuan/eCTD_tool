@@ -52,17 +52,36 @@ let MinioService = MinioService_1 = class MinioService {
     config;
     logger = new common_1.Logger(MinioService_1.name);
     client;
+    presignClient;
     bucket;
     constructor(config) {
         this.config = config;
         this.bucket = this.config.get('MINIO_BUCKET', 'ectd-files');
+        const endpoint = this.config.get('MINIO_ENDPOINT', 'localhost');
+        const port = this.config.get('MINIO_PORT', 9000);
+        const accessKey = this.config.get('MINIO_ACCESS_KEY', 'ectd_minio');
+        const secretKey = this.config.get('MINIO_SECRET_KEY', 'ectd_minio_password');
         this.client = new Minio.Client({
-            endPoint: this.config.get('MINIO_ENDPOINT', 'localhost'),
-            port: this.config.get('MINIO_PORT', 9000),
+            endPoint: endpoint,
+            port,
             useSSL: false,
-            accessKey: this.config.get('MINIO_ACCESS_KEY', 'ectd_minio'),
-            secretKey: this.config.get('MINIO_SECRET_KEY', 'ectd_minio_password'),
+            accessKey,
+            secretKey,
         });
+        const publicUrl = this.config.get('MINIO_PUBLIC_URL', '');
+        if (publicUrl) {
+            const url = new URL(publicUrl);
+            this.presignClient = new Minio.Client({
+                endPoint: url.hostname,
+                port: parseInt(url.port, 10) || (url.protocol === 'https:' ? 443 : 80),
+                useSSL: url.protocol === 'https:',
+                accessKey,
+                secretKey,
+            });
+        }
+        else {
+            this.presignClient = this.client;
+        }
     }
     async onModuleInit() {
         try {
@@ -110,10 +129,10 @@ let MinioService = MinioService_1 = class MinioService {
         this.logger.log(`Deleted: ${objectName}`);
     }
     async getPresignedDownloadUrl(objectName, expirySeconds = 3600) {
-        return this.client.presignedGetObject(this.bucket, objectName, expirySeconds);
+        return this.presignClient.presignedGetObject(this.bucket, objectName, expirySeconds);
     }
     async getPresignedPreviewUrl(objectName, expirySeconds = 3600) {
-        return this.client.presignedGetObject(this.bucket, objectName, expirySeconds, { 'response-content-disposition': 'inline' });
+        return this.presignClient.presignedGetObject(this.bucket, objectName, expirySeconds, { 'response-content-disposition': 'inline' });
     }
     calculateMd5(buffer) {
         return crypto.createHash('md5').update(buffer).digest('hex');
