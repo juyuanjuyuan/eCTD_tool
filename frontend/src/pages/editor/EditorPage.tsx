@@ -19,7 +19,6 @@ import {
   SafetyCertificateOutlined,
   SendOutlined,
   ExportOutlined,
-  CloudUploadOutlined,
   FolderOpenOutlined,
   CheckCircleFilled,
   ClockCircleFilled,

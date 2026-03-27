@@ -18,7 +18,6 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   WarningOutlined,
-  DownloadOutlined,
 } from '@ant-design/icons';
 import { exportApi, type ComplianceResult } from '../services/export';
 import type { SequenceNode } from '../types';

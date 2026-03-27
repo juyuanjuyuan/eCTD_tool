@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Card,
   Button,
@@ -71,7 +71,7 @@ const EctdPackagePanel: React.FC<Props> = ({ sequenceId, validationPassed }) => 
   const handlePreview = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await ectdApi.previewPackage(sequenceId);
+      const data = await ectdApi.previewPackage(sequenceId) as any;
       setPreviewPaths(data.paths || []);
       setTreeData(buildTreeFromPaths(data.paths || []));
       setPreviewed(true);

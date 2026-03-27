@@ -25,9 +25,9 @@ import {
   CheckCircleFilled,
   WarningFilled,
   CloseCircleFilled,
-  InfoCircleOutlined,
 } from '@ant-design/icons';
-import type { UploadProps, ColumnsType } from 'antd';
+import type { UploadProps } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { fileApi, type FileAttachment, type ReferenceableFile } from '../services/file';
 
 const { Text } = Typography;

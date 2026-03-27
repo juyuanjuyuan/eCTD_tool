@@ -2,15 +2,11 @@ import React, { useMemo, useState, useRef, useEffect } from 'react';
 import {
   Tree,
   Input,
-  Tag,
   Modal,
   Select,
-  Tooltip,
-  Space,
 } from 'antd';
 import {
   FolderOutlined,
-  FolderOpenOutlined,
   FileOutlined,
   AppstoreAddOutlined,
   SearchOutlined,

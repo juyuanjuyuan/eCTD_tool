@@ -6,7 +6,6 @@ import {
   Button,
   Typography,
   Tag,
-  Space,
   Empty,
 } from 'antd';
 import { BellOutlined, CheckOutlined } from '@ant-design/icons';

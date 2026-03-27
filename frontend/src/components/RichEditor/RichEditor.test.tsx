@@ -51,7 +51,7 @@ const mockEditor = {
 
 vi.mock('@tiptap/react', () => ({
   useEditor: vi.fn(() => mockEditor),
-  EditorContent: ({ editor, className }: any) => (
+  EditorContent: ({ className }: any) => (
     <div data-testid="editor-content" className={className}>
       Mock Editor Content
     </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Card, Button, Tabs, Spin, message, Typography } from 'antd';
-import { CodeOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
 import { ectdApi } from '../services/ectd';
 
 const { Text } = Typography;
@@ -18,7 +18,7 @@ const XmlPreviewPanel: React.FC<Props> = ({ sequenceId }) => {
   const fetchCnRegional = async () => {
     setLoadingCn(true);
     try {
-      const data = await ectdApi.previewCnRegionalXml(sequenceId);
+      const data = await ectdApi.previewCnRegionalXml(sequenceId) as any;
       setCnRegionalXml(data.xml || '');
     } catch (err: any) {
       message.error(err.message);
@@ -30,7 +30,7 @@ const XmlPreviewPanel: React.FC<Props> = ({ sequenceId }) => {
   const fetchIndex = async () => {
     setLoadingIndex(true);
     try {
-      const data = await ectdApi.previewIndexXml(sequenceId);
+      const data = await ectdApi.previewIndexXml(sequenceId) as any;
       setIndexXml(data.xml || '');
     } catch (err: any) {
       message.error(err.message);

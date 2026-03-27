@@ -78,7 +78,7 @@ const ValidationPanel: React.FC<Props> = ({ sequenceId, onValidationComplete }) 
   const fetchLatestReport = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await ectdApi.getLatestReport(sequenceId);
+      const data = await ectdApi.getLatestReport(sequenceId) as any;
       setReport(data);
     } catch {
       // No report yet
@@ -94,7 +94,7 @@ const ValidationPanel: React.FC<Props> = ({ sequenceId, onValidationComplete }) 
   const handleRunValidation = async () => {
     setRunning(true);
     try {
-      const result = await ectdApi.runValidation(sequenceId);
+      const result = await ectdApi.runValidation(sequenceId) as any;
       message.success(
         result.isPassed
           ? '验证通过！可以导出 eCTD 包'
