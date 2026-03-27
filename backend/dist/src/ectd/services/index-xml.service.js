@@ -37,8 +37,50 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
         this.md5Service = md5Service;
     }
     async generateIndexXml(sequenceId) {
+        const sequence = await this.prisma.sequence.findUnique({
+            where: { id: sequenceId },
+            select: {
+                id: true,
+                sequenceNumber: true,
+                regulatoryActivityId: true,
+            },
+        });
+        if (!sequence)
+            throw new Error(`序列 ${sequenceId} 不存在`);
+        const priorLeafIdMap = await this.buildPriorLeafIdMap(sequence);
         const moduleRoots = await this.loadModuleNodes(sequenceId);
-        return this.buildXml(moduleRoots);
+        return this.buildXml(sequenceId, moduleRoots, priorLeafIdMap);
+    }
+    async buildPriorLeafIdMap(sequence) {
+        const map = new Map();
+        if (sequence.sequenceNumber === '0000')
+            return map;
+        const priorSequences = await this.prisma.sequence.findMany({
+            where: {
+                regulatoryActivityId: sequence.regulatoryActivityId,
+                sequenceNumber: { lt: sequence.sequenceNumber },
+            },
+            orderBy: { sequenceNumber: 'desc' },
+            select: { id: true },
+        });
+        for (const priorSeq of priorSequences) {
+            const priorNodes = await this.prisma.sequenceNode.findMany({
+                where: {
+                    sequenceId: priorSeq.id,
+                    isLeaf: true,
+                    operation: { not: null },
+                    templateNode: { module: { gte: 2 } },
+                },
+                select: { id: true, templateNodeId: true },
+            });
+            for (const node of priorNodes) {
+                if (!map.has(node.templateNodeId)) {
+                    map.set(node.templateNodeId, this.md5Service.generateDeterministicLeafId(priorSeq.id, node.id));
+                }
+            }
+            break;
+        }
+        return map;
     }
     async loadModuleNodes(sequenceId) {
         const allNodes = await this.prisma.sequenceNode.findMany({
@@ -60,6 +102,7 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
         for (const node of ichNodes) {
             nodeMap.set(node.id, {
                 id: node.id,
+                templateNodeId: node.templateNodeId,
                 elementName: node.elementName,
                 ctdSectionNumber: node.ctdSectionNumber,
                 title: node.title,
@@ -86,7 +129,7 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
         }
         return roots;
     }
-    buildXml(moduleRoots) {
+    buildXml(sequenceId, moduleRoots, priorLeafIdMap) {
         const lines = [];
         lines.push('<?xml version="1.0" encoding="UTF-8"?>');
         lines.push('<!DOCTYPE ectd:ectd SYSTEM "util/dtd/ich-ectd-3-2.dtd">');
@@ -94,19 +137,19 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
         lines.push('<ectd:ectd xmlns:ectd="http://www.ich.org/ectd"', '           xmlns:xlink="http://www.w3.org/1999/xlink">');
         for (const root of moduleRoots) {
             if (this.hasActiveLeaves(root)) {
-                this.buildElement(lines, root, '  ');
+                this.buildElement(lines, root, '  ', sequenceId, priorLeafIdMap);
             }
         }
         lines.push('</ectd:ectd>');
         return lines.join('\n');
     }
-    buildElement(lines, node, indent) {
+    buildElement(lines, node, indent, sequenceId, priorLeafIdMap) {
         if (node.isLeaf) {
-            this.buildLeafElements(lines, node, indent);
+            this.buildLeafElements(lines, node, indent, sequenceId, priorLeafIdMap);
             return;
         }
         if (node.elementName === 'node-extension') {
-            this.buildNodeExtension(lines, node, indent);
+            this.buildNodeExtension(lines, node, indent, sequenceId, priorLeafIdMap);
             return;
         }
         const attrs = this.buildBackboneAttributes(node);
@@ -116,47 +159,58 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
         lines.push(openTag);
         for (const child of node.children) {
             if (this.hasActiveLeaves(child)) {
-                this.buildElement(lines, child, indent + '  ');
+                this.buildElement(lines, child, indent + '  ', sequenceId, priorLeafIdMap);
             }
         }
         lines.push(`${indent}</${node.elementName}>`);
     }
-    buildNodeExtension(lines, node, indent) {
+    buildNodeExtension(lines, node, indent, sequenceId, priorLeafIdMap) {
         lines.push(`${indent}<node-extension>`);
         lines.push(`${indent}  <title>${this.escapeXml(node.title)}</title>`);
         for (const child of node.children) {
-            this.buildLeafElements(lines, child, indent + '  ');
+            this.buildLeafElements(lines, child, indent + '  ', sequenceId, priorLeafIdMap);
         }
         if (node.fileAttachments.length > 0 && node.operation) {
-            this.buildLeafFromAttachments(lines, node, indent + '  ');
+            this.buildLeafFromAttachments(lines, node, indent + '  ', sequenceId, priorLeafIdMap);
         }
         lines.push(`${indent}</node-extension>`);
     }
-    buildLeafElements(lines, node, indent) {
+    buildLeafElements(lines, node, indent, sequenceId, priorLeafIdMap) {
         if (!node.operation)
             return;
-        this.buildLeafFromAttachments(lines, node, indent);
+        this.buildLeafFromAttachments(lines, node, indent, sequenceId, priorLeafIdMap);
     }
-    buildLeafFromAttachments(lines, node, indent) {
+    buildLeafFromAttachments(lines, node, indent, sequenceId, priorLeafIdMap) {
         const op = node.operation.toLowerCase();
+        const modifiedFile = ['replace', 'delete', 'append'].includes(op)
+            ? priorLeafIdMap.get(node.templateNodeId)
+            : undefined;
         if (node.fileAttachments.length > 0) {
-            for (const file of node.fileAttachments) {
-                const leafId = this.md5Service.generateLeafId();
-                const attrs = this.buildLeafAttrs(leafId, op, file);
+            for (let i = 0; i < node.fileAttachments.length; i++) {
+                const file = node.fileAttachments[i];
+                const leafId = this.md5Service.generateDeterministicLeafId(sequenceId, node.id, i);
+                const attrs = this.buildLeafAttrs(leafId, op, file, modifiedFile);
                 lines.push(`${indent}<leaf ${attrs}>`);
                 lines.push(`${indent}  <title>${this.escapeXml(node.title)}</title>`);
                 lines.push(`${indent}</leaf>`);
             }
         }
         else if (op === 'delete') {
-            const leafId = this.md5Service.generateLeafId();
-            lines.push(`${indent}<leaf ID="${leafId}" operation="delete">`);
+            const leafId = this.md5Service.generateDeterministicLeafId(sequenceId, node.id);
+            const deleteAttrs = [`ID="${leafId}"`, `operation="delete"`];
+            if (modifiedFile) {
+                deleteAttrs.push(`modified-file="${modifiedFile}"`);
+            }
+            lines.push(`${indent}<leaf ${deleteAttrs.join(' ')}>`);
             lines.push(`${indent}  <title>${this.escapeXml(node.title)}</title>`);
             lines.push(`${indent}</leaf>`);
         }
     }
-    buildLeafAttrs(leafId, operation, file) {
+    buildLeafAttrs(leafId, operation, file, modifiedFile) {
         const parts = [`ID="${leafId}"`, `operation="${operation}"`];
+        if (modifiedFile) {
+            parts.push(`modified-file="${modifiedFile}"`);
+        }
         if (operation !== 'delete') {
             parts.push(`xlink:href="${this.escapeXml(file.ectdRelativePath)}"`);
             parts.push(`checksum="${file.md5Checksum}"`);

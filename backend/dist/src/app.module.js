@@ -27,6 +27,10 @@ const edit_lock_module_1 = require("./edit-lock/edit-lock.module");
 const approval_module_1 = require("./approval/approval.module");
 const comment_module_1 = require("./comment/comment.module");
 const activity_log_module_1 = require("./activity-log/activity-log.module");
+const assignment_module_1 = require("./assignment/assignment.module");
+const notification_module_1 = require("./notification/notification.module");
+const collaboration_module_1 = require("./collaboration/collaboration.module");
+const dashboard_module_1 = require("./dashboard/dashboard.module");
 const health_module_1 = require("./health/health.module");
 let AppModule = class AppModule {
 };
@@ -60,6 +64,10 @@ exports.AppModule = AppModule = __decorate([
             approval_module_1.ApprovalModule,
             comment_module_1.CommentModule,
             activity_log_module_1.ActivityLogModule,
+            assignment_module_1.AssignmentModule,
+            notification_module_1.NotificationModule,
+            collaboration_module_1.CollaborationModule,
+            dashboard_module_1.DashboardModule,
         ],
     })
 ], AppModule);

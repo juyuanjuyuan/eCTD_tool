@@ -16,6 +16,9 @@ import {
   UpdateProjectDto,
   AddMemberDto,
   QueryProjectDto,
+  CreateInvitationDto,
+  ChangeRoleDto,
+  TransferOwnershipDto,
 } from './dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -62,6 +65,8 @@ export class ProjectController {
     return this.projectService.archive(id, userId);
   }
 
+  // ==================== Members ====================
+
   @Post(':id/members')
   @Roles(Role.ADMIN, Role.MANAGER, Role.EDITOR)
   addMember(
@@ -80,5 +85,71 @@ export class ProjectController {
     @CurrentUser('id') userId: string,
   ) {
     return this.projectService.removeMember(id, targetUserId, userId);
+  }
+
+  @Patch(':id/members/:targetUserId/role')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EDITOR)
+  changeMemberRole(
+    @Param('id') id: string,
+    @Param('targetUserId') targetUserId: string,
+    @Body() dto: ChangeRoleDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.projectService.changeMemberRole(id, targetUserId, dto, userId);
+  }
+
+  @Post(':id/transfer-ownership')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EDITOR)
+  transferOwnership(
+    @Param('id') id: string,
+    @Body() dto: TransferOwnershipDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.projectService.transferOwnership(id, dto, userId);
+  }
+
+  // ==================== Invitations ====================
+
+  @Post(':id/invitations')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EDITOR)
+  createInvitation(
+    @Param('id') id: string,
+    @Body() dto: CreateInvitationDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.projectService.createInvitation(id, dto, userId);
+  }
+
+  @Get(':id/invitations')
+  listInvitations(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.projectService.listInvitations(id, userId);
+  }
+
+  @Delete(':id/invitations/:invitationId')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EDITOR)
+  cancelInvitation(
+    @Param('id') id: string,
+    @Param('invitationId') invitationId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.projectService.cancelInvitation(id, invitationId, userId);
+  }
+}
+
+// Separate controller for accepting invitations (no project context needed)
+@Controller('api/v1/invitations')
+@UseGuards(JwtAuthGuard)
+export class InvitationController {
+  constructor(private readonly projectService: ProjectService) {}
+
+  @Post(':token/accept')
+  acceptInvitation(
+    @Param('token') token: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.projectService.acceptInvitation(token, userId);
   }
 }

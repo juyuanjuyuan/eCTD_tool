@@ -11,11 +11,11 @@ export declare class ApplicationService {
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
-        productTypeCode: string;
-        productNumber: string;
         applicationNumber: string;
         applicationTypeVersion: string;
+        productTypeCode: string;
         productTypeVersion: string;
+        productNumber: string;
     }>;
     findAllByProject(projectId: string): Promise<({
         _count: {
@@ -27,11 +27,11 @@ export declare class ApplicationService {
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
-        productTypeCode: string;
-        productNumber: string;
         applicationNumber: string;
         applicationTypeVersion: string;
+        productTypeCode: string;
         productTypeVersion: string;
+        productNumber: string;
     })[]>;
     findOne(id: string): Promise<{
         project: {
@@ -56,11 +56,11 @@ export declare class ApplicationService {
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
-        productTypeCode: string;
-        productNumber: string;
         applicationNumber: string;
         applicationTypeVersion: string;
+        productTypeCode: string;
         productTypeVersion: string;
+        productNumber: string;
     }>;
     remove(id: string): Promise<{
         id: string;
@@ -68,11 +68,11 @@ export declare class ApplicationService {
         createdAt: Date;
         updatedAt: Date;
         projectId: string;
-        productTypeCode: string;
-        productNumber: string;
         applicationNumber: string;
         applicationTypeVersion: string;
+        productTypeCode: string;
         productTypeVersion: string;
+        productNumber: string;
     }>;
     private generateApplicationNumber;
 }

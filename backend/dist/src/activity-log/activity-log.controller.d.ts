@@ -13,10 +13,29 @@ export declare class ActivityLogController {
             id: string;
             createdAt: Date;
             userId: string;
-            detail: import("@prisma/client/runtime/library").JsonValue | null;
             action: string;
             resource: string;
             resourceId: string;
+            detail: import("@prisma/client/runtime/library").JsonValue | null;
+        })[];
+        total: number;
+        page: number;
+        pageSize: number;
+    }>;
+    getMemberActivity(projectId: string, userId: string, query: PaginationDto): Promise<{
+        items: ({
+            user: {
+                id: string;
+                name: string;
+            };
+        } & {
+            id: string;
+            createdAt: Date;
+            userId: string;
+            action: string;
+            resource: string;
+            resourceId: string;
+            detail: import("@prisma/client/runtime/library").JsonValue | null;
         })[];
         total: number;
         page: number;

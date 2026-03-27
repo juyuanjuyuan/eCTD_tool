@@ -97,4 +97,27 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
   }
+
+  /** Scan keys matching a pattern using SCAN (safe for production). */
+  async scanKeys(pattern: string): Promise<string[]> {
+    if (!this.isConnected) return [];
+    try {
+      const keys: string[] = [];
+      let cursor = '0';
+      do {
+        const [nextCursor, batch] = await this.client.scan(
+          cursor,
+          'MATCH',
+          pattern,
+          'COUNT',
+          100,
+        );
+        cursor = nextCursor;
+        keys.push(...batch);
+      } while (cursor !== '0');
+      return keys;
+    } catch {
+      return [];
+    }
+  }
 }

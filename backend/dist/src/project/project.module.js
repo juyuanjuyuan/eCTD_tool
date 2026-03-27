@@ -10,12 +10,14 @@ exports.ProjectModule = void 0;
 const common_1 = require("@nestjs/common");
 const project_controller_1 = require("./project.controller");
 const project_service_1 = require("./project.service");
+const activity_log_module_1 = require("../activity-log/activity-log.module");
 let ProjectModule = class ProjectModule {
 };
 exports.ProjectModule = ProjectModule;
 exports.ProjectModule = ProjectModule = __decorate([
     (0, common_1.Module)({
-        controllers: [project_controller_1.ProjectController],
+        imports: [activity_log_module_1.ActivityLogModule],
+        controllers: [project_controller_1.ProjectController, project_controller_1.InvitationController],
         providers: [project_service_1.ProjectService],
         exports: [project_service_1.ProjectService],
     })

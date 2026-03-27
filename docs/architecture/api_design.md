@@ -217,3 +217,73 @@
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
 | GET | `/` | 操作日志列表（分页） | 成员 |
+
+## 20. 项目邀请 `/api/v1/projects/:id/invitations` ✅ (WP-09 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| POST | `/` | 创建邀请（输入 email+role，已注册用户直接加入+通知，未注册生成邀请链接） | OWNER/MANAGER |
+| GET | `/` | 邀请列表（含 PENDING/ACCEPTED/EXPIRED/CANCELLED） | OWNER/MANAGER |
+| DELETE | `/:invitationId` | 取消邀请 | OWNER/MANAGER |
+
+### 20.1 接受邀请 `/api/v1/invitations`
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| POST | `/:token/accept` | 接受邀请（校验令牌有效性和过期时间，自动加入项目） | 已登录 |
+
+## 21. 成员角色与所有权 `/api/v1/projects/:id` ✅ (WP-09 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| PATCH | `/members/:userId/role` | 变更成员角色（不能设 OWNER，不能变更自己） | OWNER |
+| POST | `/transfer-ownership` | 转移所有权（目标须为现有成员，原 OWNER 降级为 MEMBER） | OWNER |
+
+## 22. 章节指派 `/api/v1/nodes/:nodeId/assignments` ✅ (WP-09 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| POST | `/` | 指派成员（输入 userId+permission，支持批量，触发 ASSIGNMENT 通知） | OWNER/MANAGER |
+| GET | `/` | 获取节点指派列表（含权限继承信息） | 成员 |
+| DELETE | `/:userId` | 取消指派 | OWNER/MANAGER |
+
+### 22.1 序列指派总览 `/api/v1/sequences/:seqId/assignments`
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/overview` | 序列全局指派总览（每个节点的指派状态和指派人） | 成员 |
+
+## 23. 通知 `/api/v1/notifications` ✅ (WP-09 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/` | 我的通知列表（分页，查询参数: is_read/type/project_id） | 已登录 |
+| PATCH | `/:id/read` | 标记单条已读 | 已登录 |
+| POST | `/read-all` | 全部标记已读 | 已登录 |
+| GET | `/unread-count` | 未读数量（轻量接口，顶栏轮询/WebSocket 推送用） | 已登录 |
+
+## 24. 在线状态 `/api/v1/projects/:id/presence` ✅ (WP-09 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/` | 查询在线成员列表（WebSocket 不可用时的 HTTP fallback） | 成员 |
+
+## 25. 工作台 `/api/v1/dashboard` ✅ (WP-09 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/my-tasks` | 我的待办（待编辑节点+待审阅节点+待处理邀请数） | 已登录 |
+| GET | `/recent-edits` | 我的最近编辑（最近 5 个节点，含项目名+序列号） | 已登录 |
+
+## 26. 项目协作 `/api/v1/projects/:id/collaboration` ✅ (WP-09 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/progress` | 项目进度总览（按模块 M1-M5 统计节点数/已完成数/百分比） | 成员 |
+| GET | `/workload` | 成员工作量分布（每人指派数/完成数/编辑中数/待审阅数） | 成员 |
+
+## 27. 成员活动 `/api/v1/projects/:projectId/members/:userId/activity` ✅ (WP-09 已实现)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/` | 某成员在项目中的活动时间线（支持按时间范围筛选） | 成员 |

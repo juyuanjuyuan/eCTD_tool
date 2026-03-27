@@ -11,4 +11,5 @@ export declare class RedisCacheService implements OnModuleInit, OnModuleDestroy 
     delPattern(pattern: string): Promise<void>;
     setnx(key: string, value: any, ttlSeconds: number): Promise<boolean>;
     expire(key: string, ttlSeconds: number): Promise<boolean>;
+    scanKeys(pattern: string): Promise<string[]>;
 }

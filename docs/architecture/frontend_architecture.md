@@ -7,9 +7,9 @@
 | 模块 | 路由 | 说明 | 权限 |
 |------|------|------|------|
 | 登录 | `/login` | 登录/注册页 | 公开 |
-| 工作台 | `/dashboard` | 项目概览、最近编辑、待办任务 | ALL |
+| 工作台 ✅ | `/dashboard` | 个人工作台: 我的待办（待编辑/待审阅/待处理邀请）+ 最近编辑 + 我的项目 | ALL |
 | 项目列表 | `/projects` | 项目（药品）列表 CRUD | EDITOR+ |
-| 项目详情 | `/projects/:id` | 项目下的申请、序列管理 | EDITOR+ |
+| 项目详情 ✅ | `/projects/:id` | 项目下的申请、序列管理 + 协作 Tab（进度总览、工作量分布）+ 成员管理增强 | EDITOR+ |
 | 申请管理 | `/projects/:id/applications` | 申请编号、类型管理 | EDITOR+ |
 | 序列管理 | `/projects/:id/applications/:appId/sequences` | 序列号、注册行为管理 | EDITOR+ |
 | 序列详情 ✅ | `/sequences/:seqId` | CTD 目录树 + 内容完整性看板 + 目录初始化 | EDITOR+ |
@@ -17,6 +17,7 @@
 | 导出中心 | `/export/:sequenceId` | Word/PDF 导出、eCTD 包生成 | EDITOR+ |
 | 验证报告 | `/validation/:sequenceId` | eCTD 验证结果查看 | VIEWER+ |
 | 文件管理 | `/files/:sequenceId` | 上传/管理 PDF、附件文件 | EDITOR+ |
+| 通知列表 ✅ | `/notifications` | 全量通知列表（分页、按类型/项目/已读筛选、批量已读） | ALL |
 | 系统设置 | `/settings` | 用户管理、模板管理 | ADMIN |
 
 ### 1.2 核心页面: 文档编辑器
@@ -212,3 +213,112 @@ const api = axios.create({
 - 编辑器内容变化后 3 秒自动保存（防抖）
 - 保存状态指示: "已保存" / "保存中..." / "未保存"
 - 页面关闭前检查未保存内容，弹出确认框
+
+## 6. 协作功能组件（WP-09）
+
+### 6.1 通知中心组件 (`NotificationCenter`) ✅
+
+全局 Layout 顶栏组件:
+- 铃铛图标（BellOutlined）+ 红色 Badge 显示未读数
+- 点击展开 Popover 通知下拉面板
+- 面板内容:
+  - 按时间倒序显示最近 20 条通知
+  - 已读/未读样式区分（未读加粗 + 蓝色圆点）
+  - 点击通知跳转到对应页面（审批通知→编辑器对应节点，评论通知→评论 Tab 等）
+  - "全部标为已读"按钮
+  - "查看全部"链接 → 跳转 `/notifications` 列表页
+- 未读数获取: 轮询 `notificationApi.getUnreadCount()` + WebSocket `notification:count` 事件
+- 新通知: WebSocket `notification:new` 事件实时推入列表
+- 对应 API: `notificationApi.findAll/markAsRead/markAllAsRead/getUnreadCount`
+
+### 6.2 通知列表页 (`NotificationListPage`) ✅
+
+路由: `/notifications`
+- ProTable 展示全量通知列表（分页）
+- 筛选: 按类型（Select）、按项目（Select）、已读/未读（Radio）
+- 操作: 全部标记已读（Button）
+- 点击行跳转到对应资源页面
+- 对应 API: `notificationApi.findAll/markAsRead/markAllAsRead`
+
+### 6.3 增强工作台页面 (`DashboardPage`) ✅
+
+路由: `/dashboard`（登录后默认首页）
+
+布局:
+- 顶部统计卡片行: 待编辑数 / 待审阅数 / 待处理邀请数 / 参与项目数
+- "我的待办"区域:
+  - 待编辑章节列表（按项目分组，点击跳转编辑器）
+  - 待审阅提交列表（显示提交人+章节名，点击跳转审批）
+  - 待处理邀请（接受/拒绝操作）
+- "最近编辑"区域:
+  - 最近编辑的 5 个节点（Table: 项目名/序列号/章节名/编辑时间）
+  - 点击直接跳转到编辑器
+- "我的项目"区域:
+  - 参与的所有项目列表（Card: 项目名/角色/进度概要）
+- 对应 API: `dashboardApi.getMyTasks/getRecentEdits`
+
+### 6.4 增强项目详情页 (`ProjectDetailPage`) ✅
+
+新增"协作"Tab:
+- 团队进度总览:
+  - 横向 Progress 进度条: 总节点数 / 已完成（APPROVED）数
+  - 按模块（M1-M5）分别展示 Progress 进度条
+- 成员工作量分布:
+  - Table 展示每个成员: 指派章节数 / 已完成数 / 编辑中数 / 待审阅数
+  - 或 Card 布局展示
+- 对应 API: `collaborationApi.getProgress/getWorkload`
+
+成员管理 Tab 增强:
+- 成员列表增加操作列: 变更角色（Select 下拉）、移除成员（Popconfirm 确认）
+- 仅 OWNER 显示操作列
+- 成员列增加"加入时间"列
+- 成员列增加在线状态指示灯（绿色/灰色圆点）
+- "邀请成员"按钮 → InviteModal（邮箱输入 + 角色选择 + 待处理邀请列表）
+- "转移所有权"按钮（OWNER 专属，带 Modal 警告提示和二次确认）
+- 成员详情抽屉: 活动时间线（Timeline 组件展示操作日志）
+- 对应 API: `invitationApi/projectApi.changeMemberRole/transferOwnership/getMemberActivity`
+
+在线成员头像栏:
+- 项目详情页顶部 Avatar.Group 显示当前在线成员
+- Tooltip 悬停: 姓名 + 当前所在位置（如"正在编辑 3.2.S.1 物质基本信息"）
+- 对应 API: `collaborationApi.getPresence`（HTTP fallback）+ WebSocket 实时
+
+### 6.5 属性面板指派 Tab (`PropertiesPanel` 指派 Tab) ✅
+
+嵌入属性面板的"指派"Tab:
+- 展示当前节点的所有指派成员（List: 头像+姓名+权限 Tag）
+- OWNER 可操作:
+  - 添加指派: Select 搜索项目成员下拉 + 权限选择（EDIT/REVIEW/VIEW）
+  - 移除指派: 删除按钮（Popconfirm 确认）
+  - 变更权限: 点击权限 Tag 切换
+- 非 OWNER: 只读展示指派信息
+- 对应 API: `assignmentApi.assign/getNodeAssignments/removeAssignment`
+
+### 6.6 useCollaboration Hook ✅
+
+Socket.IO 客户端连接 Hook:
+```typescript
+useCollaboration({
+  projectId: string,
+  sequenceId?: string,
+  onUserOnline?: (user) => void,
+  onUserOffline?: (user) => void,
+  onUserLocation?: (data) => void,
+  onNodeLocked?: (data) => void,
+  onNodeUnlocked?: (data) => void,
+  onNodeUpdated?: (data) => void,
+  onNodeApproval?: (data) => void,
+  onNotification?: (notification) => void,
+  onNotificationCount?: (count) => void,
+})
+```
+
+功能:
+- 组件挂载时建立 Socket.IO 连接（携带 JWT access_token）
+- 自动加入 project/sequence 房间
+- 每 60 秒发送心跳续期在线状态
+- 断线自动重连（Socket.IO 内置）
+- 组件卸载时断开连接并清理在线状态
+- 编辑器页面: 监听 `node:locked/unlocked` 实时更新锁状态（无需轮询）
+- 编辑器页面: 监听 `node:updated` 提示其他用户内容已变更
+- CTD 目录树: 实时更新编辑锁图标和编辑者头像

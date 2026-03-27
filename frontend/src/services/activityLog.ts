@@ -7,4 +7,10 @@ export const activityLogApi = {
       `/sequences/${seqId}/activity-log`,
       { params: { page, pageSize } },
     ),
+
+  getMemberActivity: (projectId: string, userId: string, page = 1, pageSize = 20) =>
+    api.get<never, PaginatedData<ActivityLog>>(
+      `/projects/${projectId}/members/${userId}/activity`,
+      { params: { page, pageSize } },
+    ),
 };

@@ -44,10 +44,10 @@ export declare class ValidatorService {
             description: string;
             id: string;
             severity: import("@prisma/client").$Enums.ValidationSeverity;
+            detail: string | null;
             reportId: string;
             ruleCode: string;
             ruleCategory: string;
-            detail: string | null;
             filePath: string | null;
             suggestion: string | null;
         }[];
@@ -65,10 +65,10 @@ export declare class ValidatorService {
             description: string;
             id: string;
             severity: import("@prisma/client").$Enums.ValidationSeverity;
+            detail: string | null;
             reportId: string;
             ruleCode: string;
             ruleCategory: string;
-            detail: string | null;
             filePath: string | null;
             suggestion: string | null;
         }[];

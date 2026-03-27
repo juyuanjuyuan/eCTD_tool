@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Typography,
   Tabs,
@@ -15,29 +15,78 @@ import {
   Breadcrumb,
   Spin,
   Result,
+  Popconfirm,
+  Alert,
 } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import {
+  PlusOutlined,
+  DeleteOutlined,
+  SwapOutlined,
+  UserAddOutlined,
+  CloseCircleOutlined,
+  TeamOutlined,
+} from '@ant-design/icons';
+import { useParams, Link } from 'react-router-dom';
 import { projectApi } from '../../services/project';
 import { applicationApi } from '../../services/application';
 import { cvApi } from '../../services/cv';
+import { dashboardApi, type ProjectProgress, type MemberWorkload } from '../../services/dashboard';
+import { useAuthStore } from '../../stores/useAuthStore';
 import type {
   Project,
   ProjectMember,
+  ProjectInvitation,
   Application,
   ControlledVocabulary,
 } from '../../types';
 
+const roleLabels: Record<string, string> = {
+  OWNER: '所有者',
+  MEMBER: '成员',
+  VIEWER: '查看者',
+};
+
 const ProjectDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const currentUser = useAuthStore((s) => s.user);
   const [project, setProject] = useState<(Project & { members: ProjectMember[] }) | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [invitations, setInvitations] = useState<ProjectInvitation[]>([]);
   const [appModalOpen, setAppModalOpen] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [appTypes, setAppTypes] = useState<ControlledVocabulary[]>([]);
   const [productTypes, setProductTypes] = useState<ControlledVocabulary[]>([]);
-  const [form] = Form.useForm();
+  const [appForm] = Form.useForm();
+  const [inviteForm] = Form.useForm();
+  const [transferForm] = Form.useForm();
   const [loading, setLoading] = useState(true);
+  const [progress, setProgress] = useState<ProjectProgress | null>(null);
+  const [workload, setWorkload] = useState<MemberWorkload[]>([]);
+
+  const isOwner = project?.members?.some(
+    (m) => m.userId === currentUser?.id && m.role === 'OWNER',
+  );
+
+  const loadProject = useCallback(async () => {
+    if (!id) return;
+    try {
+      const data = await projectApi.detail(id);
+      setProject(data);
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  }, [id]);
+
+  const loadInvitations = useCallback(async () => {
+    if (!id || !isOwner) return;
+    try {
+      const data = await projectApi.listInvitations(id);
+      setInvitations(data);
+    } catch {
+      // Non-owner can't list invitations — ignore
+    }
+  }, [id, isOwner]);
 
   useEffect(() => {
     if (!id) return;
@@ -47,6 +96,20 @@ const ProjectDetailPage: React.FC = () => {
       applicationApi.list(id).then(setApplications).catch((e) => message.error(e.message)),
     ]).finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    if (isOwner && id) {
+      projectApi.listInvitations(id).then(setInvitations).catch(() => {});
+    }
+  }, [isOwner, id]);
+
+  useEffect(() => {
+    if (!id) return;
+    dashboardApi.getProjectProgress(id).then(setProgress).catch(() => {});
+    dashboardApi.getProjectWorkload(id).then(setWorkload).catch(() => {});
+  }, [id]);
+
+  // ==================== Application Modal ====================
 
   const openAppModal = async () => {
     const [at, pt] = await Promise.all([
@@ -67,21 +130,102 @@ const ProjectDetailPage: React.FC = () => {
       await applicationApi.create(id!, values);
       message.success('申请创建成功');
       setAppModalOpen(false);
-      form.resetFields();
+      appForm.resetFields();
       applicationApi.list(id!).then(setApplications);
     } catch (error: any) {
       message.error(error.message);
     }
   };
 
+  // ==================== Invite Modal ====================
+
+  const handleInvite = async (values: { email: string; role: string }) => {
+    try {
+      const result: any = await projectApi.createInvitation(id!, values);
+      if (result.directlyAdded) {
+        message.success('用户已注册，已直接添加为项目成员');
+      } else {
+        const link = result.invitation?.inviteLink;
+        Modal.success({
+          title: '邀请已创建',
+          content: (
+            <div>
+              <p>邀请链接已生成，请将以下链接发送给 {values.email}：</p>
+              <Input.TextArea
+                value={`${window.location.origin}${link}`}
+                autoSize
+                readOnly
+                style={{ marginTop: 8 }}
+              />
+            </div>
+          ),
+        });
+      }
+      inviteForm.resetFields();
+      setInviteModalOpen(false);
+      loadProject();
+      loadInvitations();
+    } catch (error: any) {
+      message.error(error.message);
+    }
+  };
+
+  const handleCancelInvitation = async (invitationId: string) => {
+    try {
+      await projectApi.cancelInvitation(id!, invitationId);
+      message.success('邀请已取消');
+      loadInvitations();
+    } catch (error: any) {
+      message.error(error.message);
+    }
+  };
+
+  // ==================== Role Change ====================
+
+  const handleRoleChange = async (targetUserId: string, newRole: string) => {
+    try {
+      await projectApi.changeMemberRole(id!, targetUserId, { role: newRole });
+      message.success('角色已变更');
+      loadProject();
+    } catch (error: any) {
+      message.error(error.message);
+    }
+  };
+
+  // ==================== Remove Member ====================
+
+  const handleRemoveMember = async (targetUserId: string) => {
+    try {
+      await projectApi.removeMember(id!, targetUserId);
+      message.success('成员已移除');
+      loadProject();
+    } catch (error: any) {
+      message.error(error.message);
+    }
+  };
+
+  // ==================== Transfer Ownership ====================
+
+  const handleTransferOwnership = async (values: { targetUserId: string }) => {
+    try {
+      await projectApi.transferOwnership(id!, values);
+      message.success('所有权转移成功');
+      setTransferModalOpen(false);
+      transferForm.resetFields();
+      loadProject();
+    } catch (error: any) {
+      message.error(error.message);
+    }
+  };
+
+  // ==================== Columns ====================
+
   const appColumns = [
     {
       title: '申请编号',
       dataIndex: 'applicationNumber',
       render: (num: string, record: Application) => (
-        <a onClick={() => navigate(`/projects/${id}/applications/${record.id}`)}>
-          {num}
-        </a>
+        <Link to={`/projects/${id}/applications/${record.id}`}>{num}</Link>
       ),
     },
     {
@@ -103,18 +247,120 @@ const ProjectDetailPage: React.FC = () => {
       render: (code: string) =>
         code === 'cnprt1' ? '化学药品' : code === 'cnprt2' ? '生物制品' : code,
     },
+    { title: '原始编号', dataIndex: 'productNumber' },
+    { title: '注册行为数', dataIndex: ['_count', 'regulatoryActivities'] },
     {
-      title: '原始编号',
-      dataIndex: 'productNumber',
+      title: '创建时间',
+      dataIndex: 'createdAt',
+      render: (t: string) => new Date(t).toLocaleDateString('zh-CN'),
+    },
+  ];
+
+  const memberColumns = [
+    { title: '姓名', dataIndex: ['user', 'name'] },
+    { title: '邮箱', dataIndex: ['user', 'email'] },
+    {
+      title: '角色',
+      dataIndex: 'role',
+      render: (role: string, record: ProjectMember) => {
+        if (!isOwner || role === 'OWNER' || record.userId === currentUser?.id) {
+          return <Tag color={role === 'OWNER' ? 'gold' : role === 'MEMBER' ? 'blue' : 'default'}>{roleLabels[role]}</Tag>;
+        }
+        return (
+          <Select
+            value={role}
+            size="small"
+            style={{ width: 100 }}
+            onChange={(val) => handleRoleChange(record.userId, val)}
+            options={[
+              { value: 'MEMBER', label: '成员' },
+              { value: 'VIEWER', label: '查看者' },
+            ]}
+          />
+        );
+      },
     },
     {
-      title: '注册行为数',
-      dataIndex: ['_count', 'regulatoryActivities'],
+      title: '加入时间',
+      dataIndex: 'createdAt',
+      render: (t: string) => t ? new Date(t).toLocaleDateString('zh-CN') : '-',
+    },
+    ...(isOwner
+      ? [
+          {
+            title: '操作',
+            key: 'actions',
+            render: (_: any, record: ProjectMember) => {
+              if (record.role === 'OWNER') return null;
+              return (
+                <Popconfirm
+                  title="确认移除该成员？"
+                  description="移除后该成员将无法访问项目"
+                  onConfirm={() => handleRemoveMember(record.userId)}
+                >
+                  <Button type="link" danger size="small" icon={<DeleteOutlined />}>
+                    移除
+                  </Button>
+                </Popconfirm>
+              );
+            },
+          },
+        ]
+      : []),
+  ];
+
+  const invitationColumns = [
+    { title: '邮箱', dataIndex: 'email' },
+    {
+      title: '角色',
+      dataIndex: 'role',
+      render: (role: string) => <Tag>{roleLabels[role]}</Tag>,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      render: (status: string) => {
+        const colors: Record<string, string> = {
+          PENDING: 'processing',
+          ACCEPTED: 'success',
+          EXPIRED: 'default',
+          CANCELLED: 'error',
+        };
+        const labels: Record<string, string> = {
+          PENDING: '待接受',
+          ACCEPTED: '已接受',
+          EXPIRED: '已过期',
+          CANCELLED: '已取消',
+        };
+        return <Tag color={colors[status]}>{labels[status] || status}</Tag>;
+      },
+    },
+    {
+      title: '邀请人',
+      dataIndex: ['inviter', 'name'],
     },
     {
       title: '创建时间',
       dataIndex: 'createdAt',
       render: (t: string) => new Date(t).toLocaleDateString('zh-CN'),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      render: (_: any, record: ProjectInvitation) => {
+        if (record.status !== 'PENDING') return null;
+        return (
+          <Button
+            type="link"
+            danger
+            size="small"
+            icon={<CloseCircleOutlined />}
+            onClick={() => handleCancelInvitation(record.id)}
+          >
+            取消
+          </Button>
+        );
+      },
     },
   ];
 
@@ -129,6 +375,8 @@ const ProjectDetailPage: React.FC = () => {
   if (!project) {
     return <Result status="404" title="项目不存在" subTitle="请检查链接是否正确，或返回项目列表" />;
   }
+
+  const nonOwnerMembers = project.members?.filter((m) => m.role !== 'OWNER' && m.userId !== currentUser?.id) || [];
 
   return (
     <div>
@@ -186,35 +434,150 @@ const ProjectDetailPage: React.FC = () => {
             key: 'members',
             label: `成员 (${project.members?.length || 0})`,
             children: (
-              <Table
-                rowKey="id"
-                dataSource={project.members}
-                pagination={false}
-                columns={[
-                  { title: '姓名', dataIndex: ['user', 'name'] },
-                  { title: '邮箱', dataIndex: ['user', 'email'] },
-                  {
-                    title: '角色',
-                    dataIndex: 'role',
-                    render: (role: string) => (
-                      <Tag>{role === 'OWNER' ? '所有者' : role === 'MEMBER' ? '成员' : '查看者'}</Tag>
-                    ),
-                  },
-                ]}
-              />
+              <>
+                {isOwner && (
+                  <Space style={{ marginBottom: 16 }}>
+                    <Button
+                      type="primary"
+                      icon={<UserAddOutlined />}
+                      onClick={() => setInviteModalOpen(true)}
+                    >
+                      邀请成员
+                    </Button>
+                    <Button
+                      icon={<SwapOutlined />}
+                      onClick={() => setTransferModalOpen(true)}
+                    >
+                      转移所有权
+                    </Button>
+                  </Space>
+                )}
+                <Table
+                  rowKey="id"
+                  dataSource={project.members}
+                  columns={memberColumns}
+                  pagination={false}
+                />
+
+                {isOwner && invitations.length > 0 && (
+                  <>
+                    <Typography.Title level={5} style={{ marginTop: 24 }}>
+                      邀请记录
+                    </Typography.Title>
+                    <Table
+                      rowKey="id"
+                      dataSource={invitations}
+                      columns={invitationColumns}
+                      pagination={false}
+                      size="small"
+                    />
+                  </>
+                )}
+              </>
+            ),
+          },
+          {
+            key: 'collaboration',
+            label: (
+              <span>
+                <TeamOutlined /> 协作
+              </span>
+            ),
+            children: (
+              <div>
+                {/* Progress overview */}
+                <Typography.Title level={5}>团队进度总览</Typography.Title>
+                {progress && (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ marginBottom: 12 }}>
+                      <Typography.Text>
+                        总体进度：{progress.approvedNodes} / {progress.totalNodes} 个章节已通过
+                        {progress.totalNodes > 0 && (
+                          <Tag color="blue" style={{ marginLeft: 8 }}>
+                            {Math.round((progress.approvedNodes / progress.totalNodes) * 100)}%
+                          </Tag>
+                        )}
+                      </Typography.Text>
+                    </div>
+                    <Table
+                      rowKey="module"
+                      size="small"
+                      pagination={false}
+                      dataSource={Object.entries(progress.modules).map(([module, stats]) => ({
+                        module,
+                        ...stats,
+                      }))}
+                      columns={[
+                        { title: '模块', dataIndex: 'module', width: 100 },
+                        { title: '总章节', dataIndex: 'total', width: 100 },
+                        { title: '已通过', dataIndex: 'approved', width: 100 },
+                        {
+                          title: '进度',
+                          render: (_: any, r: any) => (
+                            <div style={{
+                              width: '100%',
+                              height: 8,
+                              background: '#f0f0f0',
+                              borderRadius: 4,
+                            }}>
+                              <div style={{
+                                width: r.total > 0 ? `${(r.approved / r.total) * 100}%` : '0%',
+                                height: '100%',
+                                background: '#52c41a',
+                                borderRadius: 4,
+                                transition: 'width 0.3s',
+                              }} />
+                            </div>
+                          ),
+                        },
+                      ]}
+                    />
+                  </div>
+                )}
+
+                {/* Workload distribution */}
+                <Typography.Title level={5}>成员工作量分布</Typography.Title>
+                <Table
+                  rowKey="userId"
+                  size="small"
+                  pagination={false}
+                  dataSource={workload}
+                  columns={[
+                    { title: '成员', dataIndex: 'name' },
+                    { title: '角色', dataIndex: 'role', render: (r: string) => <Tag>{roleLabels[r]}</Tag> },
+                    { title: '指派章节', dataIndex: 'assigned' },
+                    {
+                      title: '已通过',
+                      dataIndex: 'approved',
+                      render: (v: number) => <Tag color="green">{v}</Tag>,
+                    },
+                    {
+                      title: '编辑中',
+                      dataIndex: 'editing',
+                      render: (v: number) => v > 0 ? <Tag color="blue">{v}</Tag> : 0,
+                    },
+                    {
+                      title: '待审阅',
+                      dataIndex: 'pendingReview',
+                      render: (v: number) => v > 0 ? <Tag color="orange">{v}</Tag> : 0,
+                    },
+                  ]}
+                />
+              </div>
             ),
           },
         ]}
       />
 
+      {/* Create Application Modal */}
       <Modal
         title="创建申请"
         open={appModalOpen}
-        onCancel={() => { setAppModalOpen(false); form.resetFields(); }}
-        onOk={() => form.submit()}
+        onCancel={() => { setAppModalOpen(false); appForm.resetFields(); }}
+        onOk={() => appForm.submit()}
         width={520}
       >
-        <Form form={form} layout="vertical" onFinish={handleCreateApp}>
+        <Form form={appForm} layout="vertical" onFinish={handleCreateApp}>
           <Form.Item
             name="applicationTypeCode"
             label="申请类型"
@@ -250,6 +613,71 @@ const ProjectDetailPage: React.FC = () => {
             ]}
           >
             <Input placeholder="10位数字，如 2026123456" maxLength={10} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Invite Member Modal */}
+      <Modal
+        title="邀请成员"
+        open={inviteModalOpen}
+        onCancel={() => { setInviteModalOpen(false); inviteForm.resetFields(); }}
+        onOk={() => inviteForm.submit()}
+        width={480}
+      >
+        <Form form={inviteForm} layout="vertical" onFinish={handleInvite}>
+          <Form.Item
+            name="email"
+            label="邮箱"
+            rules={[
+              { required: true, message: '请输入邮箱' },
+              { type: 'email', message: '请输入有效的邮箱地址' },
+            ]}
+          >
+            <Input placeholder="输入被邀请人的邮箱地址" />
+          </Form.Item>
+          <Form.Item
+            name="role"
+            label="角色"
+            rules={[{ required: true, message: '请选择角色' }]}
+            initialValue="MEMBER"
+          >
+            <Select>
+              <Select.Option value="MEMBER">成员（可编辑）</Select.Option>
+              <Select.Option value="VIEWER">查看者（只读）</Select.Option>
+            </Select>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Transfer Ownership Modal */}
+      <Modal
+        title="转移所有权"
+        open={transferModalOpen}
+        onCancel={() => { setTransferModalOpen(false); transferForm.resetFields(); }}
+        onOk={() => transferForm.submit()}
+        width={480}
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="此操作不可撤销"
+          description="转移所有权后，您将降级为普通成员，新所有者将拥有完全管理权限。"
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={transferForm} layout="vertical" onFinish={handleTransferOwnership}>
+          <Form.Item
+            name="targetUserId"
+            label="转移给"
+            rules={[{ required: true, message: '请选择目标成员' }]}
+          >
+            <Select placeholder="选择项目成员">
+              {nonOwnerMembers.map((m) => (
+                <Select.Option key={m.userId} value={m.userId}>
+                  {m.user.name} ({m.user.email})
+                </Select.Option>
+              ))}
+            </Select>
           </Form.Item>
         </Form>
       </Modal>

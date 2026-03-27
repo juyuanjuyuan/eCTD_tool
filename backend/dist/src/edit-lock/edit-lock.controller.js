@@ -19,12 +19,19 @@ const roles_guard_1 = require("../common/guards/roles.guard");
 const roles_decorator_1 = require("../common/decorators/roles.decorator");
 const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 const edit_lock_service_1 = require("./edit-lock.service");
+const assignment_service_1 = require("../assignment/assignment.service");
 let EditLockController = class EditLockController {
     editLockService;
-    constructor(editLockService) {
+    assignmentService;
+    constructor(editLockService, assignmentService) {
         this.editLockService = editLockService;
+        this.assignmentService = assignmentService;
     }
-    acquireLock(nodeId, user) {
+    async acquireLock(nodeId, user) {
+        const hasPermission = await this.assignmentService.checkNodePermission(nodeId, user.id, 'EDIT');
+        if (!hasPermission) {
+            throw new common_1.ForbiddenException('您对此章节没有编辑权限');
+        }
         return this.editLockService.acquireLock(nodeId, user.id, user.name);
     }
     releaseLock(nodeId, userId) {
@@ -47,7 +54,7 @@ __decorate([
     __param(1, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String, Object]),
-    __metadata("design:returntype", void 0)
+    __metadata("design:returntype", Promise)
 ], EditLockController.prototype, "acquireLock", null);
 __decorate([
     (0, common_1.Delete)(),
@@ -84,6 +91,7 @@ __decorate([
 exports.EditLockController = EditLockController = __decorate([
     (0, common_1.Controller)('api/v1/nodes/:nodeId/lock'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    __metadata("design:paramtypes", [edit_lock_service_1.EditLockService])
+    __metadata("design:paramtypes", [edit_lock_service_1.EditLockService,
+        assignment_service_1.AssignmentService])
 ], EditLockController);
 //# sourceMappingURL=edit-lock.controller.js.map

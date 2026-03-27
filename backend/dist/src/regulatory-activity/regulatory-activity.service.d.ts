@@ -33,8 +33,8 @@ export declare class RegulatoryActivityService {
         application: {
             id: string;
             applicationTypeCode: string;
-            productTypeCode: string;
             applicationNumber: string;
+            productTypeCode: string;
         };
         sequences: {
             description: string;
@@ -42,9 +42,9 @@ export declare class RegulatoryActivityService {
             status: import("@prisma/client").$Enums.SequenceStatus;
             createdAt: Date;
             updatedAt: Date;
-            sequenceTypeCode: string;
             regulatoryActivityId: string;
             sequenceNumber: string;
+            sequenceTypeCode: string;
             sequenceTypeVersion: string;
             contactName: string;
             contactPhone: string;

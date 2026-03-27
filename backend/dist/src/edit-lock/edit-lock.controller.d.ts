@@ -1,7 +1,9 @@
 import { EditLockService } from './edit-lock.service';
+import { AssignmentService } from '../assignment/assignment.service';
 export declare class EditLockController {
     private readonly editLockService;
-    constructor(editLockService: EditLockService);
+    private readonly assignmentService;
+    constructor(editLockService: EditLockService, assignmentService: AssignmentService);
     acquireLock(nodeId: string, user: {
         id: string;
         name: string;

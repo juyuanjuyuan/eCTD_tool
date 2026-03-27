@@ -6,6 +6,7 @@ export declare class CnRegionalXmlService {
     private readonly logger;
     constructor(prisma: PrismaService, md5Service: Md5Service);
     generateCnRegionalXml(sequenceId: string): Promise<string>;
+    private buildPriorLeafIdMap;
     private loadModule1Nodes;
     private buildXml;
     private buildContentElements;

@@ -13,8 +13,8 @@ export declare class CommentController {
         parentId: string | null;
         createdAt: Date;
         userId: string;
-        sequenceNodeId: string;
         content: string;
+        sequenceNodeId: string;
         mentions: import("@prisma/client/runtime/library").JsonValue | null;
     }>;
     getComments(nodeId: string): Promise<{
@@ -28,8 +28,8 @@ export declare class CommentController {
             parentId: string | null;
             createdAt: Date;
             userId: string;
-            sequenceNodeId: string;
             content: string;
+            sequenceNodeId: string;
             mentions: import("@prisma/client/runtime/library").JsonValue | null;
         })[];
         user: {
@@ -40,8 +40,8 @@ export declare class CommentController {
         parentId: string | null;
         createdAt: Date;
         userId: string;
-        sequenceNodeId: string;
         content: string;
+        sequenceNodeId: string;
         mentions: import("@prisma/client/runtime/library").JsonValue | null;
     }[]>;
     deleteComment(commentId: string, user: {

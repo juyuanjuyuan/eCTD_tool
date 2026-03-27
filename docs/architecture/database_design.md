@@ -14,6 +14,9 @@ Document (1) ──< (N) DocumentVersion (历史版本)
 Sequence (1) ──< (N) ValidationReport
 ValidationReport (1) ──< (N) ValidationItem
 SequenceNode (1) ──< (N) Comment
+SequenceNode (1) ──< (N) NodeAssignment >── (1) User
+Project (1) ──< (N) ProjectInvitation
+User (1) ──< (N) Notification
 ```
 
 ## 2. 表设计
@@ -334,6 +337,50 @@ SequenceNode (1) ──< (N) Comment
 | detail | JSONB | 操作详情 |
 | created_at | TIMESTAMP | 操作时间 |
 
+### 2.10 协作增强（WP-09）
+
+#### `project_invitation` — 项目邀请表
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID | 主键 |
+| project_id | UUID | FK→project |
+| email | VARCHAR(255) | 被邀请人邮箱 |
+| role | ENUM(InvitationRole) | 邀请角色: MEMBER/VIEWER |
+| invited_by | UUID | FK→user，邀请人 |
+| token | VARCHAR(64) | 邀请令牌（唯一） |
+| status | ENUM(InvitationStatus) | PENDING/ACCEPTED/EXPIRED/CANCELLED |
+| expires_at | TIMESTAMP | 过期时间（创建后 7 天） |
+| created_at | TIMESTAMP | 创建时间 |
+
+#### `node_assignment` — 章节指派表
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID | 主键 |
+| node_id | UUID | FK→sequence_node |
+| user_id | UUID | FK→user |
+| permission | ENUM(NodePermission) | EDIT/REVIEW/VIEW |
+| assigned_by | UUID | FK→user，指派人 |
+| created_at | TIMESTAMP | 创建时间 |
+
+@@unique([node_id, user_id]) — 同一节点同一用户仅一条指派记录
+
+#### `notification` — 通知表
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID | 主键 |
+| user_id | UUID | FK→user，接收人 |
+| type | ENUM(NotificationType) | 通知类型 |
+| title | VARCHAR(200) | 通知标题 |
+| content | TEXT | 通知内容 |
+| project_id | UUID | 关联项目（可选） |
+| resource_type | VARCHAR(50) | 关联资源类型（node/comment/invitation 等） |
+| resource_id | UUID | 关联资源 ID |
+| is_read | BOOLEAN | 是否已读，默认 false |
+| created_at | TIMESTAMP | 创建时间 |
+
 ## 3. 索引设计
 
 ```sql
@@ -351,6 +398,12 @@ CREATE INDEX idx_completeness_rule ON ctd_completeness_rule(application_type_cod
 CREATE INDEX idx_stf_node ON study_tagging_file(sequence_node_id);
 CREATE INDEX idx_comment_node ON comment(sequence_node_id);
 CREATE INDEX idx_activity_log ON activity_log(resource, resource_id);
+CREATE INDEX idx_invitation_project ON project_invitation(project_id);
+CREATE INDEX idx_invitation_email ON project_invitation(email);
+CREATE INDEX idx_assignment_node ON node_assignment(node_id);
+CREATE INDEX idx_assignment_user ON node_assignment(user_id);
+CREATE INDEX idx_notification_user ON notification(user_id, is_read);
+CREATE INDEX idx_notification_project ON notification(project_id);
 
 -- 唯一约束
 CREATE UNIQUE INDEX idx_user_email ON "user"(email);
@@ -358,6 +411,8 @@ CREATE UNIQUE INDEX idx_seq_number ON sequence(regulatory_activity_id, sequence_
 CREATE UNIQUE INDEX idx_app_number ON application(application_number);
 CREATE UNIQUE INDEX idx_document_node_unique ON document(sequence_node_id);
 CREATE UNIQUE INDEX idx_pdf_analysis_unique ON file_pdf_analysis(file_attachment_id);
+CREATE UNIQUE INDEX idx_invitation_token ON project_invitation(token);
+CREATE UNIQUE INDEX idx_assignment_node_user ON node_assignment(node_id, user_id);
 ```
 
 ## 4. 枚举定义
@@ -388,7 +443,27 @@ enum Severity { ERROR, WARNING, INFO }
 enum ComplianceStatus { PASS, WARNING, ERROR }
 
 // 日志
-enum ActionType { CREATE, EDIT, DELETE, UPLOAD, APPROVE, REJECT, EXPORT, SIGN }
+enum ActionType { CREATE, EDIT, DELETE, UPLOAD, APPROVE, REJECT, EXPORT, SIGN, INVITE, INVITE_ACCEPT, ROLE_CHANGE, OWNERSHIP_TRANSFER, ASSIGN, UNASSIGN }
+
+// 邀请 (WP-09)
+enum InvitationStatus { PENDING, ACCEPTED, EXPIRED, CANCELLED }
+
+// 章节指派权限 (WP-09)
+enum NodePermission { EDIT, REVIEW, VIEW }
+
+// 通知类型 (WP-09)
+enum NotificationType {
+  INVITATION,              // 收到项目邀请
+  ASSIGNMENT,              // 被指派章节编辑任务
+  MENTION,                 // 被 @提及
+  APPROVAL_SUBMITTED,      // 有人提交审批
+  APPROVAL_APPROVED,       // 提交被审批通过
+  APPROVAL_REJECTED,       // 提交被驳回
+  COMMENT,                 // 负责章节收到新评论
+  LOCK_FORCE_RELEASED,     // 编辑锁被强制释放
+  MEMBER_ROLE_CHANGED,     // 项目角色被变更
+  OWNERSHIP_TRANSFERRED    // 项目所有权变更
+}
 ```
 
 ## 5. 关键设计说明

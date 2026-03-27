@@ -60,6 +60,12 @@ let Md5Service = class Md5Service {
         const uuid = crypto.randomUUID().replace(/-/g, '');
         return `N${uuid}`;
     }
+    generateDeterministicLeafId(sequenceId, nodeId, fileIndex = 0) {
+        const hash = crypto.createHash('md5')
+            .update(`${sequenceId}:${nodeId}:${fileIndex}`)
+            .digest('hex');
+        return `N${hash}`;
+    }
 };
 exports.Md5Service = Md5Service;
 exports.Md5Service = Md5Service = __decorate([

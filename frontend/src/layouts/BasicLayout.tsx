@@ -9,6 +9,7 @@ import {
   LogoutOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../stores/useAuthStore';
+import NotificationCenter from '../components/NotificationCenter';
 
 const { Header, Sider, Content } = Layout;
 
@@ -61,8 +62,10 @@ const BasicLayout: React.FC = () => {
             display: 'flex',
             justifyContent: 'flex-end',
             alignItems: 'center',
+            gap: 16,
           }}
         >
+          <NotificationCenter />
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
             <Space style={{ cursor: 'pointer' }}>
               <Avatar icon={<UserOutlined />} />

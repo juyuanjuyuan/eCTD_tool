@@ -9,9 +9,9 @@ export declare class SequenceController {
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
-        sequenceTypeCode: string;
         regulatoryActivityId: string;
         sequenceNumber: string;
+        sequenceTypeCode: string;
         sequenceTypeVersion: string;
         contactName: string;
         contactPhone: string;
@@ -23,9 +23,9 @@ export declare class SequenceController {
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
-        sequenceTypeCode: string;
         regulatoryActivityId: string;
         sequenceNumber: string;
+        sequenceTypeCode: string;
         sequenceTypeVersion: string;
         contactName: string;
         contactPhone: string;
@@ -40,9 +40,9 @@ export declare class SequenceController {
                     id: string;
                     name: string;
                 };
+                applicationNumber: string;
                 productTypeCode: string;
                 productNumber: string;
-                applicationNumber: string;
             };
         } & {
             id: string;
@@ -58,9 +58,9 @@ export declare class SequenceController {
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
-        sequenceTypeCode: string;
         regulatoryActivityId: string;
         sequenceNumber: string;
+        sequenceTypeCode: string;
         sequenceTypeVersion: string;
         contactName: string;
         contactPhone: string;
@@ -72,9 +72,9 @@ export declare class SequenceController {
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
-        sequenceTypeCode: string;
         regulatoryActivityId: string;
         sequenceNumber: string;
+        sequenceTypeCode: string;
         sequenceTypeVersion: string;
         contactName: string;
         contactPhone: string;
@@ -86,9 +86,9 @@ export declare class SequenceController {
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
-        sequenceTypeCode: string;
         regulatoryActivityId: string;
         sequenceNumber: string;
+        sequenceTypeCode: string;
         sequenceTypeVersion: string;
         contactName: string;
         contactPhone: string;

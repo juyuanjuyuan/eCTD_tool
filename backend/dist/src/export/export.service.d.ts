@@ -6,7 +6,7 @@ import { PDFComplianceService, ComplianceResult } from './pdf-compliance.service
 import { MinioService } from '../file/minio.service';
 export interface ExportResult {
     taskId: string;
-    status: 'completed' | 'failed';
+    status: 'completed' | 'failed' | 'compliance_warning';
     buffer?: Buffer;
     fileName?: string;
     contentType?: string;

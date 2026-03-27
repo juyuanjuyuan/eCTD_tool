@@ -5,23 +5,37 @@ import {
   Delete,
   Param,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { EditLockService } from './edit-lock.service';
+import { AssignmentService } from '../assignment/assignment.service';
 
 @Controller('api/v1/nodes/:nodeId/lock')
 @UseGuards(JwtAuthGuard)
 export class EditLockController {
-  constructor(private readonly editLockService: EditLockService) {}
+  constructor(
+    private readonly editLockService: EditLockService,
+    private readonly assignmentService: AssignmentService,
+  ) {}
 
   @Post()
-  acquireLock(
+  async acquireLock(
     @Param('nodeId') nodeId: string,
     @CurrentUser() user: { id: string; name: string },
   ) {
+    // Check EDIT permission before acquiring lock
+    const hasPermission = await this.assignmentService.checkNodePermission(
+      nodeId,
+      user.id,
+      'EDIT',
+    );
+    if (!hasPermission) {
+      throw new ForbiddenException('您对此章节没有编辑权限');
+    }
     return this.editLockService.acquireLock(nodeId, user.id, user.name);
   }
 

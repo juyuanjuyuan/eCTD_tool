@@ -30,11 +30,13 @@ import {
   ClockCircleFilled,
   CloseCircleFilled,
   UserOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { ctdApi } from '../../services/ctd';
 import { documentApi } from '../../services/document';
 import { approvalApi } from '../../services/approval';
 import { commentApi } from '../../services/comment';
+import { assignmentApi } from '../../services/assignment';
 import { userApi, type UserSearchResult } from '../../services/user';
 import type {
   SequenceNode,
@@ -42,6 +44,7 @@ import type {
   DocumentVersion,
   ApprovalHistory,
   Comment,
+  NodeAssignment,
 } from '../../types';
 
 const { Text } = Typography;
@@ -116,6 +119,11 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionedIds, setMentionedIds] = useState<string[]>([]);
   const commentInputRef = useRef<any>(null);
+  const [assignments, setAssignments] = useState<NodeAssignment[]>([]);
+  const [assignSearchUsers, setAssignSearchUsers] = useState<UserSearchResult[]>([]);
+  const [assignSearchQuery, setAssignSearchQuery] = useState('');
+  const [selectedAssignUser, setSelectedAssignUser] = useState<string | null>(null);
+  const [selectedPermission, setSelectedPermission] = useState<string>('EDIT');
 
   const userStr = localStorage.getItem('user');
   const currentUser = userStr ? JSON.parse(userStr) : null;
@@ -145,11 +153,25 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     finally { setLoadingComments(false); }
   }, [node.id]);
 
+  const loadAssignments = useCallback(async () => {
+    if (!node.id) return;
+    try { setAssignments(await assignmentApi.list(node.id)); } catch { /* */ }
+  }, [node.id]);
+
   useEffect(() => {
     loadVersions();
     loadApprovalHistory();
     loadComments();
-  }, [loadVersions, loadApprovalHistory, loadComments]);
+    loadAssignments();
+  }, [loadVersions, loadApprovalHistory, loadComments, loadAssignments]);
+
+  useEffect(() => {
+    if (!assignSearchQuery) { setAssignSearchUsers([]); return; }
+    const timer = setTimeout(async () => {
+      try { setAssignSearchUsers(await userApi.search(assignSearchQuery)); } catch { /* */ }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [assignSearchQuery]);
 
   // Approval handlers
   const handleApprove = async () => {
@@ -614,6 +636,102 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     </div>
   );
 
+  /* ─────── Assignment handlers ─────── */
+  const handleAssign = async () => {
+    if (!selectedAssignUser) return;
+    try {
+      await assignmentApi.assign(node.id, { userId: selectedAssignUser, permission: selectedPermission });
+      message.success('指派成功');
+      setSelectedAssignUser(null);
+      setAssignSearchQuery('');
+      loadAssignments();
+    } catch (err: any) { message.error(err.message); }
+  };
+
+  const handleRemoveAssignment = async (userId: string) => {
+    try {
+      await assignmentApi.remove(node.id, userId);
+      message.success('已取消指派');
+      loadAssignments();
+    } catch (err: any) { message.error(err.message); }
+  };
+
+  const permissionLabels: Record<string, string> = { EDIT: '编辑', REVIEW: '审阅', VIEW: '查看' };
+  const permissionColors: Record<string, string> = { EDIT: 'blue', REVIEW: 'orange', VIEW: 'default' };
+
+  /* ─────── Assignment Tab ─────── */
+  const assignmentTab = (
+    <div style={{ padding: '4px 16px 16px' }}>
+      {/* Add assignment */}
+      <div style={{ marginBottom: 16 }}>
+        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>指派成员</Text>
+        <Space.Compact style={{ width: '100%' }}>
+          <Select
+            showSearch
+            value={selectedAssignUser}
+            placeholder="搜索用户..."
+            filterOption={false}
+            onSearch={setAssignSearchQuery}
+            onChange={setSelectedAssignUser}
+            style={{ flex: 1 }}
+            options={assignSearchUsers.map((u) => ({
+              value: u.id,
+              label: `${u.name} (${u.email})`,
+            }))}
+            notFoundContent={assignSearchQuery ? '未找到用户' : '输入搜索'}
+          />
+          <Select
+            value={selectedPermission}
+            onChange={setSelectedPermission}
+            style={{ width: 90 }}
+            options={[
+              { value: 'EDIT', label: '编辑' },
+              { value: 'REVIEW', label: '审阅' },
+              { value: 'VIEW', label: '查看' },
+            ]}
+          />
+        </Space.Compact>
+        <Button
+          type="primary"
+          onClick={handleAssign}
+          disabled={!selectedAssignUser}
+          style={{ marginTop: 8 }}
+          block
+          size="small"
+        >
+          确认指派
+        </Button>
+      </div>
+
+      {/* Assignment list */}
+      <List
+        dataSource={assignments}
+        locale={{ emptyText: '暂无指派' }}
+        renderItem={(a) => (
+          <List.Item
+            style={{ padding: '8px 0' }}
+            actions={[
+              <Popconfirm key="rm" title="确认取消指派？" onConfirm={() => handleRemoveAssignment(a.userId)}>
+                <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+              </Popconfirm>,
+            ]}
+          >
+            <List.Item.Meta
+              avatar={<Avatar size={28} icon={<UserOutlined />} style={{ background: '#1890ff' }} />}
+              title={<Text style={{ fontSize: 13 }}>{a.user.name}</Text>}
+              description={
+                <Space size={4}>
+                  <Tag color={permissionColors[a.permission]} style={{ fontSize: 11 }}>{permissionLabels[a.permission]}</Tag>
+                  <Text type="secondary" style={{ fontSize: 11 }}>{a.user.email}</Text>
+                </Space>
+              }
+            />
+          </List.Item>
+        )}
+      />
+    </div>
+  );
+
   /* ─────── Tabs ─────── */
   const tabItems = [
     {
@@ -636,6 +754,16 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       label: <span><AuditOutlined /> 审批</span>,
       children: approvalTab,
     }] : []),
+    {
+      key: 'assignments',
+      label: (
+        <span>
+          <TeamOutlined /> 指派
+          {assignments.length > 0 && <Badge count={assignments.length} size="small" style={{ marginLeft: 4 }} />}
+        </span>
+      ),
+      children: assignmentTab,
+    },
     {
       key: 'comments',
       label: (

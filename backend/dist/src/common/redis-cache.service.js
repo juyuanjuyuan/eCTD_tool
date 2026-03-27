@@ -98,6 +98,23 @@ let RedisCacheService = RedisCacheService_1 = class RedisCacheService {
             return false;
         }
     }
+    async scanKeys(pattern) {
+        if (!this.isConnected)
+            return [];
+        try {
+            const keys = [];
+            let cursor = '0';
+            do {
+                const [nextCursor, batch] = await this.client.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+                cursor = nextCursor;
+                keys.push(...batch);
+            } while (cursor !== '0');
+            return keys;
+        }
+        catch {
+            return [];
+        }
+    }
 };
 exports.RedisCacheService = RedisCacheService;
 exports.RedisCacheService = RedisCacheService = RedisCacheService_1 = __decorate([

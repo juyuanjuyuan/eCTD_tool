@@ -33,6 +33,41 @@ export interface ProjectMember {
   projectId: string;
   userId: string;
   role: 'OWNER' | 'MEMBER' | 'VIEWER';
+  createdAt: string;
+  user: { id: string; name: string; email: string };
+}
+
+export interface ProjectInvitation {
+  id: string;
+  projectId: string;
+  email: string;
+  role: 'MEMBER' | 'VIEWER';
+  status: 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'CANCELLED';
+  expiresAt: string;
+  createdAt: string;
+  inviter: { id: string; name: string };
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  type: string;
+  title: string;
+  content: string;
+  projectId?: string;
+  resourceType?: string;
+  resourceId?: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface NodeAssignment {
+  id: string;
+  nodeId: string;
+  userId: string;
+  permission: 'EDIT' | 'REVIEW' | 'VIEW';
+  assignedBy: string;
+  createdAt: string;
   user: { id: string; name: string; email: string };
 }
 

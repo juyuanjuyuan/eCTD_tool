@@ -25,18 +25,30 @@ let ActivityLogController = class ActivityLogController {
     getActivityLog(seqId, query) {
         return this.activityLogService.getBySequence(seqId, query.page, query.pageSize);
     }
+    getMemberActivity(projectId, userId, query) {
+        return this.activityLogService.getMemberActivity(projectId, userId, query.page, query.pageSize);
+    }
 };
 exports.ActivityLogController = ActivityLogController;
 __decorate([
-    (0, common_1.Get)(),
+    (0, common_1.Get)('sequences/:seqId/activity-log'),
     __param(0, (0, common_1.Param)('seqId')),
     __param(1, (0, common_1.Query)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String, pagination_dto_1.PaginationDto]),
     __metadata("design:returntype", void 0)
 ], ActivityLogController.prototype, "getActivityLog", null);
+__decorate([
+    (0, common_1.Get)('projects/:projectId/members/:userId/activity'),
+    __param(0, (0, common_1.Param)('projectId')),
+    __param(1, (0, common_1.Param)('userId')),
+    __param(2, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, pagination_dto_1.PaginationDto]),
+    __metadata("design:returntype", void 0)
+], ActivityLogController.prototype, "getMemberActivity", null);
 exports.ActivityLogController = ActivityLogController = __decorate([
-    (0, common_1.Controller)('api/v1/sequences/:seqId/activity-log'),
+    (0, common_1.Controller)('api/v1'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     __metadata("design:paramtypes", [activity_log_service_1.ActivityLogService])
 ], ActivityLogController);

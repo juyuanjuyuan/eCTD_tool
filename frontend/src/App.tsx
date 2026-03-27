@@ -24,6 +24,7 @@ const ProjectDetailPage = lazy(() => import('./pages/project/ProjectDetailPage')
 const ApplicationDetailPage = lazy(() => import('./pages/application/ApplicationDetailPage'));
 const SequenceDetailPage = lazy(() => import('./pages/sequence/SequenceDetailPage'));
 const EditorPage = lazy(() => import('./pages/editor/EditorPage'));
+const NotificationListPage = lazy(() => import('./pages/notification/NotificationListPage'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -60,6 +61,7 @@ function App() {
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
               <Route path="/projects/:id/applications/:appId" element={<ApplicationDetailPage />} />
               <Route path="/sequences/:seqId" element={<SequenceDetailPage />} />
+              <Route path="/notifications" element={<NotificationListPage />} />
             </Route>
             <Route path="/" element={<Navigate to="/projects" replace />} />
             <Route path="*" element={<Navigate to="/projects" replace />} />

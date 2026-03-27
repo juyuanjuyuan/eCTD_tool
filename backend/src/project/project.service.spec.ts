@@ -1,11 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectService } from './project.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisCacheService } from '../common/redis-cache.service';
+import { ActivityLogService } from '../activity-log/activity-log.service';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 
 describe('ProjectService', () => {
   let service: ProjectService;
   let prisma: Record<string, any>;
+  let redis: Record<string, any>;
+  let activityLog: Record<string, any>;
 
   const mockProject = {
     id: 'proj-1',
@@ -30,13 +34,31 @@ describe('ProjectService', () => {
         findFirst: jest.fn(),
         delete: jest.fn().mockResolvedValue({}),
       },
-      $transaction: jest.fn().mockImplementation((fn) => fn(prisma)),
+      sequenceNode: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      $transaction: jest.fn().mockImplementation((fn) => {
+        if (typeof fn === 'function') return fn(prisma);
+        return Promise.all(fn);
+      }),
+    };
+
+    redis = {
+      get: jest.fn().mockResolvedValue(null),
+    };
+
+    activityLog = {
+      log: jest.fn().mockResolvedValue({}),
+      logMemberAction: jest.fn().mockResolvedValue({}),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProjectService,
         { provide: PrismaService, useValue: prisma },
+        { provide: RedisCacheService, useValue: redis },
+        { provide: ActivityLogService, useValue: activityLog },
       ],
     }).compile();
 

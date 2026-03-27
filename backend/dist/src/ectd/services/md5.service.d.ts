@@ -6,4 +6,5 @@ export declare class Md5Service {
         content: string;
     }[]): string;
     generateLeafId(): string;
+    generateDeterministicLeafId(sequenceId: string, nodeId: string, fileIndex?: number): string;
 }

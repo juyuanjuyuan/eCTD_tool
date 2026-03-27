@@ -18,6 +18,10 @@ import { EditLockModule } from './edit-lock/edit-lock.module';
 import { ApprovalModule } from './approval/approval.module';
 import { CommentModule } from './comment/comment.module';
 import { ActivityLogModule } from './activity-log/activity-log.module';
+import { AssignmentModule } from './assignment/assignment.module';
+import { NotificationModule } from './notification/notification.module';
+import { CollaborationModule } from './collaboration/collaboration.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { HealthModule } from './health/health.module';
 
 @Module({
@@ -48,6 +52,10 @@ import { HealthModule } from './health/health.module';
     ApprovalModule,
     CommentModule,
     ActivityLogModule,
+    AssignmentModule,
+    NotificationModule,
+    CollaborationModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}

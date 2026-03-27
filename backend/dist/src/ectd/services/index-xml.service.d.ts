@@ -6,6 +6,7 @@ export declare class IndexXmlService {
     private readonly logger;
     constructor(prisma: PrismaService, md5Service: Md5Service);
     generateIndexXml(sequenceId: string): Promise<string>;
+    private buildPriorLeafIdMap;
     private loadModuleNodes;
     private buildXml;
     private buildElement;

@@ -10,11 +10,13 @@ exports.EditLockModule = void 0;
 const common_1 = require("@nestjs/common");
 const edit_lock_controller_1 = require("./edit-lock.controller");
 const edit_lock_service_1 = require("./edit-lock.service");
+const assignment_module_1 = require("../assignment/assignment.module");
 let EditLockModule = class EditLockModule {
 };
 exports.EditLockModule = EditLockModule;
 exports.EditLockModule = EditLockModule = __decorate([
     (0, common_1.Module)({
+        imports: [assignment_module_1.AssignmentModule],
         controllers: [edit_lock_controller_1.EditLockController],
         providers: [edit_lock_service_1.EditLockService],
         exports: [edit_lock_service_1.EditLockService],

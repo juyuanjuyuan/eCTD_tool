@@ -25,6 +25,21 @@ export class ActivityLogService {
     });
   }
 
+  async logMemberAction(
+    userId: string,
+    action: string,
+    projectId: string,
+    detail?: Record<string, any>,
+  ) {
+    return this.log({
+      userId,
+      action,
+      resource: 'project',
+      resourceId: projectId,
+      detail,
+    });
+  }
+
   async getBySequence(
     sequenceId: string,
     page = 1,
@@ -41,6 +56,57 @@ export class ActivityLogService {
     const where = {
       OR: [
         { resource: 'sequence', resourceId: sequenceId },
+        { resource: 'node', resourceId: { in: nodeIds } },
+        { resource: 'document', resourceId: { in: nodeIds } },
+        { resource: 'file', resourceId: { in: nodeIds } },
+        { resource: 'comment', resourceId: { in: nodeIds } },
+      ],
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.activityLog.findMany({
+        where,
+        include: {
+          user: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.activityLog.count({ where }),
+    ]);
+
+    return { items, total, page, pageSize };
+  }
+
+  async getMemberActivity(
+    projectId: string,
+    userId: string,
+    page = 1,
+    pageSize = 20,
+  ) {
+    // Get all sequence IDs in this project
+    const sequences = await this.prisma.sequence.findMany({
+      where: {
+        regulatoryActivity: {
+          application: { projectId },
+        },
+      },
+      select: { id: true },
+    });
+    const seqIds = sequences.map((s) => s.id);
+
+    const nodes = await this.prisma.sequenceNode.findMany({
+      where: { sequenceId: { in: seqIds } },
+      select: { id: true },
+    });
+    const nodeIds = nodes.map((n) => n.id);
+
+    const where = {
+      userId,
+      OR: [
+        { resource: 'project', resourceId: projectId },
+        { resource: 'sequence', resourceId: { in: seqIds } },
         { resource: 'node', resourceId: { in: nodeIds } },
         { resource: 'document', resourceId: { in: nodeIds } },
         { resource: 'file', resourceId: { in: nodeIds } },

@@ -13,10 +13,19 @@ export declare class ActivityLogService {
         id: string;
         createdAt: Date;
         userId: string;
-        detail: import("@prisma/client/runtime/library").JsonValue | null;
         action: string;
         resource: string;
         resourceId: string;
+        detail: import("@prisma/client/runtime/library").JsonValue | null;
+    }>;
+    logMemberAction(userId: string, action: string, projectId: string, detail?: Record<string, any>): Promise<{
+        id: string;
+        createdAt: Date;
+        userId: string;
+        action: string;
+        resource: string;
+        resourceId: string;
+        detail: import("@prisma/client/runtime/library").JsonValue | null;
     }>;
     getBySequence(sequenceId: string, page?: number, pageSize?: number): Promise<{
         items: ({
@@ -28,10 +37,29 @@ export declare class ActivityLogService {
             id: string;
             createdAt: Date;
             userId: string;
-            detail: import("@prisma/client/runtime/library").JsonValue | null;
             action: string;
             resource: string;
             resourceId: string;
+            detail: import("@prisma/client/runtime/library").JsonValue | null;
+        })[];
+        total: number;
+        page: number;
+        pageSize: number;
+    }>;
+    getMemberActivity(projectId: string, userId: string, page?: number, pageSize?: number): Promise<{
+        items: ({
+            user: {
+                id: string;
+                name: string;
+            };
+        } & {
+            id: string;
+            createdAt: Date;
+            userId: string;
+            action: string;
+            resource: string;
+            resourceId: string;
+            detail: import("@prisma/client/runtime/library").JsonValue | null;
         })[];
         total: number;
         page: number;

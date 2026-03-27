@@ -22,6 +22,10 @@
 | `approval` ✅ | 文档审批流程（提交/通过/驳回/解锁、序列审批总览、导出门控） | ApprovalService |
 | `comment` ✅ | 节点评论（嵌套回复、作者/MANAGER 删除） | CommentService |
 | `activity-log` ✅ | 操作审计日志（不可删除、按序列查询、分页） | ActivityLogService |
+| `assignment` ✅ | 章节级权限指派（指派/取消/权限继承/编辑拦截） | AssignmentService |
+| `notification` ✅ | 站内通知（创建/已读/未读数/WebSocket 实时推送） | NotificationService |
+| `collaboration` ✅ | WebSocket 协同感知（Socket.IO Gateway、在线状态、房间、事件广播） | CollaborationGateway, CollaborationService |
+| `dashboard` ✅ | 工作台聚合查询（待办任务、最近编辑、项目进度、工作量分布） | DashboardService |
 
 ### 1.2 模块依赖关系
 
@@ -36,6 +40,11 @@ edit-lock (Redis-based, 独立)
 approval ← export (审批门控)
 comment (独立)
 activity-log (独立, 被其他模块调用记录日志)
+assignment (依赖 sequence-node/user, 被 edit-lock/document/approval 引用做权限拦截)
+notification (独立, 被 assignment/approval/comment/invitation 调用创建通知)
+collaboration (WebSocket Gateway, 依赖 auth/Redis, 被 edit-lock/document/approval 调用广播事件)
+dashboard (聚合查询, 依赖 assignment/approval/activity-log/project)
+invitation (在 project 模块内, InvitationController, 邮箱邀请+接受+取消)
 ```
 
 ## 2. API 规范
@@ -260,3 +269,138 @@ cn-regional.xml 的 cn-envelope 包含 3 个层级共 12 个必填属性:
 | 1016 | STF 缺失（模块四五必须有 STF） |
 | 1017 | 跨申请引用不允许 |
 | 1018 | 电子签章缺失（必签章章节） |
+| 1019 | 节点编辑权限不足（无 EDIT 指派权限） |
+| 1020 | 邀请已过期或已使用 |
+| 1021 | 不能移除有进行中编辑锁的成员 |
+| 1022 | 不能移除有待审批提交的成员 |
+
+## 7. 协作模块详细设计（WP-09）
+
+### 7.1 InvitationController（项目邀请，挂载在 ProjectModule 内）
+
+挂载路径: `/api/v1/projects/:id/invitations`
+
+- **createInvitation** — 创建邀请（OWNER/MANAGER）
+  - 输入: email, role (MEMBER/VIEWER)
+  - 若目标用户已注册 → 直接添加为项目成员 + 发站内通知
+  - 若目标用户未注册 → 生成邀请令牌（64字符，7天有效期），返回邀请链接
+  - 校验: 不能邀请已有成员、不能重复邀请 PENDING 状态的同一邮箱
+- **listInvitations** — 获取项目邀请列表（OWNER/MANAGER）
+- **cancelInvitation** — 取消邀请
+- **acceptInvitation** — 接受邀请（路径: `/api/v1/invitations/:token/accept`）
+  - 校验令牌有效性和过期时间
+  - 未注册用户跳转注册页，注册后自动加入项目
+
+角色变更与所有权转移:
+- **changeMemberRole** — PATCH `/:id/members/:userId/role`（仅 OWNER）
+- **transferOwnership** — POST `/:id/transfer-ownership`（仅 OWNER，原 OWNER 降级为 MEMBER）
+- 成员移除增强: 移除前检查编辑锁和待审批提交
+
+### 7.2 AssignmentModule（章节指派）
+
+关键服务方法:
+
+- **assignNode(nodeId, userId, permission)** — 指派成员到节点
+  - permission: EDIT / REVIEW / VIEW
+  - unique 约束: 同一节点+同一用户仅一条记录
+  - 触发 ASSIGNMENT 通知 + activity_log 记录
+- **getNodeAssignments(nodeId)** — 获取节点指派列表
+- **removeAssignment(nodeId, userId)** — 取消指派
+- **checkNodePermission(nodeId, userId, requiredPermission)** — 检查用户对节点的权限
+  - 权限继承规则:
+    1. OWNER 对所有节点拥有完全权限（直接放行）
+    2. VIEWER 项目角色对所有节点仅 VIEW 权限（不受指派影响）
+    3. 显式指派优先: 若节点有该用户的 assignment 记录，使用该记录的 permission
+    4. 父节点继承: 向上遍历祖先节点，使用首个匹配的 assignment 权限
+    5. 默认权限: MEMBER 项目角色对未指派节点拥有 EDIT 权限
+- **getSequenceAssignmentOverview(seqId)** — 序列全局指派总览
+
+权限拦截集成:
+- 编辑锁获取前调用 checkNodePermission(nodeId, userId, 'EDIT')
+- 文档保存前调用 checkNodePermission
+- 审批提交: REVIEW 权限的成员可审批（不再强制要求系统级 MANAGER 角色）
+
+### 7.3 NotificationModule（站内通知）
+
+关键服务方法:
+
+- **create(userId, type, title, content, options?)** — 创建通知
+  - options: { projectId?, resourceType?, resourceId? }
+  - 创建后通过 CollaborationGateway 实时推送 `notification:new` 事件
+- **findAll(userId, query)** — 我的通知列表（分页）
+  - 查询参数: is_read, type, project_id
+- **markAsRead(id, userId)** — 标记单条已读
+- **markAllAsRead(userId)** — 全部标记已读
+- **getUnreadCount(userId)** — 获取未读数量（轻量接口，顶栏轮询 / WebSocket 推送）
+
+通知类型枚举 (NotificationType):
+- INVITATION — 收到项目邀请
+- ASSIGNMENT — 被指派章节编辑任务
+- MENTION — 被 @提及（评论中）
+- APPROVAL_SUBMITTED — 有人提交审批（通知审阅者）
+- APPROVAL_APPROVED — 提交被审批通过
+- APPROVAL_REJECTED — 提交被驳回
+- COMMENT — 负责章节收到新评论
+- LOCK_FORCE_RELEASED — 编辑锁被强制释放
+- MEMBER_ROLE_CHANGED — 项目角色被变更
+- OWNERSHIP_TRANSFERRED — 项目所有权变更
+
+通知触发点（各模块 Service 层调用 NotificationService.create）:
+- InvitationService → INVITATION
+- AssignmentService → ASSIGNMENT
+- CommentService → MENTION / COMMENT
+- ApprovalService → APPROVAL_SUBMITTED / APPROVED / REJECTED
+- EditLockService → LOCK_FORCE_RELEASED
+- ProjectService → MEMBER_ROLE_CHANGED / OWNERSHIP_TRANSFERRED
+
+### 7.4 CollaborationModule（WebSocket 协同）
+
+**CollaborationGateway** — Socket.IO WebSocket Gateway
+
+路径: `/ws/collaboration`
+
+认证:
+- 连接时携带 `access_token` query 参数
+- 使用 JwtService 验证身份，提取 userId
+- 鉴权失败断开连接
+
+房间管理:
+- 用户连接后自动加入 `project:{projectId}` 房间
+- 进入序列编辑器时加入 `sequence:{sequenceId}` 房间
+- 断开时自动清理房间和在线状态
+
+在线状态（Redis 存储）:
+- Key: `presence:{projectId}:{userId}`
+- Value: `{ name, currentPage, currentNodeId, lastSeen }`
+- TTL: 2 分钟，前端每 60 秒心跳续期
+
+WebSocket 事件:
+| 事件 | 方向 | 说明 |
+|------|------|------|
+| `user:online` | Server→Client | 成员上线，广播给项目房间 |
+| `user:offline` | Server→Client | 成员下线，广播给项目房间 |
+| `user:location` | Client→Server→Client | 位置变更，广播给序列房间 |
+| `node:locked` | Server→Client | 编辑锁获取，广播给序列房间 |
+| `node:unlocked` | Server→Client | 编辑锁释放，广播给序列房间 |
+| `node:updated` | Server→Client | 节点内容保存，广播给序列房间 |
+| `node:approval` | Server→Client | 审批状态变更，广播给序列房间 |
+| `notification:new` | Server→Client | 新通知推送给目标用户 |
+| `notification:count` | Server→Client | 未读数变更推送给目标用户 |
+
+**CollaborationService:**
+- **getProjectPresence(projectId)** — HTTP 接口查询在线成员列表（WebSocket 不可用时的 fallback）
+- 提供 broadcastToRoom / sendToUser 方法供其他模块调用
+
+### 7.5 DashboardModule（工作台）
+
+关键服务方法:
+
+- **getMyTasks(userId)** — 我的待办
+  - 返回: 待编辑节点列表（assignment.permission=EDIT + node.status!=COMPLETED）、待审阅节点列表（assignment.permission=REVIEW + node.approval_status=SUBMITTED）、待处理邀请数
+- **getRecentEdits(userId, limit=5)** — 我的最近编辑
+  - 基于 activity_log 查询用户最近编辑的节点
+  - 返回: 节点信息 + 项目名 + 序列号 + 编辑时间
+- **getProjectProgress(projectId)** — 项目进度总览
+  - 按模块（M1-M5）统计: 总节点数、已完成（APPROVED）数、进度百分比
+- **getProjectWorkload(projectId)** — 成员工作量分布
+  - 每个成员: 指派章节数、已完成数、编辑中（有编辑锁）数、待审阅数

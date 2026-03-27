@@ -12,7 +12,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ProjectController = void 0;
+exports.InvitationController = exports.ProjectController = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const project_service_1 = require("./project.service");
@@ -46,6 +46,21 @@ let ProjectController = class ProjectController {
     }
     removeMember(id, targetUserId, userId) {
         return this.projectService.removeMember(id, targetUserId, userId);
+    }
+    changeMemberRole(id, targetUserId, dto, userId) {
+        return this.projectService.changeMemberRole(id, targetUserId, dto, userId);
+    }
+    transferOwnership(id, dto, userId) {
+        return this.projectService.transferOwnership(id, dto, userId);
+    }
+    createInvitation(id, dto, userId) {
+        return this.projectService.createInvitation(id, dto, userId);
+    }
+    listInvitations(id, userId) {
+        return this.projectService.listInvitations(id, userId);
+    }
+    cancelInvitation(id, invitationId, userId) {
+        return this.projectService.cancelInvitation(id, invitationId, userId);
     }
 };
 exports.ProjectController = ProjectController;
@@ -112,9 +127,81 @@ __decorate([
     __metadata("design:paramtypes", [String, String, String]),
     __metadata("design:returntype", void 0)
 ], ProjectController.prototype, "removeMember", null);
+__decorate([
+    (0, common_1.Patch)(':id/members/:targetUserId/role'),
+    (0, roles_decorator_1.Roles)(client_1.Role.ADMIN, client_1.Role.MANAGER, client_1.Role.EDITOR),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Param)('targetUserId')),
+    __param(2, (0, common_1.Body)()),
+    __param(3, (0, current_user_decorator_1.CurrentUser)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, dto_1.ChangeRoleDto, String]),
+    __metadata("design:returntype", void 0)
+], ProjectController.prototype, "changeMemberRole", null);
+__decorate([
+    (0, common_1.Post)(':id/transfer-ownership'),
+    (0, roles_decorator_1.Roles)(client_1.Role.ADMIN, client_1.Role.MANAGER, client_1.Role.EDITOR),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_decorator_1.CurrentUser)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, dto_1.TransferOwnershipDto, String]),
+    __metadata("design:returntype", void 0)
+], ProjectController.prototype, "transferOwnership", null);
+__decorate([
+    (0, common_1.Post)(':id/invitations'),
+    (0, roles_decorator_1.Roles)(client_1.Role.ADMIN, client_1.Role.MANAGER, client_1.Role.EDITOR),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_decorator_1.CurrentUser)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, dto_1.CreateInvitationDto, String]),
+    __metadata("design:returntype", void 0)
+], ProjectController.prototype, "createInvitation", null);
+__decorate([
+    (0, common_1.Get)(':id/invitations'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], ProjectController.prototype, "listInvitations", null);
+__decorate([
+    (0, common_1.Delete)(':id/invitations/:invitationId'),
+    (0, roles_decorator_1.Roles)(client_1.Role.ADMIN, client_1.Role.MANAGER, client_1.Role.EDITOR),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Param)('invitationId')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String]),
+    __metadata("design:returntype", void 0)
+], ProjectController.prototype, "cancelInvitation", null);
 exports.ProjectController = ProjectController = __decorate([
     (0, common_1.Controller)('api/v1/projects'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
     __metadata("design:paramtypes", [project_service_1.ProjectService])
 ], ProjectController);
+let InvitationController = class InvitationController {
+    projectService;
+    constructor(projectService) {
+        this.projectService = projectService;
+    }
+    acceptInvitation(token, userId) {
+        return this.projectService.acceptInvitation(token, userId);
+    }
+};
+exports.InvitationController = InvitationController;
+__decorate([
+    (0, common_1.Post)(':token/accept'),
+    __param(0, (0, common_1.Param)('token')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], InvitationController.prototype, "acceptInvitation", null);
+exports.InvitationController = InvitationController = __decorate([
+    (0, common_1.Controller)('api/v1/invitations'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    __metadata("design:paramtypes", [project_service_1.ProjectService])
+], InvitationController);
 //# sourceMappingURL=project.controller.js.map

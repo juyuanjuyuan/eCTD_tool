@@ -33,6 +33,32 @@ enum ProjectMemberRole {
   VIEWER
 }
 
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
+enum NodePermission {
+  EDIT
+  REVIEW
+  VIEW
+}
+
+enum NotificationType {
+  INVITATION
+  ASSIGNMENT
+  MENTION
+  APPROVAL_SUBMITTED
+  APPROVAL_APPROVED
+  APPROVAL_REJECTED
+  COMMENT
+  LOCK_FORCE_RELEASED
+  MEMBER_ROLE_CHANGED
+  OWNERSHIP_TRANSFERRED
+}
+
 enum SequenceStatus {
   DRAFT
   EDITING
@@ -103,10 +129,14 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  projectMembers ProjectMember[]
-  createdProjects Project[] @relation("ProjectCreator")
-  comments       Comment[]
-  activityLogs   ActivityLog[]
+  projectMembers     ProjectMember[]
+  createdProjects    Project[]            @relation("ProjectCreator")
+  comments           Comment[]
+  activityLogs       ActivityLog[]
+  sentInvitations    ProjectInvitation[]  @relation("InvitationSender")
+  nodeAssignments    NodeAssignment[]     @relation("AssignmentUser")
+  assignedByMe       NodeAssignment[]     @relation("AssignmentAssigner")
+  notifications      Notification[]
 
   @@map("user")
 }
@@ -122,9 +152,11 @@ model Project {
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
-  creator      User            @relation("ProjectCreator", fields: [createdBy], references: [id])
+  creator      User                @relation("ProjectCreator", fields: [createdBy], references: [id])
   members      ProjectMember[]
   applications Application[]
+  invitations  ProjectInvitation[]
+  notifications Notification[]     @relation("NotificationProject")
 
   @@map("project")
 }
@@ -286,6 +318,7 @@ model SequenceNode {
   fileAttachments FileAttachment[]
   studyTaggingFile StudyTaggingFile?
   comments        Comment[]
+  assignments     NodeAssignment[]
 
   @@index([sequenceId])
   @@index([templateNodeId])
@@ -513,4 +546,68 @@ model ActivityLog {
   @@index([userId])
   @@index([createdAt])
   @@map("activity_log")
+}
+
+// ==================== Project Invitation (项目邀请) ====================
+
+model ProjectInvitation {
+  id        String           @id @default(uuid())
+  projectId String           @map("project_id")
+  email     String           @db.VarChar(255)
+  role      ProjectMemberRole @default(MEMBER)
+  invitedBy String           @map("invited_by")
+  token     String           @unique @db.VarChar(64)
+  status    InvitationStatus @default(PENDING)
+  expiresAt DateTime         @map("expires_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inviter User    @relation("InvitationSender", fields: [invitedBy], references: [id])
+
+  @@index([projectId])
+  @@index([email])
+  @@index([token])
+  @@map("project_invitation")
+}
+
+// ==================== Node Assignment (章节指派) ====================
+
+model NodeAssignment {
+  id         String         @id @default(uuid())
+  nodeId     String         @map("node_id")
+  userId     String         @map("user_id")
+  permission NodePermission @default(EDIT)
+  assignedBy String         @map("assigned_by")
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  node       SequenceNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  user       User         @relation("AssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  assigner   User         @relation("AssignmentAssigner", fields: [assignedBy], references: [id])
+
+  @@unique([nodeId, userId])
+  @@index([nodeId])
+  @@index([userId])
+  @@map("node_assignment")
+}
+
+// ==================== Notification (站内通知) ====================
+
+model Notification {
+  id           String           @id @default(uuid())
+  userId       String           @map("user_id")
+  type         NotificationType
+  title        String           @db.VarChar(200)
+  content      String           @db.Text
+  projectId    String?          @map("project_id")
+  resourceType String?          @map("resource_type") @db.VarChar(50)
+  resourceId   String?          @map("resource_id")
+  isRead       Boolean          @default(false) @map("is_read")
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation("NotificationProject", fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@map("notification")
 }

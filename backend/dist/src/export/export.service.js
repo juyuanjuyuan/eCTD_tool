@@ -67,7 +67,7 @@ let ExportService = class ExportService {
         const fileName = `${node.ctdSectionNumber.replace(/\./g, '-')}_${node.title}.pdf`;
         return {
             taskId: `pdf-${nodeId}-${Date.now()}`,
-            status: complianceResult.isCompliant ? 'completed' : 'completed',
+            status: complianceResult.isCompliant ? 'completed' : 'compliance_warning',
             buffer: pdfBuffer,
             fileName,
             contentType: 'application/pdf',
