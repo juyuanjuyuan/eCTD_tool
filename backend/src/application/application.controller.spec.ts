@@ -11,7 +11,10 @@ describe('ApplicationController', () => {
       findOne: jest.fn().mockResolvedValue({ id: 'app-1' }),
       remove: jest.fn().mockResolvedValue({}),
     };
-    controller = new ApplicationController(service as any);
+    const sequenceService = {
+      createWithRegulatoryActivity: jest.fn().mockResolvedValue({ id: 'seq-1', sequenceNumber: '0000' }),
+    };
+    controller = new ApplicationController(service as any, sequenceService as any);
   });
 
   it('should create application', async () => {

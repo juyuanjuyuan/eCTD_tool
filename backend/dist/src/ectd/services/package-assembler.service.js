@@ -55,7 +55,6 @@ const prisma_service_1 = require("../../prisma/prisma.service");
 const cn_regional_xml_service_1 = require("./cn-regional-xml.service");
 const index_xml_service_1 = require("./index-xml.service");
 const md5_service_1 = require("./md5.service");
-const validator_service_1 = require("./validator.service");
 const minio_service_1 = require("../../file/minio.service");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
@@ -101,42 +100,17 @@ let PackageAssemblerService = PackageAssemblerService_1 = class PackageAssembler
     cnRegionalXml;
     indexXml;
     md5Service;
-    validator;
     minioService;
     logger = new common_1.Logger(PackageAssemblerService_1.name);
     utilSourceBase = path.resolve(process.cwd(), '../reference/eCTD技术规范V1.1附件包');
-    constructor(prisma, cnRegionalXml, indexXml, md5Service, validator, minioService) {
+    constructor(prisma, cnRegionalXml, indexXml, md5Service, minioService) {
         this.prisma = prisma;
         this.cnRegionalXml = cnRegionalXml;
         this.indexXml = indexXml;
         this.md5Service = md5Service;
-        this.validator = validator;
         this.minioService = minioService;
     }
     async assemblePackage(sequenceId) {
-        const requiredNodes = await this.prisma.sequenceNode.findMany({
-            where: { sequenceId, isRequired: true, isLeaf: true },
-            select: { id: true, ctdSectionNumber: true, title: true, approvalStatus: true },
-        });
-        const unapproved = requiredNodes.filter((n) => n.approvalStatus !== 'APPROVED');
-        if (unapproved.length > 0) {
-            throw new common_1.BadRequestException({
-                message: `${unapproved.length} 个必填章节尚未审批通过，无法生成 eCTD 包`,
-                unapprovedSections: unapproved.map((n) => ({
-                    section: n.ctdSectionNumber,
-                    title: n.title,
-                    status: n.approvalStatus,
-                })),
-            });
-        }
-        const validationResult = await this.validator.validate(sequenceId);
-        if (!validationResult.isPassed) {
-            throw new common_1.BadRequestException({
-                message: `验证未通过，有 ${validationResult.totalErrors} 个错误需要修复`,
-                reportId: validationResult.reportId,
-                errors: validationResult.items.filter((i) => i.severity === 'ERROR'),
-            });
-        }
         const sequence = await this.prisma.sequence.findUnique({
             where: { id: sequenceId },
             include: {
@@ -160,10 +134,22 @@ let PackageAssemblerService = PackageAssemblerService_1 = class PackageAssembler
         const basePath = `${appNumber}/${seqNumber}`;
         const cnRegionalContent = await this.cnRegionalXml.generateCnRegionalXml(sequenceId);
         const indexContent = await this.indexXml.generateIndexXml(sequenceId);
-        const indexMd5Content = this.md5Service.generateIndexMd5([
+        const md5Entries = [
             { fileName: 'index.xml', content: indexContent },
-            { fileName: 'cn-regional.xml', content: cnRegionalContent },
-        ]);
+            { fileName: 'm1/cn/cn-regional.xml', content: cnRegionalContent },
+        ];
+        for (const node of sequence.sequenceNodes) {
+            if (!node.isLeaf || !node.operation || node.operation === 'DELETE')
+                continue;
+            for (const file of (node.fileAttachments || [])) {
+                if (file.isReference)
+                    continue;
+                if (file.ectdRelativePath && file.md5Checksum) {
+                    md5Entries.push({ fileName: file.ectdRelativePath, md5: file.md5Checksum });
+                }
+            }
+        }
+        const indexMd5Content = this.md5Service.generateIndexMd5(md5Entries);
         const buffer = await this.buildZip(basePath, sequence, cnRegionalContent, indexContent, indexMd5Content);
         await this.prisma.sequence.update({
             where: { id: sequenceId },
@@ -175,28 +161,6 @@ let PackageAssemblerService = PackageAssemblerService_1 = class PackageAssembler
         };
     }
     async assemblePackageStream(sequenceId) {
-        const requiredNodes = await this.prisma.sequenceNode.findMany({
-            where: { sequenceId, isRequired: true, isLeaf: true },
-            select: { id: true, ctdSectionNumber: true, title: true, approvalStatus: true },
-        });
-        const unapproved = requiredNodes.filter((n) => n.approvalStatus !== 'APPROVED');
-        if (unapproved.length > 0) {
-            throw new common_1.BadRequestException({
-                message: `${unapproved.length} 个必填章节尚未审批通过，无法生成 eCTD 包`,
-                unapprovedSections: unapproved.map((n) => ({
-                    section: n.ctdSectionNumber,
-                    title: n.title,
-                    status: n.approvalStatus,
-                })),
-            });
-        }
-        const validationResult = await this.validator.validate(sequenceId);
-        if (!validationResult.isPassed) {
-            throw new common_1.BadRequestException({
-                message: `验证未通过，有 ${validationResult.totalErrors} 个错误需要修复`,
-                reportId: validationResult.reportId,
-            });
-        }
         const sequence = await this.prisma.sequence.findUnique({
             where: { id: sequenceId },
             include: {
@@ -218,10 +182,22 @@ let PackageAssemblerService = PackageAssemblerService_1 = class PackageAssembler
         const basePath = `${appNumber}/${seqNumber}`;
         const cnRegionalContent = await this.cnRegionalXml.generateCnRegionalXml(sequenceId);
         const indexContent = await this.indexXml.generateIndexXml(sequenceId);
-        const indexMd5Content = this.md5Service.generateIndexMd5([
+        const md5Entries = [
             { fileName: 'index.xml', content: indexContent },
-            { fileName: 'cn-regional.xml', content: cnRegionalContent },
-        ]);
+            { fileName: 'm1/cn/cn-regional.xml', content: cnRegionalContent },
+        ];
+        for (const node of sequence.sequenceNodes) {
+            if (!node.isLeaf || !node.operation || node.operation === 'DELETE')
+                continue;
+            for (const file of (node.fileAttachments || [])) {
+                if (file.isReference)
+                    continue;
+                if (file.ectdRelativePath && file.md5Checksum) {
+                    md5Entries.push({ fileName: file.ectdRelativePath, md5: file.md5Checksum });
+                }
+            }
+        }
+        const indexMd5Content = this.md5Service.generateIndexMd5(md5Entries);
         const passThrough = new stream_1.PassThrough();
         const archive = (0, archiver_1.default)('zip', { zlib: { level: 6 } });
         archive.on('error', (err) => passThrough.destroy(err));
@@ -455,13 +431,12 @@ let PackageAssemblerService = PackageAssemblerService_1 = class PackageAssembler
 exports.PackageAssemblerService = PackageAssemblerService;
 exports.PackageAssemblerService = PackageAssemblerService = PackageAssemblerService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __param(5, (0, common_1.Optional)()),
-    __param(5, (0, common_1.Inject)(minio_service_1.MinioService)),
+    __param(4, (0, common_1.Optional)()),
+    __param(4, (0, common_1.Inject)(minio_service_1.MinioService)),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         cn_regional_xml_service_1.CnRegionalXmlService,
         index_xml_service_1.IndexXmlService,
         md5_service_1.Md5Service,
-        validator_service_1.ValidatorService,
         minio_service_1.MinioService])
 ], PackageAssemblerService);
 //# sourceMappingURL=package-assembler.service.js.map

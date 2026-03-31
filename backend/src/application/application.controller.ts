@@ -10,6 +10,8 @@ import {
 import { Role } from '@prisma/client';
 import { ApplicationService } from './application.service';
 import { CreateApplicationDto } from './dto';
+import { SequenceService } from '../sequence/sequence.service';
+import { CreateSequenceWithRaDto } from '../sequence/dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -17,7 +19,10 @@ import { Roles } from '../common/decorators/roles.decorator';
 @Controller('api/v1/projects/:projectId/applications')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ApplicationController {
-  constructor(private readonly applicationService: ApplicationService) {}
+  constructor(
+    private readonly applicationService: ApplicationService,
+    private readonly sequenceService: SequenceService,
+  ) {}
 
   @Post()
   @Roles(Role.ADMIN, Role.MANAGER, Role.EDITOR)
@@ -42,5 +47,14 @@ export class ApplicationController {
   @Roles(Role.ADMIN, Role.MANAGER)
   remove(@Param('id') id: string) {
     return this.applicationService.remove(id);
+  }
+
+  @Post(':appId/create-sequence')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EDITOR)
+  createSequenceWithRa(
+    @Param('appId') appId: string,
+    @Body() dto: CreateSequenceWithRaDto,
+  ) {
+    return this.sequenceService.createWithRegulatoryActivity(appId, dto);
   }
 }

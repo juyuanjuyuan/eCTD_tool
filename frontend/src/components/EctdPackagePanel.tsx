@@ -5,7 +5,6 @@ import {
   Tree,
   Spin,
   message,
-  Alert,
   Typography,
   Empty,
 } from 'antd';
@@ -22,7 +21,7 @@ const { Text } = Typography;
 
 interface Props {
   sequenceId: string;
-  validationPassed: boolean;
+  validationPassed?: boolean;
 }
 
 /**
@@ -61,7 +60,7 @@ function buildTreeFromPaths(paths: string[]): DataNode[] {
   return toTreeNodes(root, '');
 }
 
-const EctdPackagePanel: React.FC<Props> = ({ sequenceId, validationPassed }) => {
+const EctdPackagePanel: React.FC<Props> = ({ sequenceId }) => {
   const [previewPaths, setPreviewPaths] = useState<string[]>([]);
   const [treeData, setTreeData] = useState<DataNode[]>([]);
   const [loading, setLoading] = useState(false);
@@ -115,16 +114,6 @@ const EctdPackagePanel: React.FC<Props> = ({ sequenceId, validationPassed }) => 
 
   return (
     <div>
-      {!validationPassed && (
-        <Alert
-          type="warning"
-          message="验证未通过"
-          description="请先运行验证并修复所有错误，才能导出 eCTD 提交包"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
       <Card
         title="eCTD 提交包"
         size="small"
@@ -138,7 +127,6 @@ const EctdPackagePanel: React.FC<Props> = ({ sequenceId, validationPassed }) => 
               icon={<DownloadOutlined />}
               onClick={handleExport}
               loading={exporting}
-              disabled={!validationPassed}
             >
               导出 eCTD 包
             </Button>

@@ -20,10 +20,11 @@ export class Md5Service {
   /**
    * Generate index-md5.txt content
    * Format: "<md5>  <filename>" (two spaces between hash and filename)
+   * Accepts entries with either content (to compute MD5) or pre-computed md5.
    */
-  generateIndexMd5(files: { fileName: string; content: string }[]): string {
+  generateIndexMd5(files: Array<{ fileName: string; content?: string; md5?: string }>): string {
     const lines = files.map((f) => {
-      const md5 = this.calculateMd5String(f.content);
+      const md5 = f.md5 || this.calculateMd5String(f.content!);
       return `${md5}  ${f.fileName}`;
     });
     return lines.join('\n') + '\n';

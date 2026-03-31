@@ -10,9 +10,6 @@ import {
   FileOutlined,
   AppstoreAddOutlined,
   SearchOutlined,
-  CheckCircleFilled,
-  ClockCircleFilled,
-  CloseCircleFilled,
 } from '@ant-design/icons';
 import type { SequenceNode, ExtensionOption } from '../types';
 import type { DataNode } from 'antd/es/tree';
@@ -27,15 +24,26 @@ interface CTDTreeProps {
   selectedNodeId?: string;
 }
 
-const statusDot: Record<string, { color: string; label: string }> = {
-  EDITING: { color: '#1890ff', label: '编辑中' },
-  COMPLETED: { color: '#52c41a', label: '已完成' },
-};
+/**
+ * Color legend for leaf node status:
+ * - Red:   Required but empty (isRequired && status === EMPTY)
+ * - Blue:  Editing in progress (status === EDITING)
+ * - Green: Completed or approved (status === COMPLETED or approvalStatus === APPROVED)
+ * - Gray:  Not required, empty (not required && status === EMPTY)
+ */
+const getNodeColor = (node: SequenceNode): { color: string; label: string } | null => {
+  if (!node.isLeaf) return null;
 
-const approvalIcon: Record<string, React.ReactNode> = {
-  APPROVED: <CheckCircleFilled style={{ color: '#52c41a', fontSize: 12 }} />,
-  SUBMITTED: <ClockCircleFilled style={{ color: '#1890ff', fontSize: 12 }} />,
-  REJECTED: <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: 12 }} />,
+  if (node.approvalStatus === 'APPROVED' || node.status === 'COMPLETED') {
+    return { color: '#52c41a', label: '已完成' };
+  }
+  if (node.status === 'EDITING') {
+    return { color: '#1890ff', label: '编辑中' };
+  }
+  if (node.isRequired && node.status === 'EMPTY') {
+    return { color: '#ff4d4f', label: '必填未填' };
+  }
+  return null; // Non-required empty — no color dot
 };
 
 export const CTDTree: React.FC<CTDTreeProps> = ({
@@ -62,7 +70,8 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
   useEffect(() => {
     const update = () => {
       if (containerRef.current) {
-        setTreeHeight(containerRef.current.clientHeight - 48);
+        // Account for search bar (36px) + legend section (~48px) + padding
+        setTreeHeight(containerRef.current.clientHeight - 96);
       }
     };
     update();
@@ -127,9 +136,8 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
         icon = <FolderOutlined style={{ fontSize: 13, color: '#8c8c8c' }} />;
       }
 
-      // Status dot + approval icon (only for leaves)
-      const dot = node.isLeaf && statusDot[node.status];
-      const appIcon = node.isLeaf && approvalIcon[node.approvalStatus];
+      // Color indicator for leaf nodes
+      const nodeColor = getNodeColor(node);
 
       const titleContent = (
         <span
@@ -143,33 +151,26 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
             lineHeight: '22px',
           }}
         >
+          {nodeColor && (
+            <span
+              style={{
+                flexShrink: 0,
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: nodeColor.color,
+                display: 'inline-block',
+                boxShadow: `0 0 0 1px ${nodeColor.color}33`,
+              }}
+              title={nodeColor.label}
+            />
+          )}
           <span style={{ flexShrink: 0, color: '#8c8c8c', fontSize: 12, fontFamily: 'monospace' }}>
             {node.ctdSectionNumber}
           </span>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {node.title}
           </span>
-          {node.isRequired && node.status !== 'COMPLETED' && (
-            <span style={{
-              flexShrink: 0,
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              background: '#ff4d4f',
-              display: 'inline-block',
-            }} title="必填" />
-          )}
-          {dot && (
-            <span style={{
-              flexShrink: 0,
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              background: dot.color,
-              display: 'inline-block',
-            }} title={dot.label} />
-          )}
-          {appIcon && <span style={{ flexShrink: 0, lineHeight: 1 }}>{appIcon}</span>}
         </span>
       );
 
@@ -202,6 +203,45 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
 
   return (
     <div ref={containerRef} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Color legend */}
+      <div style={{
+        display: 'flex',
+        gap: 12,
+        padding: '6px 4px',
+        marginBottom: 6,
+        flexShrink: 0,
+        flexWrap: 'wrap',
+        borderBottom: '1px solid #f5f5f5',
+      }}>
+        {[
+          { color: '#ff4d4f', label: '必填未填' },
+          { color: '#1890ff', label: '编辑中' },
+          { color: '#52c41a', label: '已完成' },
+        ].map((item) => (
+          <span
+            key={item.label}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: 11,
+              color: '#8c8c8c',
+            }}
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: item.color,
+                display: 'inline-block',
+              }}
+            />
+            {item.label}
+          </span>
+        ))}
+      </div>
+
       <Input
         size="small"
         prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}

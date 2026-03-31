@@ -40,6 +40,7 @@
 | GET | `/` | 申请列表 | 成员 |
 | GET | `/:id` | 申请详情 | 成员 |
 | DELETE | `/:id` | 删除申请（仅草稿状态且无序列） | MANAGER+ |
+| POST | `/:appId/create-sequence` | 合并创建注册行为+序列（find-or-create RA，自动递增序列号） | EDITOR+ |
 
 ## 5. 注册行为管理 `/api/v1/applications/:appId/regulatory-activities`
 

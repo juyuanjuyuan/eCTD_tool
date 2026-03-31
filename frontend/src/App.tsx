@@ -22,7 +22,6 @@ const DashboardPage = lazy(() => import('./pages/dashboard/DashboardPage'));
 const ProjectListPage = lazy(() => import('./pages/project/ProjectListPage'));
 const ProjectDetailPage = lazy(() => import('./pages/project/ProjectDetailPage'));
 const ApplicationDetailPage = lazy(() => import('./pages/application/ApplicationDetailPage'));
-const SequenceDetailPage = lazy(() => import('./pages/sequence/SequenceDetailPage'));
 const EditorPage = lazy(() => import('./pages/editor/EditorPage'));
 const NotificationListPage = lazy(() => import('./pages/notification/NotificationListPage'));
 
@@ -42,6 +41,15 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
             {/* Editor page — full-screen, no BasicLayout wrapper */}
             <Route
+              path="/sequences/:seqId"
+              element={
+                <ProtectedRoute>
+                  <EditorPage />
+                </ProtectedRoute>
+              }
+            />
+            {/* Legacy route redirect */}
+            <Route
               path="/sequences/:seqId/editor"
               element={
                 <ProtectedRoute>
@@ -60,7 +68,6 @@ function App() {
               <Route path="/projects" element={<ProjectListPage />} />
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
               <Route path="/projects/:id/applications/:appId" element={<ApplicationDetailPage />} />
-              <Route path="/sequences/:seqId" element={<SequenceDetailPage />} />
               <Route path="/notifications" element={<NotificationListPage />} />
             </Route>
             <Route path="/" element={<Navigate to="/projects" replace />} />

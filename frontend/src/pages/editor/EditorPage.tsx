@@ -11,6 +11,7 @@ import {
   Tooltip,
   Typography,
   Divider,
+  Tabs,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -23,6 +24,8 @@ import {
   CheckCircleFilled,
   ClockCircleFilled,
   CloseCircleFilled,
+  PlayCircleOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { sequenceApi } from '../../services/application';
 import { ctdApi } from '../../services/ctd';
@@ -32,8 +35,12 @@ import { useEditorStore } from '../../stores/useEditorStore';
 import CTDTree from '../../components/CTDTree';
 import FilePanel from '../../components/FilePanel';
 import ExportModal from '../../components/ExportModal';
+import CompletenessPanel from '../../components/CompletenessPanel';
+import ValidationPanel from '../../components/ValidationPanel';
+import XmlPreviewPanel from '../../components/XmlPreviewPanel';
+import EctdPackagePanel from '../../components/EctdPackagePanel';
 import PropertiesPanel from './PropertiesPanel';
-import type { SequenceNode, CompletenessResult } from '../../types';
+import type { SequenceNode, CompletenessResult, ExtensionOption } from '../../types';
 
 const { Sider, Content } = Layout;
 const { Text } = Typography;
@@ -67,6 +74,15 @@ const EditorPage: React.FC = () => {
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [completeness, setCompleteness] = useState<CompletenessResult | null>(null);
   const [validating, setValidating] = useState(false);
+  const [needsInit, setNeedsInit] = useState(false);
+  const [initializing, setInitializing] = useState(false);
+  const [extensionOptions, setExtensionOptions] = useState<ExtensionOption[]>([]);
+  const [centerTab, setCenterTab] = useState('editor');
+  const [requiredPreview, setRequiredPreview] = useState<{
+    requiredSections: Array<{ section: string; title: string; module: number; severity: string }>;
+    forbiddenSections: Array<{ section: string; title: string; module: number }>;
+    totalRequired: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!seqId) return;
@@ -75,12 +91,15 @@ const EditorPage: React.FC = () => {
       try {
         const [seq, tree, comp] = await Promise.all([
           sequenceApi.detail(seqId),
-          ctdApi.getSequenceNodeTree(seqId),
+          ctdApi.getSequenceNodeTree(seqId).catch(() => []),
           ctdApi.checkCompleteness(seqId).catch(() => null),
         ]);
         setSequence(seq);
         setNodes(tree);
         if (comp) setCompleteness(comp);
+        setNeedsInit(tree.length === 0);
+
+        ctdApi.getExtensionOptions().then(setExtensionOptions).catch(() => {});
       } catch (err: any) {
         message.error(err.message);
       } finally {
@@ -94,7 +113,14 @@ const EditorPage: React.FC = () => {
     };
   }, [seqId, setSelectedNode, setDocument]);
 
-  // Auto-select node from URL query param
+  useEffect(() => {
+    if (needsInit && seqId) {
+      ctdApi.previewRequired(seqId)
+        .then(setRequiredPreview)
+        .catch(() => {});
+    }
+  }, [needsInit, seqId]);
+
   useEffect(() => {
     if (initialNodeId && nodes.length > 0 && !selectedNode) {
       const findNode = (items: SequenceNode[]): SequenceNode | null => {
@@ -114,6 +140,7 @@ const EditorPage: React.FC = () => {
 
   const handleNodeSelect = useCallback((node: SequenceNode) => {
     setSelectedNode(node);
+    setCenterTab('editor');
   }, [setSelectedNode]);
 
   const handleSubmitApproval = useCallback(async () => {
@@ -136,8 +163,9 @@ const EditorPage: React.FC = () => {
       if (errors.length === 0) {
         message.success('eCTD 验证通过');
       } else {
-        message.warning(`验证发现 ${errors.length} 个错误，请前往序列详情页查看完整报告`);
+        message.warning(`验证发现 ${errors.length} 个错误`);
       }
+      setCenterTab('validation');
     } catch (err: any) {
       message.error(`验证失败: ${err.message}`);
     } finally {
@@ -145,12 +173,59 @@ const EditorPage: React.FC = () => {
     }
   }, [seqId]);
 
+  const handleInitialize = async () => {
+    if (!seqId) return;
+    setInitializing(true);
+    try {
+      await ctdApi.initializeSequence(seqId);
+      message.success('目录初始化完成');
+      const [tree, comp, seq] = await Promise.all([
+        ctdApi.getSequenceNodeTree(seqId),
+        ctdApi.checkCompleteness(seqId).catch(() => null),
+        sequenceApi.detail(seqId),
+      ]);
+      setNodes(tree);
+      if (comp) setCompleteness(comp);
+      setSequence(seq);
+      setNeedsInit(false);
+    } catch (err: any) {
+      message.error(err.message);
+    } finally {
+      setInitializing(false);
+    }
+  };
+
+  const handleAddExtension = async (parentNodeId: string, extensionType: string) => {
+    if (!seqId) return;
+    try {
+      await ctdApi.createExtensionNode(seqId, parentNodeId, extensionType);
+      message.success('扩展节点已创建');
+      await refreshNodes();
+    } catch (err: any) {
+      message.error(err.message);
+    }
+  };
+
+  const handleDeleteExtension = async (nodeId: string) => {
+    if (!seqId) return;
+    try {
+      await ctdApi.deleteExtensionNode(seqId, nodeId);
+      message.success('扩展节点已删除');
+      await refreshNodes();
+    } catch (err: any) {
+      message.error(err.message);
+    }
+  };
+
   const refreshNodes = useCallback(async () => {
     if (!seqId) return;
     try {
-      const tree = await ctdApi.getSequenceNodeTree(seqId);
+      const [tree, comp] = await Promise.all([
+        ctdApi.getSequenceNodeTree(seqId),
+        ctdApi.checkCompleteness(seqId).catch(() => null),
+      ]);
       setNodes(tree);
-      // Update selectedNode with fresh data from tree
+      if (comp) setCompleteness(comp);
       if (selectedNode) {
         const findNode = (items: SequenceNode[]): SequenceNode | null => {
           for (const n of items) {
@@ -183,6 +258,7 @@ const EditorPage: React.FC = () => {
   }
 
   const appInfo = sequence.regulatoryActivity?.application;
+  const isBiological = appInfo?.productTypeCode === 'cnprt2';
   const approval = selectedNode?.isLeaf && selectedNode.approvalStatus !== 'DRAFT'
     ? approvalConfig[selectedNode.approvalStatus]
     : null;
@@ -190,9 +266,166 @@ const EditorPage: React.FC = () => {
     && (selectedNode.approvalStatus === 'DRAFT' || selectedNode.approvalStatus === 'REJECTED')
     && selectedNode.status !== 'EMPTY';
 
+  // Render the center content based on active tab
+  const renderCenterContent = () => {
+    if (needsInit) {
+      return (
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#fff',
+          borderRadius: 8,
+          padding: 40,
+        }}>
+          <PlayCircleOutlined style={{ fontSize: 56, color: '#1890ff', marginBottom: 20 }} />
+          <Text style={{ fontSize: 18, fontWeight: 500, marginBottom: 8 }}>
+            初始化 CTD 目录结构
+          </Text>
+          <Text type="secondary" style={{ fontSize: 14, marginBottom: 24, textAlign: 'center', maxWidth: 500 }}>
+            根据当前申请类型和注册行为类型，自动创建 eCTD 五模块目录结构并标记必填章节
+          </Text>
+          <Button type="primary" size="large" loading={initializing} onClick={handleInitialize}>
+            初始化目录
+          </Button>
+          {requiredPreview && requiredPreview.requiredSections.length > 0 && (
+            <div style={{ marginTop: 32, width: '100%', maxWidth: 600 }}>
+              <Text strong>
+                <InfoCircleOutlined style={{ marginRight: 8 }} />
+                必填章节清单（共 {requiredPreview.totalRequired} 项）
+              </Text>
+              <div style={{ maxHeight: 250, overflow: 'auto', marginTop: 12, border: '1px solid #f0f0f0', borderRadius: 6, padding: '8px 12px' }}>
+                {requiredPreview.requiredSections.map((s) => (
+                  <div key={s.section} style={{ padding: '4px 0', borderBottom: '1px solid #f0f0f0' }}>
+                    <Tag color={s.severity === 'ERROR' ? 'red' : 'orange'} style={{ marginRight: 8 }}>
+                      {s.severity === 'ERROR' ? '必填' : '建议'}
+                    </Tag>
+                    <span style={{ color: '#262626', fontFamily: 'monospace', fontSize: 12 }}>{s.section}</span>
+                    <span style={{ marginLeft: 8, color: '#595959' }}>{s.title}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Tool panels (completeness, validation, xml, export)
+    if (centerTab === 'completeness') {
+      return (
+        <div style={{ flex: 1, background: '#fff', borderRadius: 8, overflow: 'auto', padding: 20 }}>
+          <CompletenessPanel data={completeness} />
+        </div>
+      );
+    }
+    if (centerTab === 'validation') {
+      return (
+        <div style={{ flex: 1, background: '#fff', borderRadius: 8, overflow: 'auto', padding: 20 }}>
+          <ValidationPanel sequenceId={seqId!} />
+        </div>
+      );
+    }
+    if (centerTab === 'xml-preview') {
+      return (
+        <div style={{ flex: 1, background: '#fff', borderRadius: 8, overflow: 'auto', padding: 20 }}>
+          <XmlPreviewPanel sequenceId={seqId!} />
+        </div>
+      );
+    }
+    if (centerTab === 'ectd-export') {
+      return (
+        <div style={{ flex: 1, background: '#fff', borderRadius: 8, overflow: 'auto', padding: 20 }}>
+          <EctdPackagePanel sequenceId={seqId!} />
+        </div>
+      );
+    }
+
+    // Default: editor view
+    if (!selectedNode) {
+      return (
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#fff',
+          borderRadius: 8,
+        }}>
+          <FolderOpenOutlined style={{ fontSize: 56, color: '#d9d9d9', marginBottom: 20 }} />
+          <Text style={{ fontSize: 16, color: '#8c8c8c', marginBottom: 6 }}>
+            选择一个章节开始工作
+          </Text>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            从左侧 CTD 目录中选择叶节点，上传或管理申报文件
+          </Text>
+        </div>
+      );
+    }
+    if (!selectedNode.isLeaf) {
+      return (
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#fff',
+          borderRadius: 8,
+        }}>
+          <FolderOpenOutlined style={{ fontSize: 56, color: '#d9d9d9', marginBottom: 20 }} />
+          <Text style={{ fontSize: 16, color: '#595959', marginBottom: 6 }}>
+            {selectedNode.ctdSectionNumber} {selectedNode.title}
+          </Text>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            这是一个目录节点，请展开选择下级叶节点来上传文件
+          </Text>
+        </div>
+      );
+    }
+    return (
+      <div style={{
+        flex: 1,
+        background: '#fff',
+        borderRadius: 8,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          padding: '16px 24px 14px',
+          borderBottom: '1px solid #f0f0f0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexShrink: 0,
+        }}>
+          <Space size={8} align="center">
+            <Text strong style={{ fontSize: 16 }}>{selectedNode.ctdSectionNumber}</Text>
+            <Text style={{ fontSize: 16 }}>{selectedNode.title}</Text>
+          </Space>
+          <Space size={8}>
+            {selectedNode.operation && <Tag style={{ margin: 0 }}>{selectedNode.operation}</Tag>}
+            {approval && (
+              <Tag color={approval.color} style={{ margin: 0 }}>
+                {approval.icon} {approval.label}
+              </Tag>
+            )}
+          </Space>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+          <FilePanel nodeId={selectedNode.id} isLeaf={selectedNode.isLeaf} />
+        </div>
+      </div>
+    );
+  };
+
   return (
     <Layout style={{ height: '100vh', background: '#f0f2f5' }}>
-      {/* ── Top bar ── */}
+      {/* Top bar */}
       <div style={{
         height: 56,
         background: '#fff',
@@ -206,11 +439,19 @@ const EditorPage: React.FC = () => {
       }}>
         {/* Left: Navigation */}
         <Space size={12} align="center">
-          <Tooltip title="返回序列详情">
+          <Tooltip title="返回申请详情">
             <Button
               type="text"
               icon={<ArrowLeftOutlined />}
-              onClick={() => navigate(`/sequences/${seqId}`)}
+              onClick={() => {
+                const projectId = appInfo?.project?.id;
+                const aId = appInfo?.id;
+                if (projectId && aId) {
+                  navigate(`/projects/${projectId}/applications/${aId}`);
+                } else {
+                  navigate('/projects');
+                }
+              }}
               style={{ fontSize: 16 }}
             />
           </Tooltip>
@@ -227,15 +468,14 @@ const EditorPage: React.FC = () => {
               {appInfo?.applicationNumber || '申请'}
             </Link>
             <Text type="secondary" style={{ fontSize: 13 }}>/</Text>
-            <Link to={`/sequences/${seqId}`} style={{ fontSize: 14, fontWeight: 600, color: 'inherit' }}>
+            <Text style={{ fontSize: 14, fontWeight: 600 }}>
               序列 {sequence.sequenceNumber}
-            </Link>
+            </Text>
           </div>
         </Space>
 
         {/* Right: Actions */}
         <Space size={8} split={<Divider type="vertical" style={{ margin: 0 }} />}>
-          {/* Completeness */}
           {completeness && completeness.requiredSections > 0 && (
             <Tag
               color={completeness.completedRequired >= completeness.requiredSections ? 'green' : 'orange'}
@@ -244,11 +484,7 @@ const EditorPage: React.FC = () => {
               必填 {completeness.completedRequired}/{completeness.requiredSections}
             </Tag>
           )}
-          {completeness && completeness.requiredSections === 0 && (
-            <Tag color="default" style={{ margin: 0 }}>无必填</Tag>
-          )}
 
-          {/* Approval status */}
           {approval && (
             <Space size={4}>
               {approval.icon}
@@ -256,15 +492,10 @@ const EditorPage: React.FC = () => {
             </Space>
           )}
 
-          {/* Action buttons */}
           <Space size={4}>
             {canSubmit && (
               <Tooltip title="提交审批">
-                <Button
-                  type="text"
-                  icon={<SendOutlined />}
-                  onClick={handleSubmitApproval}
-                />
+                <Button type="text" icon={<SendOutlined />} onClick={handleSubmitApproval} />
               </Tooltip>
             )}
             <Tooltip title="运行 eCTD 验证">
@@ -273,6 +504,7 @@ const EditorPage: React.FC = () => {
                 icon={<SafetyCertificateOutlined />}
                 onClick={handleRunValidation}
                 loading={validating}
+                disabled={needsInit}
               />
             </Tooltip>
             <Tooltip title="导出文档">
@@ -287,7 +519,7 @@ const EditorPage: React.FC = () => {
         </Space>
       </div>
 
-      {/* ── Body ── */}
+      {/* Body */}
       <Layout style={{ flex: 1, overflow: 'hidden', background: 'transparent' }}>
         {/* Left: CTD Tree */}
         <Sider
@@ -315,11 +547,28 @@ const EditorPage: React.FC = () => {
             </Tooltip>
           </div>
           <div style={{ flex: 1, overflow: 'auto', padding: '8px 12px 12px' }}>
-            <CTDTree nodes={nodes} onNodeSelect={handleNodeSelect} selectedNodeId={selectedNode?.id} />
+            {needsInit ? (
+              <div style={{ textAlign: 'center', padding: '40px 16px', color: '#8c8c8c' }}>
+                <PlayCircleOutlined style={{ fontSize: 36, color: '#d9d9d9', marginBottom: 12 }} />
+                <div style={{ marginBottom: 12 }}>需要初始化 CTD 目录</div>
+                <Button type="primary" loading={initializing} onClick={handleInitialize}>
+                  初始化目录
+                </Button>
+              </div>
+            ) : (
+              <CTDTree
+                nodes={nodes}
+                onNodeSelect={handleNodeSelect}
+                onAddExtension={handleAddExtension}
+                onDeleteExtension={handleDeleteExtension}
+                extensionOptions={extensionOptions}
+                isbiological={isBiological}
+                selectedNodeId={selectedNode?.id}
+              />
+            )}
           </div>
         </Sider>
 
-        {/* Left toggle (collapsed only) */}
         {leftCollapsed && (
           <Tooltip title="展开目录" placement="right">
             <div
@@ -343,97 +592,47 @@ const EditorPage: React.FC = () => {
           </Tooltip>
         )}
 
-        {/* Center: File Upload & Management */}
+        {/* Center: Tab bar + content */}
         <Content style={{
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
           background: '#f0f2f5',
-          padding: 20,
         }}>
-          {!selectedNode ? (
+          {/* Tab bar above the editor */}
+          {!needsInit && (
             <div style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
               background: '#fff',
-              borderRadius: 8,
+              borderBottom: '1px solid #e8e8e8',
+              padding: '0 20px',
+              flexShrink: 0,
             }}>
-              <FolderOpenOutlined style={{ fontSize: 56, color: '#d9d9d9', marginBottom: 20 }} />
-              <Text style={{ fontSize: 16, color: '#8c8c8c', marginBottom: 6 }}>
-                选择一个章节开始工作
-              </Text>
-              <Text type="secondary" style={{ fontSize: 13 }}>
-                从左侧 CTD 目录中选择叶节点，上传或管理申报文件
-              </Text>
-            </div>
-          ) : !selectedNode.isLeaf ? (
-            <div style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: '#fff',
-              borderRadius: 8,
-            }}>
-              <FolderOpenOutlined style={{ fontSize: 56, color: '#d9d9d9', marginBottom: 20 }} />
-              <Text style={{ fontSize: 16, color: '#595959', marginBottom: 6 }}>
-                {selectedNode.ctdSectionNumber} {selectedNode.title}
-              </Text>
-              <Text type="secondary" style={{ fontSize: 13 }}>
-                这是一个目录节点，请展开选择下级叶节点来上传文件
-              </Text>
-            </div>
-          ) : (
-            <div style={{
-              flex: 1,
-              background: '#fff',
-              borderRadius: 8,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}>
-              {/* Section header */}
-              <div style={{
-                padding: '16px 24px 14px',
-                borderBottom: '1px solid #f0f0f0',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexShrink: 0,
-              }}>
-                <div>
-                  <Space size={8} align="center">
-                    <Text strong style={{ fontSize: 16 }}>
-                      {selectedNode.ctdSectionNumber}
-                    </Text>
-                    <Text style={{ fontSize: 16 }}>
-                      {selectedNode.title}
-                    </Text>
-                  </Space>
-                </div>
-                <Space size={8}>
-                  {selectedNode.operation && (
-                    <Tag style={{ margin: 0 }}>{selectedNode.operation}</Tag>
-                  )}
-                  {approval && (
-                    <Tag color={approval.color} style={{ margin: 0 }}>
-                      {approval.icon} {approval.label}
-                    </Tag>
-                  )}
-                </Space>
-              </div>
-
-              {/* File management area */}
-              <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
-                <FilePanel nodeId={selectedNode.id} isLeaf={selectedNode.isLeaf} />
-              </div>
+              <Tabs
+                activeKey={centerTab}
+                onChange={setCenterTab}
+                size="small"
+                style={{ marginBottom: 0 }}
+                items={[
+                  { key: 'editor', label: '编辑' },
+                  {
+                    key: 'completeness',
+                    label: completeness && completeness.requiredSections > 0 && completeness.completedRequired < completeness.requiredSections
+                      ? <span>内容完整性 <Tag color="red" style={{ marginLeft: 4, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{completeness.requiredSections - completeness.completedRequired}</Tag></span>
+                      : '内容完整性',
+                  },
+                  { key: 'validation', label: 'eCTD 验证' },
+                  { key: 'xml-preview', label: 'XML 骨架预览' },
+                  { key: 'ectd-export', label: 'eCTD 导出' },
+                ]}
+              />
             </div>
           )}
+
+          {/* Content area */}
+          <div style={{ flex: 1, overflow: 'hidden', padding: 20, display: 'flex', flexDirection: 'column' }}>
+            {renderCenterContent()}
+          </div>
         </Content>
 
         {/* Right toggle (collapsed only) */}
@@ -460,7 +659,7 @@ const EditorPage: React.FC = () => {
           </Tooltip>
         )}
 
-        {/* Right: Properties */}
+        {/* Right: Properties only */}
         <Sider
           width={360}
           collapsedWidth={0}

@@ -51,7 +51,7 @@ let Md5Service = class Md5Service {
     }
     generateIndexMd5(files) {
         const lines = files.map((f) => {
-            const md5 = this.calculateMd5String(f.content);
+            const md5 = f.md5 || this.calculateMd5String(f.content);
             return `${md5}  ${f.fileName}`;
         });
         return lines.join('\n') + '\n';

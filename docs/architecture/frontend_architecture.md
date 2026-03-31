@@ -12,8 +12,7 @@
 | 项目详情 ✅ | `/projects/:id` | 项目下的申请、序列管理 + 协作 Tab（进度总览、工作量分布）+ 成员管理增强 | EDITOR+ |
 | 申请管理 | `/projects/:id/applications` | 申请编号、类型管理 | EDITOR+ |
 | 序列管理 | `/projects/:id/applications/:appId/sequences` | 序列号、注册行为管理 | EDITOR+ |
-| 序列详情 ✅ | `/sequences/:seqId` | CTD 目录树 + 内容完整性看板 + 目录初始化 | EDITOR+ |
-| **文档编辑** ✅ | `/sequences/:seqId/editor` | **核心页面** — 三栏布局: CTD 目录树 + TipTap 富文本编辑器 + 属性面板 | EDITOR+ |
+| **文档编辑** ✅ | `/sequences/:seqId` | **核心页面** — 三栏布局: CTD 目录树(含颜色标识图例) + 文件管理区 + 右侧面板(属性/完整性/验证/eCTD工具)；含 CTD 目录初始化引导 | EDITOR+ |
 | 导出中心 | `/export/:sequenceId` | Word/PDF 导出、eCTD 包生成 | EDITOR+ |
 | 验证报告 | `/validation/:sequenceId` | eCTD 验证结果查看 | VIEWER+ |
 | 文件管理 | `/files/:sequenceId` | 上传/管理 PDF、附件文件 | EDITOR+ |

@@ -1,11 +1,34 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { ControlledVocabularyService } from '../controlled-vocabulary/controlled-vocabulary.service';
-import { CreateSequenceDto, UpdateSequenceDto } from './dto';
+import { CreateSequenceDto, UpdateSequenceDto, CreateSequenceWithRaDto } from './dto';
 export declare class SequenceService {
     private prisma;
     private cvService;
     constructor(prisma: PrismaService, cvService: ControlledVocabularyService);
     create(regulatoryActivityId: string, dto: CreateSequenceDto): Promise<{
+        description: string;
+        id: string;
+        status: import("@prisma/client").$Enums.SequenceStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        regulatoryActivityId: string;
+        sequenceNumber: string;
+        sequenceTypeCode: string;
+        sequenceTypeVersion: string;
+        contactName: string;
+        contactPhone: string;
+        contactEmail: string;
+    }>;
+    createWithRegulatoryActivity(applicationId: string, dto: CreateSequenceWithRaDto): Promise<{
+        regulatoryActivity: {
+            id: string;
+            regulatoryActivityTypeCode: string;
+            createdAt: Date;
+            applicationId: string;
+            regulatoryActivityTypeVersion: string;
+            relatedSequence: string;
+        };
+        isNewRa: boolean;
         description: string;
         id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;

@@ -17,13 +17,17 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const application_service_1 = require("./application.service");
 const dto_1 = require("./dto");
+const sequence_service_1 = require("../sequence/sequence.service");
+const dto_2 = require("../sequence/dto");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
 const roles_guard_1 = require("../common/guards/roles.guard");
 const roles_decorator_1 = require("../common/decorators/roles.decorator");
 let ApplicationController = class ApplicationController {
     applicationService;
-    constructor(applicationService) {
+    sequenceService;
+    constructor(applicationService, sequenceService) {
         this.applicationService = applicationService;
+        this.sequenceService = sequenceService;
     }
     create(projectId, dto) {
         return this.applicationService.create(projectId, dto);
@@ -36,6 +40,9 @@ let ApplicationController = class ApplicationController {
     }
     remove(id) {
         return this.applicationService.remove(id);
+    }
+    createSequenceWithRa(appId, dto) {
+        return this.sequenceService.createWithRegulatoryActivity(appId, dto);
     }
 };
 exports.ApplicationController = ApplicationController;
@@ -70,9 +77,19 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
 ], ApplicationController.prototype, "remove", null);
+__decorate([
+    (0, common_1.Post)(':appId/create-sequence'),
+    (0, roles_decorator_1.Roles)(client_1.Role.ADMIN, client_1.Role.MANAGER, client_1.Role.EDITOR),
+    __param(0, (0, common_1.Param)('appId')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, dto_2.CreateSequenceWithRaDto]),
+    __metadata("design:returntype", void 0)
+], ApplicationController.prototype, "createSequenceWithRa", null);
 exports.ApplicationController = ApplicationController = __decorate([
     (0, common_1.Controller)('api/v1/projects/:projectId/applications'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
-    __metadata("design:paramtypes", [application_service_1.ApplicationService])
+    __metadata("design:paramtypes", [application_service_1.ApplicationService,
+        sequence_service_1.SequenceService])
 ], ApplicationController);
 //# sourceMappingURL=application.controller.js.map

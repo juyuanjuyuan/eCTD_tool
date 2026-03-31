@@ -190,3 +190,6 @@ Prisma Schema → Migration → DTO/Entity → Service → Controller → 前端
 - **L2**: 主链路跑通 — 用户可在线编辑文档并导出符合 eCTD 规范的 Word/PDF
 - **L3**: 通过 eCTD 验证标准全部"错误"级别规则验证
 - **L4**: 上线稳定运行，可实际用于向 CDE 提交申报资料
+
+### Clarity for user's request
+-在编写任何代码之前，请先描述你的方案等待批准。如果需求不明确，在编写任何代码之前，请务必先向我提问澄清需求。

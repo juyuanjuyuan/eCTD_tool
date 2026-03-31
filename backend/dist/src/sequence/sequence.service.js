@@ -65,6 +65,73 @@ let SequenceService = class SequenceService {
             },
         });
     }
+    async createWithRegulatoryActivity(applicationId, dto) {
+        const application = await this.prisma.application.findUnique({
+            where: { id: applicationId },
+        });
+        if (!application) {
+            throw new common_1.NotFoundException(`申请 ${applicationId} 不存在`);
+        }
+        const isRatValid = await this.cvService.validateDependency(application.applicationTypeCode, dto.regulatoryActivityTypeCode);
+        if (!isRatValid) {
+            throw new common_1.BadRequestException(`申请类型 ${application.applicationTypeCode} 不支持注册行为类型 ${dto.regulatoryActivityTypeCode}`);
+        }
+        const isSqtValid = await this.cvService.validateDependency(application.applicationTypeCode, dto.regulatoryActivityTypeCode, dto.sequenceTypeCode);
+        if (!isSqtValid) {
+            throw new common_1.BadRequestException(`当前申请类型和注册行为类型组合不支持序列类型 ${dto.sequenceTypeCode}`);
+        }
+        return this.prisma.$transaction(async (tx) => {
+            let ra = await tx.regulatoryActivity.findFirst({
+                where: {
+                    applicationId,
+                    regulatoryActivityTypeCode: dto.regulatoryActivityTypeCode,
+                },
+            });
+            if (!ra) {
+                const ratVersion = await this.cvService.getCvVersion('regulatory-activity-type', dto.regulatoryActivityTypeCode);
+                const lastSequence = await tx.sequence.findFirst({
+                    where: { regulatoryActivity: { applicationId } },
+                    orderBy: { sequenceNumber: 'desc' },
+                });
+                const relatedSequence = lastSequence ? lastSequence.sequenceNumber : '0000';
+                ra = await tx.regulatoryActivity.create({
+                    data: {
+                        applicationId,
+                        regulatoryActivityTypeCode: dto.regulatoryActivityTypeCode,
+                        regulatoryActivityTypeVersion: ratVersion,
+                        relatedSequence,
+                    },
+                });
+            }
+            const lastSeq = await tx.sequence.findFirst({
+                where: { regulatoryActivityId: ra.id },
+                orderBy: { sequenceNumber: 'desc' },
+            });
+            const nextNum = lastSeq ? parseInt(lastSeq.sequenceNumber) + 1 : 0;
+            const sequenceNumber = nextNum.toString().padStart(4, '0');
+            if (sequenceNumber === '0000' && dto.sequenceTypeCode !== 'cnsqt1') {
+                throw new common_1.BadRequestException('首个序列的序列类型必须为 cnsqt1（首次提交）');
+            }
+            const sqtVersion = await this.cvService.getCvVersion('sequence-type', dto.sequenceTypeCode);
+            const sequence = await tx.sequence.create({
+                data: {
+                    regulatoryActivityId: ra.id,
+                    sequenceNumber,
+                    sequenceTypeCode: dto.sequenceTypeCode,
+                    sequenceTypeVersion: sqtVersion,
+                    description: dto.description,
+                    contactName: dto.contactName,
+                    contactPhone: dto.contactPhone,
+                    contactEmail: dto.contactEmail,
+                },
+            });
+            return {
+                ...sequence,
+                regulatoryActivity: ra,
+                isNewRa: !lastSeq || !ra.id,
+            };
+        });
+    }
     async findAllByRegulatoryActivity(regulatoryActivityId) {
         return this.prisma.sequence.findMany({
             where: { regulatoryActivityId },

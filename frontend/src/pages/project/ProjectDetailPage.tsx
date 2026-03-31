@@ -436,32 +436,30 @@ const ProjectDetailPage: React.FC = () => {
             key: 'overview',
             label: '概览',
             children: (
-              <Descriptions bordered column={2}>
-                <Descriptions.Item label="项目名称">{project.name}</Descriptions.Item>
-                <Descriptions.Item label="状态">
-                  <Tag color={project.status === 'ACTIVE' ? 'green' : 'default'}>
-                    {project.status === 'ACTIVE' ? '进行中' : project.status === 'ARCHIVED' ? '已归档' : '草稿'}
-                  </Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label="描述" span={2}>
-                  {project.description || '-'}
-                </Descriptions.Item>
-                <Descriptions.Item label="创建时间">
-                  {new Date(project.createdAt).toLocaleString('zh-CN')}
-                </Descriptions.Item>
-              </Descriptions>
-            ),
-          },
-          {
-            key: 'applications',
-            label: `申请 (${applications.length})`,
-            children: (
               <>
-                <Space style={{ marginBottom: 16 }}>
+                <Descriptions bordered column={2} style={{ marginBottom: 24 }}>
+                  <Descriptions.Item label="项目名称">{project.name}</Descriptions.Item>
+                  <Descriptions.Item label="状态">
+                    <Tag color={project.status === 'ACTIVE' ? 'green' : 'default'}>
+                      {project.status === 'ACTIVE' ? '进行中' : project.status === 'ARCHIVED' ? '已归档' : '草稿'}
+                    </Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="描述" span={2}>
+                    {project.description || '-'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="创建时间">
+                    {new Date(project.createdAt).toLocaleString('zh-CN')}
+                  </Descriptions.Item>
+                </Descriptions>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <Typography.Title level={5} style={{ margin: 0 }}>
+                    申请 ({applications.length})
+                  </Typography.Title>
                   <Button type="primary" icon={<PlusOutlined />} onClick={openAppModal}>
                     创建申请
                   </Button>
-                </Space>
+                </div>
                 <Table
                   rowKey="id"
                   columns={appColumns}

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ControlledVocabularyService } from '../controlled-vocabulary/controlled-vocabulary.service';
-import { CreateSequenceDto, UpdateSequenceDto } from './dto';
+import { CreateSequenceDto, UpdateSequenceDto, CreateSequenceWithRaDto } from './dto';
 
 @Injectable()
 export class SequenceService {
@@ -77,6 +77,109 @@ export class SequenceService {
         contactPhone: dto.contactPhone,
         contactEmail: dto.contactEmail,
       },
+    });
+  }
+
+  /**
+   * Combined: find-or-create RA + create sequence in one transaction.
+   */
+  async createWithRegulatoryActivity(applicationId: string, dto: CreateSequenceWithRaDto) {
+    const application = await this.prisma.application.findUnique({
+      where: { id: applicationId },
+    });
+    if (!application) {
+      throw new NotFoundException(`申请 ${applicationId} 不存在`);
+    }
+
+    // Validate RA type is allowed for this application type
+    const isRatValid = await this.cvService.validateDependency(
+      application.applicationTypeCode,
+      dto.regulatoryActivityTypeCode,
+    );
+    if (!isRatValid) {
+      throw new BadRequestException(
+        `申请类型 ${application.applicationTypeCode} 不支持注册行为类型 ${dto.regulatoryActivityTypeCode}`,
+      );
+    }
+
+    // Validate sequence type is allowed for this combination
+    const isSqtValid = await this.cvService.validateDependency(
+      application.applicationTypeCode,
+      dto.regulatoryActivityTypeCode,
+      dto.sequenceTypeCode,
+    );
+    if (!isSqtValid) {
+      throw new BadRequestException(
+        `当前申请类型和注册行为类型组合不支持序列类型 ${dto.sequenceTypeCode}`,
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // Find existing RA of this type, or create a new one
+      let ra = await tx.regulatoryActivity.findFirst({
+        where: {
+          applicationId,
+          regulatoryActivityTypeCode: dto.regulatoryActivityTypeCode,
+        },
+      });
+
+      if (!ra) {
+        const ratVersion = await this.cvService.getCvVersion(
+          'regulatory-activity-type',
+          dto.regulatoryActivityTypeCode,
+        );
+
+        const lastSequence = await tx.sequence.findFirst({
+          where: { regulatoryActivity: { applicationId } },
+          orderBy: { sequenceNumber: 'desc' },
+        });
+        const relatedSequence = lastSequence ? lastSequence.sequenceNumber : '0000';
+
+        ra = await tx.regulatoryActivity.create({
+          data: {
+            applicationId,
+            regulatoryActivityTypeCode: dto.regulatoryActivityTypeCode,
+            regulatoryActivityTypeVersion: ratVersion,
+            relatedSequence,
+          },
+        });
+      }
+
+      // Generate sequence number within this RA
+      const lastSeq = await tx.sequence.findFirst({
+        where: { regulatoryActivityId: ra.id },
+        orderBy: { sequenceNumber: 'desc' },
+      });
+      const nextNum = lastSeq ? parseInt(lastSeq.sequenceNumber) + 1 : 0;
+      const sequenceNumber = nextNum.toString().padStart(4, '0');
+
+      if (sequenceNumber === '0000' && dto.sequenceTypeCode !== 'cnsqt1') {
+        throw new BadRequestException('首个序列的序列类型必须为 cnsqt1（首次提交）');
+      }
+
+      const sqtVersion = await this.cvService.getCvVersion(
+        'sequence-type',
+        dto.sequenceTypeCode,
+      );
+
+      const sequence = await tx.sequence.create({
+        data: {
+          regulatoryActivityId: ra.id,
+          sequenceNumber,
+          sequenceTypeCode: dto.sequenceTypeCode,
+          sequenceTypeVersion: sqtVersion,
+          description: dto.description,
+          contactName: dto.contactName,
+          contactPhone: dto.contactPhone,
+          contactEmail: dto.contactEmail,
+        },
+      });
+
+      return {
+        ...sequence,
+        regulatoryActivity: ra,
+        isNewRa: !lastSeq || !ra.id, // indicate if RA was newly created
+      };
     });
   }
 

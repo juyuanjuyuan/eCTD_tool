@@ -190,7 +190,10 @@ let CnRegionalXmlService = CnRegionalXmlService_1 = class CnRegionalXmlService {
             parts.push(`modified-file="${modifiedFile}"`);
         }
         if (operation !== 'delete') {
-            parts.push(`xlink:href="${this.escapeXml(file.ectdRelativePath)}"`);
+            const href = file.ectdRelativePath.startsWith('m1/cn/')
+                ? file.ectdRelativePath.substring('m1/cn/'.length)
+                : file.ectdRelativePath;
+            parts.push(`xlink:href="${this.escapeXml(href)}"`);
             parts.push(`checksum="${file.md5Checksum}"`);
             parts.push(`checksum-type="MD5"`);
         }

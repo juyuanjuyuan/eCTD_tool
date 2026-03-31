@@ -11,12 +11,13 @@ const common_1 = require("@nestjs/common");
 const application_controller_1 = require("./application.controller");
 const application_service_1 = require("./application.service");
 const controlled_vocabulary_module_1 = require("../controlled-vocabulary/controlled-vocabulary.module");
+const sequence_module_1 = require("../sequence/sequence.module");
 let ApplicationModule = class ApplicationModule {
 };
 exports.ApplicationModule = ApplicationModule;
 exports.ApplicationModule = ApplicationModule = __decorate([
     (0, common_1.Module)({
-        imports: [controlled_vocabulary_module_1.ControlledVocabularyModule],
+        imports: [controlled_vocabulary_module_1.ControlledVocabularyModule, sequence_module_1.SequenceModule],
         controllers: [application_controller_1.ApplicationController],
         providers: [application_service_1.ApplicationService],
         exports: [application_service_1.ApplicationService],

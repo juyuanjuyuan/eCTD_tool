@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    allowedHosts: ['35.202.236.109'],
+    allowedHosts: ['34.134.166.200'],
     proxy: {
       '/api': {
         target: 'http://localhost:3000',

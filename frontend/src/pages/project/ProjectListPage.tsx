@@ -51,11 +51,11 @@ const ProjectListPage: React.FC = () => {
 
   const handleCreate = async (values: { name: string; description?: string }) => {
     try {
-      await projectApi.create(values);
+      const newProject = await projectApi.create(values);
       message.success('项目创建成功');
       setModalOpen(false);
       form.resetFields();
-      fetchProjects();
+      navigate(`/projects/${newProject.id}`);
     } catch (error: any) {
       message.error(error.message);
     }

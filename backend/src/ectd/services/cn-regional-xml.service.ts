@@ -301,7 +301,11 @@ export class CnRegionalXmlService {
     }
 
     if (operation !== 'delete') {
-      parts.push(`xlink:href="${this.escapeXml(file.ectdRelativePath)}"`);
+      // xlink:href must be relative to cn-regional.xml location (m1/cn/)
+      const href = file.ectdRelativePath.startsWith('m1/cn/')
+        ? file.ectdRelativePath.substring('m1/cn/'.length)
+        : file.ectdRelativePath;
+      parts.push(`xlink:href="${this.escapeXml(href)}"`);
       parts.push(`checksum="${file.md5Checksum}"`);
       parts.push(`checksum-type="MD5"`);
     }

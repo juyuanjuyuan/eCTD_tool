@@ -19,6 +19,19 @@ export const applicationApi = {
 
   remove: (projectId: string, id: string) =>
     api.delete(`/projects/${projectId}/applications/${id}`),
+
+  createSequenceWithRa: (appId: string, data: {
+    regulatoryActivityTypeCode: string;
+    sequenceTypeCode: string;
+    description: string;
+    contactName: string;
+    contactPhone: string;
+    contactEmail: string;
+  }) =>
+    api.post<any, Sequence & { regulatoryActivity: RegulatoryActivity }>(
+      `/projects/_/applications/${appId}/create-sequence`,
+      data,
+    ),
 };
 
 export const regulatoryActivityApi = {

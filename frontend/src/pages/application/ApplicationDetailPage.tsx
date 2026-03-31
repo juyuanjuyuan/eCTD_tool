@@ -51,25 +51,22 @@ const ApplicationDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const [application, setApplication] = useState<Application | null>(null);
   const [raList, setRaList] = useState<(RegulatoryActivity & { sequences?: Sequence[] })[]>([]);
-  const [raModalOpen, setRaModalOpen] = useState(false);
   const [seqModalOpen, setSeqModalOpen] = useState(false);
-  const [selectedRaId, setSelectedRaId] = useState<string>('');
   const [ratOptions, setRatOptions] = useState<ControlledVocabulary[]>([]);
   const [sqtOptions, setSqtOptions] = useState<ControlledVocabulary[]>([]);
-  const [raForm] = Form.useForm();
   const [seqForm] = Form.useForm();
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const selectedRatCode = Form.useWatch('regulatoryActivityTypeCode', seqForm);
 
   const fetchData = useCallback(async () => {
     if (!appId) return;
     setLoading(true);
     try {
-      // Get applications for this project
       const apps = await applicationApi.list(projectId!);
       const app = apps.find((a: Application) => a.id === appId);
       if (app) setApplication(app);
 
-      // Get RA list and their sequences
       const ras = await regulatoryActivityApi.list(appId);
       const rasWithSeqs = await Promise.all(
         ras.map(async (ra: RegulatoryActivity) => {
@@ -89,50 +86,55 @@ const ApplicationDetailPage: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  const openRaModal = async () => {
+  // Load RAT options when modal opens
+  const openSeqModal = async () => {
     if (!application) return;
     const rats = await cvApi.getRegulatoryActivityTypes(application.applicationTypeCode);
     setRatOptions(rats);
-    setRaModalOpen(true);
-  };
-
-  const handleCreateRa = async (values: { regulatoryActivityTypeCode: string }) => {
-    try {
-      await regulatoryActivityApi.create(appId!, values);
-      message.success('注册行为创建成功');
-      setRaModalOpen(false);
-      raForm.resetFields();
-      fetchData();
-    } catch (error: any) {
-      message.error(error.message);
-    }
-  };
-
-  const openSeqModal = async (raId: string, ratCode: string) => {
-    if (!application) return;
-    setSelectedRaId(raId);
-    const sqts = await cvApi.getSequenceTypes(application.applicationTypeCode, ratCode);
-    setSqtOptions(sqts);
+    setSqtOptions([]);
     setSeqModalOpen(true);
   };
 
-  const handleCreateSeq = async (values: {
+  // When RAT selection changes, load corresponding sequence types
+  useEffect(() => {
+    if (!selectedRatCode || !application) {
+      setSqtOptions([]);
+      return;
+    }
+    cvApi.getSequenceTypes(application.applicationTypeCode, selectedRatCode)
+      .then(setSqtOptions)
+      .catch(() => setSqtOptions([]));
+    // Reset sequence type when RAT changes
+    seqForm.setFieldValue('sequenceTypeCode', undefined);
+  }, [selectedRatCode, application]);
+
+  const handleCreateSequence = async (values: {
+    regulatoryActivityTypeCode: string;
     sequenceTypeCode: string;
     description: string;
     contactName: string;
     contactPhone: string;
     contactEmail: string;
   }) => {
+    setCreating(true);
     try {
-      await sequenceApi.create(selectedRaId, values);
-      message.success('序列创建成功');
+      const result = await applicationApi.createSequenceWithRa(appId!, values);
+      message.success(`序列 ${result.sequenceNumber} 创建成功`);
       setSeqModalOpen(false);
       seqForm.resetFields();
       fetchData();
     } catch (error: any) {
       message.error(error.message);
+    } finally {
+      setCreating(false);
     }
   };
+
+  // Compute total sequence count and next sequence number hint
+  const totalSequences = raList.reduce((sum, ra) => sum + (ra.sequences?.length || 0), 0);
+  const nextSeqHint = totalSequences === 0
+    ? '将创建首个序列 (0000)'
+    : `当前共 ${totalSequences} 个序列`;
 
   if (loading) {
     return (
@@ -172,37 +174,39 @@ const ApplicationDetailPage: React.FC = () => {
         <Descriptions.Item label="原始编号">{application.productNumber}</Descriptions.Item>
       </Descriptions>
 
-      <Space style={{ marginBottom: 16 }}>
-        <Typography.Title level={5} style={{ margin: 0 }}>
-          注册行为 ({raList.length})
-        </Typography.Title>
-        <Button type="primary" icon={<PlusOutlined />} size="small" onClick={openRaModal}>
-          创建注册行为
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Space align="center">
+          <Typography.Title level={5} style={{ margin: 0 }}>
+            序列管理
+          </Typography.Title>
+          <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+            {nextSeqHint}
+          </Typography.Text>
+        </Space>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openSeqModal}>
+          创建序列
         </Button>
-      </Space>
+      </div>
 
-      <Collapse
-        items={raList.map((ra) => ({
-          key: ra.id,
-          label: (
-            <Space>
-              <Tag color="blue">{ratLabels[ra.regulatoryActivityTypeCode]}</Tag>
-              <span>关联序列: {ra.relatedSequence}</span>
-              <span>序列数: {ra.sequences?.length || 0}</span>
-            </Space>
-          ),
-          children: (
-            <>
-              <Space style={{ marginBottom: 8 }}>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<PlusOutlined />}
-                  onClick={() => openSeqModal(ra.id, ra.regulatoryActivityTypeCode)}
-                >
-                  创建序列
-                </Button>
+      {raList.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: '#8c8c8c' }}>
+          <Typography.Text type="secondary">
+            尚未创建任何序列，点击"创建序列"开始
+          </Typography.Text>
+        </div>
+      ) : (
+        <Collapse
+          defaultActiveKey={raList.map((ra) => ra.id)}
+          items={raList.map((ra) => ({
+            key: ra.id,
+            label: (
+              <Space>
+                <Tag color="blue">{ratLabels[ra.regulatoryActivityTypeCode]}</Tag>
+                <span>关联序列: {ra.relatedSequence}</span>
+                <span>序列数: {ra.sequences?.length || 0}</span>
               </Space>
+            ),
+            children: (
               <Table
                 rowKey="id"
                 dataSource={ra.sequences || []}
@@ -245,23 +249,26 @@ const ApplicationDetailPage: React.FC = () => {
                   },
                 ]}
               />
-            </>
-          ),
-        }))}
-      />
+            ),
+          }))}
+        />
+      )}
 
-      {/* Create RA Modal */}
+      {/* Combined Create Sequence Modal */}
       <Modal
-        title="创建注册行为"
-        open={raModalOpen}
-        onCancel={() => { setRaModalOpen(false); raForm.resetFields(); }}
-        onOk={() => raForm.submit()}
+        title="创建序列"
+        open={seqModalOpen}
+        onCancel={() => { setSeqModalOpen(false); seqForm.resetFields(); }}
+        onOk={() => seqForm.submit()}
+        confirmLoading={creating}
+        width={560}
       >
-        <Form form={raForm} layout="vertical" onFinish={handleCreateRa}>
+        <Form form={seqForm} layout="vertical" onFinish={handleCreateSequence}>
           <Form.Item
             name="regulatoryActivityTypeCode"
             label="注册行为类型"
             rules={[{ required: true, message: '请选择注册行为类型' }]}
+            extra="如果该类型的注册行为不存在，系统将自动创建"
           >
             <Select placeholder="选择注册行为类型（已按申请类型过滤）">
               {ratOptions.map((r) => (
@@ -271,24 +278,15 @@ const ApplicationDetailPage: React.FC = () => {
               ))}
             </Select>
           </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* Create Sequence Modal */}
-      <Modal
-        title="创建序列"
-        open={seqModalOpen}
-        onCancel={() => { setSeqModalOpen(false); seqForm.resetFields(); }}
-        onOk={() => seqForm.submit()}
-        width={520}
-      >
-        <Form form={seqForm} layout="vertical" onFinish={handleCreateSeq}>
           <Form.Item
             name="sequenceTypeCode"
             label="序列类型"
             rules={[{ required: true, message: '请选择序列类型' }]}
           >
-            <Select placeholder="选择序列类型（已按关联过滤）">
+            <Select
+              placeholder={selectedRatCode ? '选择序列类型' : '请先选择注册行为类型'}
+              disabled={!selectedRatCode}
+            >
               {sqtOptions.map((s) => (
                 <Select.Option key={s.code} value={s.code}>
                   {s.descriptionZh} ({s.code})
