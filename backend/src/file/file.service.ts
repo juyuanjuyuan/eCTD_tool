@@ -9,6 +9,9 @@ import { MinioService } from './minio.service';
 import { FileNameNormalizerService } from './file-name-normalizer.service';
 import { PDFComplianceService } from '../export/pdf-compliance.service';
 import type { ComplianceStatus } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 const CONTENT_TYPE_MAP: Record<string, string> = {
   '.pdf': 'application/pdf',
@@ -21,21 +24,43 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
 /** Image extensions allowed in editor (not eCTD content files) */
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg']);
 
+/** Chunk upload timeout: 30 minutes — abandon uploads with no new chunks after this */
+const CHUNK_UPLOAD_TIMEOUT_MS = 30 * 60 * 1000;
+
+interface ChunkUploadEntry {
+  tempDir: string;
+  totalChunks: number;
+  receivedChunks: Set<number>;
+  fileName: string;
+  lastActivity: number;
+}
+
 @Injectable()
 export class FileService {
   private readonly logger = new Logger(FileService.name);
-  private readonly chunkStore = new Map<string, { chunks: Map<number, Buffer>; totalChunks: number; fileName: string }>();
+  private readonly chunkStore = new Map<string, ChunkUploadEntry>();
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private prisma: PrismaService,
     private minio: MinioService,
     private normalizer: FileNameNormalizerService,
     private pdfCompliance: PDFComplianceService,
-  ) {}
+  ) {
+    // Periodically clean up abandoned chunk uploads (every 10 minutes)
+    this.cleanupTimer = setInterval(() => this.cleanupAbandonedUploads(), 10 * 60 * 1000);
+  }
+
+  onModuleDestroy() {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+    }
+  }
 
   /**
    * Handle a file chunk for chunked upload.
-   * When all chunks are received, assemble and process the file.
+   * Chunks are written to temporary files on disk to avoid memory pressure.
+   * When all chunks are received, the file is streamed to MinIO.
    */
   async handleChunk(
     nodeId: string,
@@ -50,47 +75,202 @@ export class FileService {
   ) {
     const { uploadId, chunkIndex, totalChunks, fileName, chunkBuffer, userId } = params;
 
+    // Initialize entry with temp directory on first chunk
     if (!this.chunkStore.has(uploadId)) {
-      this.chunkStore.set(uploadId, { chunks: new Map(), totalChunks, fileName });
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `ectd-upload-${uploadId}-`));
+      this.chunkStore.set(uploadId, {
+        tempDir,
+        totalChunks,
+        receivedChunks: new Set(),
+        fileName,
+        lastActivity: Date.now(),
+      });
     }
 
     const entry = this.chunkStore.get(uploadId)!;
-    entry.chunks.set(chunkIndex, chunkBuffer);
+    entry.lastActivity = Date.now();
+
+    // Write chunk to temp file on disk (not in memory)
+    const chunkPath = path.join(entry.tempDir, `chunk-${String(chunkIndex).padStart(6, '0')}`);
+    fs.writeFileSync(chunkPath, chunkBuffer);
+    entry.receivedChunks.add(chunkIndex);
 
     this.logger.log(`Chunk ${chunkIndex + 1}/${totalChunks} received for upload ${uploadId}`);
 
     // Check if all chunks are received
-    if (entry.chunks.size === totalChunks) {
-      // Assemble chunks in order
-      const buffers: Buffer[] = [];
-      for (let i = 0; i < totalChunks; i++) {
-        const chunk = entry.chunks.get(i);
-        if (!chunk) {
-          this.chunkStore.delete(uploadId);
-          throw new BadRequestException(`分片 ${i} 缺失`);
+    if (entry.receivedChunks.size === totalChunks) {
+      try {
+        // Verify all chunks exist
+        for (let i = 0; i < totalChunks; i++) {
+          if (!entry.receivedChunks.has(i)) {
+            throw new BadRequestException(`分片 ${i} 缺失`);
+          }
         }
-        buffers.push(chunk);
+
+        // Assemble chunks into a single temp file
+        const assembledPath = path.join(entry.tempDir, 'assembled');
+        const writeStream = fs.createWriteStream(assembledPath);
+        for (let i = 0; i < totalChunks; i++) {
+          const cp = path.join(entry.tempDir, `chunk-${String(i).padStart(6, '0')}`);
+          const data = fs.readFileSync(cp);
+          writeStream.write(data);
+        }
+        await new Promise<void>((resolve, reject) => {
+          writeStream.end(() => resolve());
+          writeStream.on('error', reject);
+        });
+
+        const fileSize = fs.statSync(assembledPath).size;
+
+        // Upload using stream-based approach
+        const result = await this.uploadFileFromDisk(
+          nodeId,
+          assembledPath,
+          fileName,
+          fileSize,
+          userId,
+        );
+
+        return result;
+      } finally {
+        // Always clean up temp directory
+        this.cleanupTempDir(entry.tempDir);
+        this.chunkStore.delete(uploadId);
       }
-      const fullBuffer = Buffer.concat(buffers);
-      this.chunkStore.delete(uploadId);
-
-      // Create a multer-like file object
-      const assembledFile = {
-        originalname: fileName,
-        buffer: fullBuffer,
-        size: fullBuffer.length,
-        mimetype: 'application/octet-stream',
-      } as Express.Multer.File;
-
-      return this.uploadFile(nodeId, assembledFile, userId);
     }
 
     return {
       status: 'chunk_received',
       chunkIndex,
-      receivedChunks: entry.chunks.size,
+      receivedChunks: entry.receivedChunks.size,
       totalChunks,
     };
+  }
+
+  /**
+   * Upload a file from disk to MinIO using streams.
+   * Used by chunked upload after assembling chunks.
+   */
+  private async uploadFileFromDisk(
+    nodeId: string,
+    filePath: string,
+    originalName: string,
+    fileSize: number,
+    uploadedBy?: string,
+  ) {
+    // 1. Validate file extension
+    this.normalizer.validateExtension(originalName);
+
+    // 2. Validate file size
+    this.normalizer.validateFileSize(fileSize, originalName);
+
+    // 3. Load node context
+    const node = await this.prisma.sequenceNode.findUnique({
+      where: { id: nodeId },
+      include: {
+        sequence: {
+          include: {
+            regulatoryActivity: {
+              include: {
+                application: {
+                  include: { project: { select: { id: true } } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!node) throw new NotFoundException('节点不存在');
+
+    const sequence = node.sequence;
+    const application = sequence.regulatoryActivity.application;
+    const projectId = application.project.id;
+
+    // 4. Normalize filename
+    const normalizedName = this.normalizer.normalizeFileName(originalName);
+
+    // 5. Build eCTD relative path
+    const ectdRelativePath = this.normalizer.buildEctdRelativePath(
+      node.ctdSectionNumber,
+      normalizedName,
+    );
+
+    // 6. Build MinIO storage path
+    const storagePath = this.normalizer.buildStoragePath(
+      projectId,
+      application.applicationNumber,
+      sequence.sequenceNumber,
+      ectdRelativePath,
+    );
+
+    // 7. Upload to MinIO using stream and get MD5
+    const ext = originalName.substring(originalName.lastIndexOf('.')).toLowerCase();
+    const contentType = CONTENT_TYPE_MAP[ext] || 'application/octet-stream';
+    const readStream = fs.createReadStream(filePath);
+    const md5 = await this.minio.uploadFileStream(storagePath, readStream, fileSize, contentType);
+
+    // 8. Create FileAttachment record
+    const attachment = await this.prisma.fileAttachment.create({
+      data: {
+        sequenceNodeId: nodeId,
+        originalName: originalName,
+        storedName: normalizedName,
+        storagePath,
+        ectdRelativePath,
+        fileType: ext,
+        fileSize: BigInt(fileSize),
+        md5Checksum: md5,
+        xmlLang: 'zh',
+        isReference: false,
+        uploadedBy: uploadedBy || null,
+      },
+    });
+
+    // 9. If PDF, run compliance analysis (read file for analysis)
+    let pdfAnalysis = null;
+    if (ext === '.pdf') {
+      const pdfBuffer = fs.readFileSync(filePath);
+      pdfAnalysis = await this.analyzePdf(attachment.id, pdfBuffer);
+    }
+
+    // 10. Auto-set node status to EDITING if it was EMPTY
+    if (node.status === 'EMPTY') {
+      await this.prisma.sequenceNode.update({
+        where: { id: nodeId },
+        data: { status: 'EDITING' },
+      });
+    }
+
+    return {
+      ...this.serializeAttachment(attachment),
+      pdfAnalysis,
+    };
+  }
+
+  /**
+   * Clean up abandoned chunk uploads (no activity for CHUNK_UPLOAD_TIMEOUT_MS).
+   */
+  private cleanupAbandonedUploads() {
+    const now = Date.now();
+    for (const [uploadId, entry] of this.chunkStore.entries()) {
+      if (now - entry.lastActivity > CHUNK_UPLOAD_TIMEOUT_MS) {
+        this.logger.warn(`Cleaning up abandoned upload ${uploadId}`);
+        this.cleanupTempDir(entry.tempDir);
+        this.chunkStore.delete(uploadId);
+      }
+    }
+  }
+
+  /**
+   * Safely remove a temporary directory and its contents.
+   */
+  private cleanupTempDir(dirPath: string) {
+    try {
+      fs.rmSync(dirPath, { recursive: true, force: true });
+    } catch (err) {
+      this.logger.warn(`Failed to clean up temp dir ${dirPath}: ${err}`);
+    }
   }
 
   /**

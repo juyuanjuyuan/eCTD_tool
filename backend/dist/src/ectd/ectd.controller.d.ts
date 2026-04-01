@@ -69,13 +69,13 @@ export declare class EctdController {
     }>;
     getLatestReport(seqId: string): Promise<({
         items: {
-            id: string;
             description: string;
-            ruleCode: string;
+            id: string;
             severity: import("@prisma/client").$Enums.ValidationSeverity;
-            reportId: string;
-            ruleCategory: string;
             detail: string | null;
+            reportId: string;
+            ruleCode: string;
+            ruleCategory: string;
             filePath: string | null;
             suggestion: string | null;
         }[];
@@ -90,13 +90,13 @@ export declare class EctdController {
     }) | null>;
     getReport(reportId: string): Promise<({
         items: {
-            id: string;
             description: string;
-            ruleCode: string;
+            id: string;
             severity: import("@prisma/client").$Enums.ValidationSeverity;
-            reportId: string;
-            ruleCategory: string;
             detail: string | null;
+            reportId: string;
+            ruleCode: string;
+            ruleCategory: string;
             filePath: string | null;
             suggestion: string | null;
         }[];

@@ -10,6 +10,7 @@ export declare class MinioService implements OnModuleInit {
     constructor(config: ConfigService);
     onModuleInit(): Promise<void>;
     uploadFile(objectName: string, buffer: Buffer, contentType?: string): Promise<string>;
+    uploadFileStream(objectName: string, stream: Readable, fileSize: number, contentType?: string): Promise<string>;
     getFile(objectName: string): Promise<Buffer>;
     getFileStream(objectName: string): Promise<Readable>;
     fileExists(objectName: string): Promise<boolean>;

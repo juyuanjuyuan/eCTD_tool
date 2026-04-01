@@ -9,7 +9,9 @@ export declare class FileService {
     private pdfCompliance;
     private readonly logger;
     private readonly chunkStore;
+    private cleanupTimer;
     constructor(prisma: PrismaService, minio: MinioService, normalizer: FileNameNormalizerService, pdfCompliance: PDFComplianceService);
+    onModuleDestroy(): void;
     handleChunk(nodeId: string, params: {
         uploadId: string;
         chunkIndex: number;
@@ -18,6 +20,9 @@ export declare class FileService {
         chunkBuffer: Buffer;
         userId?: string;
     }): Promise<any>;
+    private uploadFileFromDisk;
+    private cleanupAbandonedUploads;
+    private cleanupTempDir;
     uploadFile(nodeId: string, file: Express.Multer.File, uploadedBy?: string): Promise<any>;
     uploadFiles(nodeId: string, files: Express.Multer.File[], uploadedBy?: string): Promise<any[]>;
     listFiles(nodeId: string): Promise<any[]>;

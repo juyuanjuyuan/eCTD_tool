@@ -108,6 +108,23 @@ let MinioService = MinioService_1 = class MinioService {
         this.logger.log(`Uploaded: ${objectName} (${buffer.length} bytes, MD5: ${md5})`);
         return md5;
     }
+    async uploadFileStream(objectName, stream, fileSize, contentType) {
+        const metaData = {};
+        if (contentType) {
+            metaData['Content-Type'] = contentType;
+        }
+        const { PassThrough } = await import('stream');
+        const passThrough = new PassThrough();
+        const hash = crypto.createHash('md5');
+        passThrough.on('data', (chunk) => {
+            hash.update(chunk);
+        });
+        stream.pipe(passThrough);
+        await this.client.putObject(this.bucket, objectName, passThrough, fileSize, metaData);
+        const md5 = hash.digest('hex');
+        this.logger.log(`Uploaded (stream): ${objectName} (${fileSize} bytes, MD5: ${md5})`);
+        return md5;
+    }
     async getFile(objectName) {
         const stream = await this.client.getObject(this.bucket, objectName);
         return this.streamToBuffer(stream);

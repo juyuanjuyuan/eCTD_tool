@@ -88,6 +88,47 @@ export class MinioService implements OnModuleInit {
   }
 
   /**
+   * Upload a file from a readable stream to MinIO.
+   * Calculates MD5 on-the-fly via a pass-through stream.
+   * Returns the MD5 checksum.
+   */
+  async uploadFileStream(
+    objectName: string,
+    stream: Readable,
+    fileSize: number,
+    contentType?: string,
+  ): Promise<string> {
+    const metaData: Record<string, string> = {};
+    if (contentType) {
+      metaData['Content-Type'] = contentType;
+    }
+
+    // Create a pass-through stream to calculate MD5 while uploading
+    const { PassThrough } = await import('stream');
+    const passThrough = new PassThrough();
+    const hash = crypto.createHash('md5');
+
+    passThrough.on('data', (chunk: Buffer) => {
+      hash.update(chunk);
+    });
+
+    // Pipe source stream into pass-through
+    stream.pipe(passThrough);
+
+    await this.client.putObject(
+      this.bucket,
+      objectName,
+      passThrough,
+      fileSize,
+      metaData,
+    );
+
+    const md5 = hash.digest('hex');
+    this.logger.log(`Uploaded (stream): ${objectName} (${fileSize} bytes, MD5: ${md5})`);
+    return md5;
+  }
+
+  /**
    * Get a file from MinIO as a Buffer.
    */
   async getFile(objectName: string): Promise<Buffer> {

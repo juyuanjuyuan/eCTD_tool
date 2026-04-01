@@ -7,11 +7,13 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    allowedHosts: ['34.134.166.200'],
+    allowedHosts: ['34.63.178.48'],
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        timeout: 600000,        // 10 min timeout for large file uploads
+        proxyTimeout: 600000,
       },
     },
   },

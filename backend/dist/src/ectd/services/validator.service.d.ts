@@ -41,13 +41,13 @@ export declare class ValidatorService {
     private validatePdf;
     getReport(reportId: string): Promise<({
         items: {
-            id: string;
             description: string;
+            id: string;
+            severity: import("@prisma/client").$Enums.ValidationSeverity;
+            detail: string | null;
             reportId: string;
             ruleCode: string;
             ruleCategory: string;
-            severity: import("@prisma/client").$Enums.ValidationSeverity;
-            detail: string | null;
             filePath: string | null;
             suggestion: string | null;
         }[];
@@ -62,13 +62,13 @@ export declare class ValidatorService {
     }) | null>;
     getLatestReport(sequenceId: string): Promise<({
         items: {
-            id: string;
             description: string;
+            id: string;
+            severity: import("@prisma/client").$Enums.ValidationSeverity;
+            detail: string | null;
             reportId: string;
             ruleCode: string;
             ruleCategory: string;
-            severity: import("@prisma/client").$Enums.ValidationSeverity;
-            detail: string | null;
             filePath: string | null;
             suggestion: string | null;
         }[];
