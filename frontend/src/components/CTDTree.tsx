@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Tree,
   Input,
@@ -63,22 +63,6 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
     parentNodeId: string;
   }>({ visible: false, parentNodeId: '' });
   const [selectedExtType, setSelectedExtType] = useState<string>('');
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [treeHeight, setTreeHeight] = useState(500);
-
-  // Dynamic height
-  useEffect(() => {
-    const update = () => {
-      if (containerRef.current) {
-        // Account for search bar (36px) + legend section (~48px) + padding
-        setTreeHeight(containerRef.current.clientHeight - 96);
-      }
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    if (containerRef.current) ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, []);
 
   const flatNodes = useMemo(() => {
     const result: SequenceNode[] = [];
@@ -202,7 +186,7 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
   };
 
   return (
-    <div ref={containerRef} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
       {/* Color legend */}
       <div style={{
         display: 'flex',
@@ -250,29 +234,25 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
         onChange={(e) => handleSearch(e.target.value)}
         style={{ marginBottom: 8, flexShrink: 0 }}
       />
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <Tree
-          showIcon
-          virtual
-          height={Math.max(treeHeight, 200)}
-          treeData={treeData}
-          expandedKeys={expandedKeys}
-          selectedKeys={selectedNodeId ? [selectedNodeId] : []}
-          autoExpandParent={autoExpandParent}
-          onExpand={(keys) => {
-            setExpandedKeys(keys);
-            setAutoExpandParent(false);
-          }}
-          onSelect={(keys) => {
-            if (keys.length > 0) {
-              const selected = flatNodes.find((n) => n.id === keys[0]);
-              if (selected) onNodeSelect?.(selected);
-            }
-          }}
-          onRightClick={({ node }) => handleRightClick({ node })}
-          defaultExpandedKeys={nodes.map((n) => n.id)}
-        />
-      </div>
+      <Tree
+        showIcon
+        treeData={treeData}
+        expandedKeys={expandedKeys}
+        selectedKeys={selectedNodeId ? [selectedNodeId] : []}
+        autoExpandParent={autoExpandParent}
+        onExpand={(keys) => {
+          setExpandedKeys(keys);
+          setAutoExpandParent(false);
+        }}
+        onSelect={(keys) => {
+          if (keys.length > 0) {
+            const selected = flatNodes.find((n) => n.id === keys[0]);
+            if (selected) onNodeSelect?.(selected);
+          }
+        }}
+        onRightClick={({ node }) => handleRightClick({ node })}
+        defaultExpandedKeys={nodes.map((n) => n.id)}
+      />
 
       <Modal
         title="添加扩展节点"

@@ -239,11 +239,11 @@ const ApplicationDetailPage: React.FC = () => {
                     key: 'action',
                     render: (_: any, record: Sequence) => (
                       <Button
-                        type="link"
+                        type="primary"
                         icon={<EditOutlined />}
                         onClick={() => navigate(`/sequences/${record.id}`)}
                       >
-                        编辑
+                        填入文件
                       </Button>
                     ),
                   },

@@ -28,8 +28,9 @@ import {
   TeamOutlined,
   SearchOutlined,
   MailOutlined,
+  ArrowRightOutlined,
 } from '@ant-design/icons';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { projectApi } from '../../services/project';
 import { applicationApi } from '../../services/application';
 import { cvApi } from '../../services/cv';
@@ -52,6 +53,7 @@ const roleLabels: Record<string, string> = {
 
 const ProjectDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
   const [project, setProject] = useState<(Project & { members: ProjectMember[] }) | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
@@ -265,9 +267,6 @@ const ProjectDetailPage: React.FC = () => {
     {
       title: '申请编号',
       dataIndex: 'applicationNumber',
-      render: (num: string, record: Application) => (
-        <Link to={`/projects/${id}/applications/${record.id}`}>{num}</Link>
-      ),
     },
     {
       title: '申请类型',
@@ -294,6 +293,20 @@ const ProjectDetailPage: React.FC = () => {
       title: '创建时间',
       dataIndex: 'createdAt',
       render: (t: string) => new Date(t).toLocaleDateString('zh-CN'),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      align: 'right' as const,
+      render: (_: unknown, record: Application) => (
+        <Button
+          type="primary"
+          icon={<ArrowRightOutlined />}
+          onClick={() => navigate(`/projects/${id}/applications/${record.id}`)}
+        >
+          进入申请
+        </Button>
+      ),
     },
   ];
 

@@ -8,8 +8,8 @@
 |------|------|------|------|
 | 登录 | `/login` | 登录/注册页 | 公开 |
 | 工作台 ✅ | `/dashboard` | 个人工作台: 我的待办（待编辑/待审阅/待处理邀请）+ 最近编辑 + 我的项目 | ALL |
-| 项目列表 | `/projects` | 项目（药品）列表 CRUD | EDITOR+ |
-| 项目详情 ✅ | `/projects/:id` | 项目下的申请、序列管理 + 协作 Tab（进度总览、工作量分布）+ 成员管理增强 | EDITOR+ |
+| 项目列表 | `/projects` | 项目（药品）列表 CRUD，每行末尾有蓝色「进入项目」按钮 | EDITOR+ |
+| 项目详情 ✅ | `/projects/:id` | 项目下的申请、序列管理 + 协作 Tab（进度总览、工作量分布）+ 成员管理增强；申请表格每行末尾有蓝色「进入申请」按钮 | EDITOR+ |
 | 申请管理 | `/projects/:id/applications` | 申请编号、类型管理 | EDITOR+ |
 | 序列管理 | `/projects/:id/applications/:appId/sequences` | 序列号、注册行为管理 | EDITOR+ |
 | **文档编辑** ✅ | `/sequences/:seqId` | **核心页面** — 三栏布局: CTD 目录树(含颜色标识图例) + 文件管理区 + 右侧面板(属性/完整性/验证/eCTD工具)；含 CTD 目录初始化引导 | EDITOR+ |
@@ -54,6 +54,7 @@
   - 叶节点操作类型标签（新建/替换/增补/删除）
   - 右键菜单: 生物制品 3.2.R 章节可添加扩展子节点
   - 扩展节点创建 Modal（Select 下拉选择 3.2.R.1~3.2.R.6）
+  - 自然高度撑开 + 父容器滚动（不再使用 antd Tree 的 `virtual` 模式与固定 height，避免展开模块时下方模块被遮挡）
 - WP-07 新增:
   - ✅ 审批状态图标: CheckCircleOutlined 绿(APPROVED)/ClockCircleOutlined 蓝(SUBMITTED)/CloseCircleOutlined 红(REJECTED)
 - 待开发:
@@ -103,7 +104,7 @@
 ### 2.5 文件管理面板 (`FilePanel`) ✅ (WP-06 已实现)
 
 嵌入属性面板的文件管理 Tab:
-- 拖拽上传区域（Upload.Dragger）
+- 拖拽上传区域（Upload.Dragger，含红色提示「请将文件改成英文名称」以引导符合 eCTD 命名规范）
 - 上传进度条（Progress）
 - 文件扩展名前端校验（.pdf/.xml/.xpt/.txt/.xsl）
 - 文件大小前端校验（200MB/4GB）

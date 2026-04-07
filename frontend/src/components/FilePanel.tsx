@@ -295,6 +295,9 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
           <p style={{ margin: 0, fontSize: 13, color: '#8c8c8c' }}>
             支持格式: {ALLOWED_EXTENSIONS.join('  ')}，单文件最大 200MB（XPT 4GB）
           </p>
+          <p style={{ margin: '6px 0 0', fontSize: 13, color: '#ff4d4f', fontWeight: 500 }}>
+            请将文件改成英文名称
+          </p>
         </div>
       </Upload.Dragger>
 

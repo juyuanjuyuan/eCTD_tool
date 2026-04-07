@@ -10,7 +10,7 @@ import {
   Input,
   message,
 } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { projectApi } from '../../services/project';
 import type { Project, PaginatedData } from '../../types';
@@ -65,9 +65,6 @@ const ProjectListPage: React.FC = () => {
     {
       title: '项目名称',
       dataIndex: 'name',
-      render: (name: string, record: Project) => (
-        <a onClick={() => navigate(`/projects/${record.id}`)}>{name}</a>
-      ),
     },
     {
       title: '状态',
@@ -93,6 +90,20 @@ const ProjectListPage: React.FC = () => {
       title: '创建时间',
       dataIndex: 'createdAt',
       render: (t: string) => new Date(t).toLocaleDateString('zh-CN'),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      align: 'right' as const,
+      render: (_: unknown, record: Project) => (
+        <Button
+          type="primary"
+          icon={<ArrowRightOutlined />}
+          onClick={() => navigate(`/projects/${record.id}`)}
+        >
+          进入项目
+        </Button>
+      ),
     },
   ];
 
