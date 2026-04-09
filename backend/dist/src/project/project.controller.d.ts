@@ -4,8 +4,8 @@ export declare class ProjectController {
     private readonly projectService;
     constructor(projectService: ProjectService);
     create(dto: CreateProjectDto, userId: string): Promise<{
-        description: string | null;
         id: string;
+        description: string | null;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;
@@ -23,8 +23,8 @@ export declare class ProjectController {
                 name: string;
             };
         } & {
-            description: string | null;
             id: string;
+            description: string | null;
             name: string;
             status: import("@prisma/client").$Enums.ProjectStatus;
             createdAt: Date;
@@ -58,8 +58,8 @@ export declare class ProjectController {
             projectId: string;
         })[];
     } & {
-        description: string | null;
         id: string;
+        description: string | null;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;
@@ -67,8 +67,8 @@ export declare class ProjectController {
         createdBy: string;
     }>;
     update(id: string, dto: UpdateProjectDto, userId: string): Promise<{
-        description: string | null;
         id: string;
+        description: string | null;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;
@@ -76,8 +76,8 @@ export declare class ProjectController {
         createdBy: string;
     }>;
     archive(id: string, userId: string): Promise<{
-        description: string | null;
         id: string;
+        description: string | null;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;

@@ -42,12 +42,16 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
             select: {
                 id: true,
                 sequenceNumber: true,
-                regulatoryActivityId: true,
+                regulatoryActivity: { select: { applicationId: true } },
             },
         });
         if (!sequence)
             throw new Error(`序列 ${sequenceId} 不存在`);
-        const priorLeafIdMap = await this.buildPriorLeafIdMap(sequence);
+        const priorLeafIdMap = await this.buildPriorLeafIdMap({
+            id: sequence.id,
+            sequenceNumber: sequence.sequenceNumber,
+            applicationId: sequence.regulatoryActivity.applicationId,
+        });
         const moduleRoots = await this.loadModuleNodes(sequenceId);
         return this.buildXml(sequenceId, moduleRoots, priorLeafIdMap);
     }
@@ -57,7 +61,7 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
             return map;
         const priorSequences = await this.prisma.sequence.findMany({
             where: {
-                regulatoryActivityId: sequence.regulatoryActivityId,
+                regulatoryActivity: { applicationId: sequence.applicationId },
                 sequenceNumber: { lt: sequence.sequenceNumber },
             },
             orderBy: { sequenceNumber: 'desc' },
@@ -78,7 +82,6 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
                     map.set(node.templateNodeId, this.md5Service.generateDeterministicLeafId(priorSeq.id, node.id));
                 }
             }
-            break;
         }
         return map;
     }
@@ -86,12 +89,24 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
         const allNodes = await this.prisma.sequenceNode.findMany({
             where: { sequenceId },
             include: {
-                templateNode: { select: { module: true } },
+                templateNode: { select: { module: true, requiresStf: true } },
                 fileAttachments: {
                     select: {
                         ectdRelativePath: true,
                         md5Checksum: true,
                         xmlLang: true,
+                    },
+                },
+                studies: {
+                    orderBy: { studyId: 'asc' },
+                    include: {
+                        documents: {
+                            orderBy: { sortOrder: 'asc' },
+                            take: 1,
+                            include: {
+                                fileAttachment: { select: { ectdRelativePath: true } },
+                            },
+                        },
                     },
                 },
             },
@@ -113,8 +128,17 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
                 productName: node.productName,
                 dosageForm: node.dosageForm,
                 indication: node.indication,
+                requiresStf: node.templateNode.requiresStf,
                 children: [],
                 fileAttachments: node.fileAttachments,
+                studies: (node.studies ?? []).map((s) => ({
+                    id: s.id,
+                    studyId: s.studyId,
+                    title: s.title,
+                    operation: s.operation,
+                    stfChecksum: s.stfChecksum,
+                    anchorEctdRelativePath: s.documents[0]?.fileAttachment?.ectdRelativePath ?? null,
+                })),
             });
         }
         const roots = [];
@@ -185,6 +209,10 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
         const modifiedFile = ['replace', 'delete', 'append'].includes(op)
             ? priorLeafIdMap.get(node.templateNodeId)
             : undefined;
+        if (node.requiresStf && node.studies.length > 0) {
+            this.buildStfLeaves(lines, node, indent, sequenceId, priorLeafIdMap);
+            return;
+        }
         if (node.fileAttachments.length > 0) {
             for (let i = 0; i < node.fileAttachments.length; i++) {
                 const file = node.fileAttachments[i];
@@ -206,6 +234,41 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
             lines.push(`${indent}</leaf>`);
         }
     }
+    buildStfLeaves(lines, node, indent, sequenceId, priorLeafIdMap) {
+        for (let i = 0; i < node.studies.length; i++) {
+            const study = node.studies[i];
+            if (!study.anchorEctdRelativePath)
+                continue;
+            const stfRelPath = this.deriveStfPath(study.anchorEctdRelativePath, study.studyId);
+            const op = study.operation.toLowerCase();
+            const modifiedFile = ['replace', 'delete', 'append'].includes(op)
+                ? priorLeafIdMap.get(node.templateNodeId)
+                : undefined;
+            const leafId = this.md5Service.generateDeterministicLeafId(sequenceId, node.id, 10000 + i);
+            const parts = [`ID="${leafId}"`, `operation="${op}"`];
+            if (modifiedFile)
+                parts.push(`modified-file="${modifiedFile}"`);
+            if (op !== 'delete') {
+                parts.push(`xlink:href="${this.escapeXml(stfRelPath)}"`);
+                parts.push(`xlink:type="simple"`);
+                parts.push(`checksum="${study.stfChecksum ?? ''}"`);
+                parts.push(`checksum-type="MD5"`);
+            }
+            lines.push(`${indent}<leaf ${parts.join('\n              ')}>`);
+            lines.push(`${indent}  <title>${this.escapeXml(study.title || node.title)}</title>`);
+            lines.push(`${indent}</leaf>`);
+        }
+    }
+    deriveStfPath(anchorPath, studyId) {
+        const idx = anchorPath.lastIndexOf('/');
+        const dir = idx >= 0 ? anchorPath.substring(0, idx) : '';
+        const slug = studyId
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        const fileName = `study-${slug}.xml`;
+        return dir ? `${dir}/${fileName}` : fileName;
+    }
     buildLeafAttrs(leafId, operation, file, modifiedFile) {
         const parts = [`ID="${leafId}"`, `operation="${operation}"`];
         if (modifiedFile) {
@@ -213,6 +276,7 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
         }
         if (operation !== 'delete') {
             parts.push(`xlink:href="${this.escapeXml(file.ectdRelativePath)}"`);
+            parts.push(`xlink:type="simple"`);
             parts.push(`checksum="${file.md5Checksum}"`);
             parts.push(`checksum-type="MD5"`);
         }
@@ -246,7 +310,9 @@ let IndexXmlService = IndexXmlService_1 = class IndexXmlService {
     }
     hasActiveLeaves(node) {
         if (node.isLeaf && node.operation) {
-            return (node.fileAttachments.length > 0 || node.operation.toUpperCase() === 'DELETE');
+            return (node.fileAttachments.length > 0 ||
+                node.studies.length > 0 ||
+                node.operation.toUpperCase() === 'DELETE');
         }
         return node.children.some((child) => this.hasActiveLeaves(child));
     }

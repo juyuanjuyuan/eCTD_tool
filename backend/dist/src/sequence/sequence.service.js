@@ -25,7 +25,7 @@ let SequenceService = class SequenceService {
             where: { id: regulatoryActivityId },
             include: {
                 application: {
-                    select: { applicationTypeCode: true },
+                    select: { id: true, applicationTypeCode: true },
                 },
             },
         });
@@ -37,8 +37,9 @@ let SequenceService = class SequenceService {
             throw new common_1.BadRequestException(`当前申请类型和注册行为类型组合不支持序列类型 ${dto.sequenceTypeCode}`);
         }
         const sqtVersion = await this.cvService.getCvVersion('sequence-type', dto.sequenceTypeCode);
+        const applicationId = ra.application.id;
         const lastSeq = await this.prisma.sequence.findFirst({
-            where: { regulatoryActivityId },
+            where: { regulatoryActivity: { applicationId } },
             orderBy: { sequenceNumber: 'desc' },
         });
         let nextNum;
@@ -54,6 +55,7 @@ let SequenceService = class SequenceService {
         }
         return this.prisma.sequence.create({
             data: {
+                applicationId,
                 regulatoryActivityId,
                 sequenceNumber,
                 sequenceTypeCode: dto.sequenceTypeCode,
@@ -81,40 +83,39 @@ let SequenceService = class SequenceService {
             throw new common_1.BadRequestException(`当前申请类型和注册行为类型组合不支持序列类型 ${dto.sequenceTypeCode}`);
         }
         return this.prisma.$transaction(async (tx) => {
+            const lastAppSequence = await tx.sequence.findFirst({
+                where: { regulatoryActivity: { applicationId } },
+                orderBy: { sequenceNumber: 'desc' },
+            });
+            const nextNum = lastAppSequence
+                ? parseInt(lastAppSequence.sequenceNumber) + 1
+                : 0;
+            const sequenceNumber = nextNum.toString().padStart(4, '0');
+            if (sequenceNumber === '0000' && dto.sequenceTypeCode !== 'cnsqt1') {
+                throw new common_1.BadRequestException('首个序列的序列类型必须为 cnsqt1（首次提交）');
+            }
             let ra = await tx.regulatoryActivity.findFirst({
                 where: {
                     applicationId,
                     regulatoryActivityTypeCode: dto.regulatoryActivityTypeCode,
                 },
             });
+            const isNewRa = !ra;
             if (!ra) {
                 const ratVersion = await this.cvService.getCvVersion('regulatory-activity-type', dto.regulatoryActivityTypeCode);
-                const lastSequence = await tx.sequence.findFirst({
-                    where: { regulatoryActivity: { applicationId } },
-                    orderBy: { sequenceNumber: 'desc' },
-                });
-                const relatedSequence = lastSequence ? lastSequence.sequenceNumber : '0000';
                 ra = await tx.regulatoryActivity.create({
                     data: {
                         applicationId,
                         regulatoryActivityTypeCode: dto.regulatoryActivityTypeCode,
                         regulatoryActivityTypeVersion: ratVersion,
-                        relatedSequence,
+                        relatedSequence: sequenceNumber,
                     },
                 });
-            }
-            const lastSeq = await tx.sequence.findFirst({
-                where: { regulatoryActivityId: ra.id },
-                orderBy: { sequenceNumber: 'desc' },
-            });
-            const nextNum = lastSeq ? parseInt(lastSeq.sequenceNumber) + 1 : 0;
-            const sequenceNumber = nextNum.toString().padStart(4, '0');
-            if (sequenceNumber === '0000' && dto.sequenceTypeCode !== 'cnsqt1') {
-                throw new common_1.BadRequestException('首个序列的序列类型必须为 cnsqt1（首次提交）');
             }
             const sqtVersion = await this.cvService.getCvVersion('sequence-type', dto.sequenceTypeCode);
             const sequence = await tx.sequence.create({
                 data: {
+                    applicationId,
                     regulatoryActivityId: ra.id,
                     sequenceNumber,
                     sequenceTypeCode: dto.sequenceTypeCode,
@@ -128,7 +129,7 @@ let SequenceService = class SequenceService {
             return {
                 ...sequence,
                 regulatoryActivity: ra,
-                isNewRa: !lastSeq || !ra.id,
+                isNewRa,
             };
         });
     }
@@ -179,7 +180,7 @@ let SequenceService = class SequenceService {
         }
         const laterSeq = await this.prisma.sequence.findFirst({
             where: {
-                regulatoryActivityId: seq.regulatoryActivityId,
+                regulatoryActivity: { applicationId: seq.regulatoryActivity.application.id },
                 sequenceNumber: { gt: seq.sequenceNumber },
             },
         });

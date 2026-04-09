@@ -186,9 +186,9 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
       message.error(`不支持的文件类型 ${ext}。仅允许: ${ALLOWED_EXTENSIONS.join(', ')}`);
       return Upload.LIST_IGNORE;
     }
-    const maxSize = ext === '.xpt' ? 4 * 1024 * 1024 * 1024 : 200 * 1024 * 1024;
+    const maxSize = ext === '.xpt' ? 4 * 1024 * 1024 * 1024 : 500 * 1024 * 1024;
     if (file.size > maxSize) {
-      message.error(`文件大小超过限制 (${ext === '.xpt' ? '4GB' : '200MB'})`);
+      message.error(`文件大小超过限制 (${ext === '.xpt' ? '4GB' : '500MB'})`);
       return Upload.LIST_IGNORE;
     }
     return true;
@@ -293,7 +293,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
             点击或拖拽文件到此区域上传
           </p>
           <p style={{ margin: 0, fontSize: 13, color: '#8c8c8c' }}>
-            支持格式: {ALLOWED_EXTENSIONS.join('  ')}，单文件最大 200MB（XPT 4GB）
+            支持格式: {ALLOWED_EXTENSIONS.join('  ')}，单文件最大 500MB（XPT 4GB）
           </p>
           <p style={{ margin: '6px 0 0', fontSize: 13, color: '#ff4d4f', fontWeight: 500 }}>
             请将文件改成英文名称

@@ -130,11 +130,41 @@ const ApplicationDetailPage: React.FC = () => {
     }
   };
 
-  // Compute total sequence count and next sequence number hint
-  const totalSequences = raList.reduce((sum, ra) => sum + (ra.sequences?.length || 0), 0);
-  const nextSeqHint = totalSequences === 0
-    ? '将创建首个序列 (0000)'
-    : `当前共 ${totalSequences} 个序列`;
+  // ===== Display ordering =====
+  // Backend assigns sequenceNumber globally within an application (method C),
+  // so we can show sequenceNumber directly. We still group by RA in the UI,
+  // and order groups by the first sequenceNumber in each group so that the
+  // first-filed RA (whose first sequence is 0000) appears before later ones.
+  const displayRaList = React.useMemo(() => {
+    const enriched = raList.map((ra) => {
+      const seqs = [...(ra.sequences || [])].sort((a, b) =>
+        a.sequenceNumber.localeCompare(b.sequenceNumber),
+      );
+      return { ...ra, sequences: seqs };
+    });
+    enriched.sort((a, b) => {
+      const aFirst = a.sequences?.[0]?.sequenceNumber ?? '9999';
+      const bFirst = b.sequences?.[0]?.sequenceNumber ?? '9999';
+      return aFirst.localeCompare(bFirst);
+    });
+    return enriched;
+  }, [raList]);
+
+  // Compute next global sequence number from the max existing number.
+  const nextSeqHint = React.useMemo(() => {
+    let maxNum = -1;
+    let total = 0;
+    for (const ra of raList) {
+      for (const s of ra.sequences || []) {
+        total += 1;
+        const n = parseInt(s.sequenceNumber, 10);
+        if (!Number.isNaN(n) && n > maxNum) maxNum = n;
+      }
+    }
+    if (total === 0) return '将创建首个序列 (0000)';
+    const next = (maxNum + 1).toString().padStart(4, '0');
+    return `当前共 ${total} 个序列，下一个全局编号 ${next}`;
+  }, [raList]);
 
   if (loading) {
     return (
@@ -188,7 +218,7 @@ const ApplicationDetailPage: React.FC = () => {
         </Button>
       </div>
 
-      {raList.length === 0 ? (
+      {displayRaList.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '40px 0', color: '#8c8c8c' }}>
           <Typography.Text type="secondary">
             尚未创建任何序列，点击"创建序列"开始
@@ -196,13 +226,15 @@ const ApplicationDetailPage: React.FC = () => {
         </div>
       ) : (
         <Collapse
-          defaultActiveKey={raList.map((ra) => ra.id)}
-          items={raList.map((ra) => ({
+          defaultActiveKey={displayRaList.map((ra) => ra.id)}
+          items={displayRaList.map((ra) => ({
             key: ra.id,
             label: (
               <Space>
                 <Tag color="blue">{ratLabels[ra.regulatoryActivityTypeCode]}</Tag>
-                <span>关联序列: {ra.relatedSequence}</span>
+                <span>
+                  起始序列: {ra.sequences?.[0]?.sequenceNumber ?? '—'}
+                </span>
                 <span>序列数: {ra.sequences?.length || 0}</span>
               </Space>
             ),
@@ -213,7 +245,11 @@ const ApplicationDetailPage: React.FC = () => {
                 pagination={false}
                 size="small"
                 columns={[
-                  { title: '序列号', dataIndex: 'sequenceNumber' },
+                  {
+                    title: '序列号',
+                    dataIndex: 'sequenceNumber',
+                    render: (g: string) => <span style={{ fontFamily: 'monospace' }}>{g}</span>,
+                  },
                   {
                     title: '序列类型',
                     dataIndex: 'sequenceTypeCode',

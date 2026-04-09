@@ -85,11 +85,12 @@ export declare class ApplicationController {
             relatedSequence: string;
         };
         isNewRa: boolean;
-        description: string;
         id: string;
+        description: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
+        applicationId: string;
         regulatoryActivityId: string;
         sequenceNumber: string;
         sequenceTypeCode: string;

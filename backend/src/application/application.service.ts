@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ControlledVocabularyService } from '../controlled-vocabulary/controlled-vocabulary.service';
 import { CreateApplicationDto } from './dto';
+import { APPLICATION_NUMBER_REGEX } from './dto/create-application.dto';
 
 @Injectable()
 export class ApplicationService {
@@ -32,11 +33,23 @@ export class ApplicationService {
       dto.productTypeCode,
     );
 
-    // Generate application number
-    const applicationNumber = this.generateApplicationNumber(
-      dto.applicationTypeCode,
-      dto.productTypeCode,
-    );
+    // Determine application number: accept caller-supplied or auto-generate
+    const applicationNumber =
+      dto.applicationNumber ??
+      this.generateApplicationNumber(
+        dto.applicationTypeCode,
+        dto.productTypeCode,
+      );
+
+    // Defense-in-depth: enforce NMPA V1.1 format at the service layer as well.
+    // This guards against callers that bypass the DTO validation pipe
+    // (e.g. internal service-to-service calls) and against generator bugs.
+    if (!APPLICATION_NUMBER_REGEX.test(applicationNumber)) {
+      throw new BadRequestException(
+        `申请编号格式错误: "${applicationNumber}" 不符合 NMPA V1.1 规范 ` +
+          `(字母 x/y/l/s + 4位年份 + 5位流水号，共10个字符)`,
+      );
+    }
 
     // Check uniqueness
     const existing = await this.prisma.application.findUnique({

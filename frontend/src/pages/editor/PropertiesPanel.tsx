@@ -31,6 +31,7 @@ import {
   CloseCircleFilled,
   UserOutlined,
   TeamOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
 import { ctdApi } from '../../services/ctd';
 import { documentApi } from '../../services/document';
@@ -39,6 +40,7 @@ import { commentApi } from '../../services/comment';
 import { assignmentApi } from '../../services/assignment';
 import { userApi, type UserSearchResult } from '../../services/user';
 import { useAuthStore } from '../../stores/useAuthStore';
+import StudyMetadataPanel from '../../components/StudyMetadataPanel';
 import type {
   SequenceNode,
   Document,
@@ -78,6 +80,27 @@ const statusLabels: Record<string, { text: string; color: string }> = {
 const SUBSTANCE_SECTIONS = new Set(['2.3.S', '3.2.S']);
 const PRODUCT_SECTIONS = new Set(['2.3.P', '3.2.P']);
 const INDICATION_SECTIONS = new Set(['2.7.3']);
+
+/**
+ * Plan 12: Predicate matching the same sections as the backend's
+ * `requiresStf` flag — M4 4.2.x and M5 5.3.1-5.3.5.x. We compute this on the
+ * frontend instead of plumbing the flag through the SequenceNode payload to
+ * avoid an extra API trip.
+ */
+function isStfSection(ctdSectionNumber: string): boolean {
+  if (!ctdSectionNumber) return false;
+  if (ctdSectionNumber.startsWith('4.2.')) return true;
+  if (
+    ctdSectionNumber.startsWith('5.3.1.') ||
+    ctdSectionNumber.startsWith('5.3.2.') ||
+    ctdSectionNumber.startsWith('5.3.3.') ||
+    ctdSectionNumber.startsWith('5.3.4.') ||
+    ctdSectionNumber.startsWith('5.3.5.')
+  ) {
+    return true;
+  }
+  return false;
+}
 
 interface PropertiesPanelProps {
   node: SequenceNode;
@@ -778,6 +801,16 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       key: 'approval',
       label: <span><AuditOutlined /> 审批</span>,
       children: approvalTab,
+    }] : []),
+    ...(node.isLeaf && isStfSection(node.ctdSectionNumber) ? [{
+      key: 'study-metadata',
+      label: <span><ExperimentOutlined /> 研究 (STF)</span>,
+      children: (
+        <StudyMetadataPanel
+          nodeId={node.id}
+          ctdSectionNumber={node.ctdSectionNumber}
+        />
+      ),
     }] : []),
     {
       key: 'assignments',

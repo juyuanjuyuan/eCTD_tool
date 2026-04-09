@@ -17,7 +17,6 @@ const common_1 = require("@nestjs/common");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
 const cn_regional_xml_service_1 = require("./services/cn-regional-xml.service");
 const index_xml_service_1 = require("./services/index-xml.service");
-const stf_service_1 = require("./services/stf.service");
 const lifecycle_service_1 = require("./services/lifecycle.service");
 const validator_service_1 = require("./services/validator.service");
 const package_assembler_service_1 = require("./services/package-assembler.service");
@@ -26,15 +25,13 @@ const dto_1 = require("./dto");
 let EctdController = class EctdController {
     cnRegionalXml;
     indexXml;
-    stfService;
     lifecycle;
     validator;
     packageAssembler;
     md5Service;
-    constructor(cnRegionalXml, indexXml, stfService, lifecycle, validator, packageAssembler, md5Service) {
+    constructor(cnRegionalXml, indexXml, lifecycle, validator, packageAssembler, md5Service) {
         this.cnRegionalXml = cnRegionalXml;
         this.indexXml = indexXml;
-        this.stfService = stfService;
         this.lifecycle = lifecycle;
         this.validator = validator;
         this.packageAssembler = packageAssembler;
@@ -47,18 +44,6 @@ let EctdController = class EctdController {
     async previewIndexXml(seqId) {
         const xml = await this.indexXml.generateIndexXml(seqId);
         return { xml };
-    }
-    async getStf(nodeId) {
-        return this.stfService.getStf(nodeId);
-    }
-    async saveStf(nodeId, dto) {
-        return this.stfService.saveStf(nodeId, dto);
-    }
-    getStfCategories() {
-        return this.stfService.getCategories();
-    }
-    getStfFileTags() {
-        return this.stfService.getFileTags();
     }
     async validateOperation(seqId, nodeId, dto) {
         const operation = dto.operation.toUpperCase();
@@ -108,33 +93,6 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], EctdController.prototype, "previewIndexXml", null);
-__decorate([
-    (0, common_1.Get)('nodes/:nodeId/stf'),
-    __param(0, (0, common_1.Param)('nodeId')),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
-    __metadata("design:returntype", Promise)
-], EctdController.prototype, "getStf", null);
-__decorate([
-    (0, common_1.Put)('nodes/:nodeId/stf'),
-    __param(0, (0, common_1.Param)('nodeId')),
-    __param(1, (0, common_1.Body)()),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, dto_1.SaveStfDto]),
-    __metadata("design:returntype", Promise)
-], EctdController.prototype, "saveStf", null);
-__decorate([
-    (0, common_1.Get)('stf/categories'),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
-    __metadata("design:returntype", void 0)
-], EctdController.prototype, "getStfCategories", null);
-__decorate([
-    (0, common_1.Get)('stf/file-tags'),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
-    __metadata("design:returntype", void 0)
-], EctdController.prototype, "getStfFileTags", null);
 __decorate([
     (0, common_1.Post)('sequences/:seqId/nodes/:nodeId/validate-operation'),
     __param(0, (0, common_1.Param)('seqId')),
@@ -199,7 +157,6 @@ exports.EctdController = EctdController = __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     __metadata("design:paramtypes", [cn_regional_xml_service_1.CnRegionalXmlService,
         index_xml_service_1.IndexXmlService,
-        stf_service_1.StfService,
         lifecycle_service_1.LifecycleService,
         validator_service_1.ValidatorService,
         package_assembler_service_1.PackageAssemblerService,

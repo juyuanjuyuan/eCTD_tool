@@ -46,7 +46,6 @@ describe('PackageAssemblerService', () => {
   let cnRegionalXml: Record<string, any>;
   let indexXml: Record<string, any>;
   let md5Service: Record<string, any>;
-  let validator: Record<string, any>;
   let minioService: Record<string, any>;
 
   const mockSequence = {
@@ -130,14 +129,6 @@ describe('PackageAssemblerService', () => {
       generateIndexMd5: jest.fn().mockReturnValue('md5:index.xml\nmd5:cn-regional.xml'),
     };
 
-    validator = {
-      validate: jest.fn().mockResolvedValue({
-        isPassed: true,
-        totalErrors: 0,
-        items: [],
-      }),
-    };
-
     minioService = {
       fileExists: jest.fn().mockResolvedValue(true),
       getFile: jest.fn().mockResolvedValue(Buffer.from('file-content')),
@@ -148,7 +139,6 @@ describe('PackageAssemblerService', () => {
       cnRegionalXml as any,
       indexXml as any,
       md5Service as any,
-      validator as any,
       minioService as any,
     );
   });
@@ -166,25 +156,6 @@ describe('PackageAssemblerService', () => {
         where: { id: 'seq-1' },
         data: { status: 'EXPORTED' },
       });
-    });
-
-    it('should throw when unapproved required sections exist', async () => {
-      prisma.sequenceNode.findMany.mockResolvedValue([
-        { id: 'n1', ctdSectionNumber: '2.3.S.1', title: '一般性质', approvalStatus: 'DRAFT' },
-      ]);
-
-      await expect(service.assemblePackage('seq-1')).rejects.toThrow(BadRequestException);
-    });
-
-    it('should throw when validation fails', async () => {
-      validator.validate.mockResolvedValue({
-        isPassed: false,
-        totalErrors: 3,
-        items: [{ severity: 'ERROR', message: 'error' }],
-        reportId: 'report-1',
-      });
-
-      await expect(service.assemblePackage('seq-1')).rejects.toThrow(BadRequestException);
     });
 
     it('should throw when sequence not found', async () => {

@@ -96,12 +96,32 @@ function buildLeaf(overrides: Partial<any> = {}) {
       },
     ],
     document: null,
-    studyTaggingFile: null,
+    // Plan 12: v2 STF model. Default to no studies attached.
+    studies: [],
     substance: undefined,
     manufacturer: undefined,
     productName: undefined,
     dosageForm: undefined,
     indication: undefined,
+    ...overrides,
+  };
+}
+
+/**
+ * Plan 12: build a v2 Study row that satisfies all rule-5 checks. Tests can
+ * override individual fields (e.g. set `studyId: ''` to trigger 5.6).
+ */
+function buildStudy(overrides: Partial<any> = {}) {
+  return {
+    id: `study-${Math.random().toString(36).substr(2, 8)}`,
+    studyId: 'STUDY-001',
+    title: '药理学研究',
+    operation: 'NEW',
+    modifiedFromId: null,
+    stfXmlContent: '<x/>',
+    stfChecksum: 'd41d8cd98f00b204e9800998ecf8427e',
+    categories: [{ name: 'species', value: 'rat', infoType: 'ich' }],
+    documents: [{ fileTag: 'study-report-body', fileTagInfoType: 'ich' }],
     ...overrides,
   };
 }
@@ -112,15 +132,7 @@ function buildStfLeaf(overrides: Partial<any> = {}) {
     title: '药理学研究',
     elementName: 'pharmacology',
     templateNode: { module: 4, requiresStf: true, elementName: 'pharmacology', allowsExtension: false, ctdSectionNumber: '4.2.1', titleZh: '药理学研究' },
-    studyTaggingFile: {
-      id: 'stf-1',
-      studyTitle: '药理学研究',
-      studyId: 'STUDY-001',
-      category: 'category-1',
-      fileTag: 'file-tag-1',
-      categories: { 'cat-1': 'category-1' },
-      fileTags: [{ name: 'file-tag-1' }],
-    },
+    studies: [buildStudy()],
     fileAttachments: [
       {
         id: 'file-stf',
@@ -672,8 +684,8 @@ describe('eCTD Compliance Test Matrix', () => {
   });
 
   describe('Boundary: path length', () => {
-    it('should error when path exceeds 180 characters', async () => {
-      const longPath = 'm2/23-qos/' + 'a'.repeat(171) + '.pdf'; // > 180
+    it('should error when path exceeds 230 characters (ICH eCTD v3.2.2)', async () => {
+      const longPath = 'm2/23-qos/' + 'a'.repeat(225) + '.pdf'; // > 230
       const seq = buildSequence({
         sequenceNodes: [
           buildLeaf({
@@ -694,7 +706,7 @@ describe('eCTD Compliance Test Matrix', () => {
       const result = await service.validate('seq-1');
 
       const pathError = result.items.find(
-        i => i.ruleCode === '2.5' && i.description.includes('180'),
+        i => i.ruleCode === '2.5' && i.description.includes('230'),
       );
       expect(pathError).toBeDefined();
     });
@@ -728,13 +740,13 @@ describe('eCTD Compliance Test Matrix', () => {
   });
 
   describe('Boundary: file size', () => {
-    it('should error when PDF exceeds 200MB', async () => {
+    it('should error when PDF exceeds 500MB', async () => {
       const seq = buildSequence({
         sequenceNodes: [
           buildLeaf({
             fileAttachments: [{
               id: 'f-big',
-              fileSize: 201 * 1024 * 1024,
+              fileSize: 501 * 1024 * 1024,
               fileType: 'pdf',
               originalName: 'big.pdf',
               storedName: 'big.pdf',
@@ -750,7 +762,7 @@ describe('eCTD Compliance Test Matrix', () => {
 
       const sizeError = result.items.find(i => i.ruleCode === '2.2');
       expect(sizeError).toBeDefined();
-      expect(sizeError!.detail).toContain('200MB');
+      expect(sizeError!.detail).toContain('500MB');
     });
 
     it('should allow XPT files up to 4GB', async () => {
@@ -759,7 +771,7 @@ describe('eCTD Compliance Test Matrix', () => {
           buildLeaf({
             fileAttachments: [{
               id: 'f-xpt',
-              fileSize: 500 * 1024 * 1024, // 500MB < 4GB
+              fileSize: 1024 * 1024 * 1024, // 1GB < 4GB (XPT exception)
               fileType: 'xpt',
               originalName: 'data.xpt',
               storedName: 'data.xpt',
@@ -1109,7 +1121,7 @@ describe('eCTD Compliance Test Matrix', () => {
       const seq = buildSequence({
         sequenceNodes: [
           buildStfLeaf({
-            studyTaggingFile: null,
+            studies: [],
           }),
         ],
       });
@@ -1125,10 +1137,7 @@ describe('eCTD Compliance Test Matrix', () => {
       const seq = buildSequence({
         sequenceNodes: [
           buildStfLeaf({
-            studyTaggingFile: {
-              studyTitle: null,
-              studyId: 'STUDY-001',
-            },
+            studies: [buildStudy({ title: null })],
           }),
         ],
       });
@@ -1143,10 +1152,7 @@ describe('eCTD Compliance Test Matrix', () => {
       const seq = buildSequence({
         sequenceNodes: [
           buildStfLeaf({
-            studyTaggingFile: {
-              studyTitle: '研究报告',
-              studyId: null,
-            },
+            studies: [buildStudy({ studyId: null })],
           }),
         ],
       });
@@ -1179,7 +1185,7 @@ describe('eCTD Compliance Test Matrix', () => {
           buildLeaf({
             ctdSectionNumber: '2.3.S.1',
             templateNode: { module: 2, requiresStf: false, elementName: 'general-properties', allowsExtension: false, ctdSectionNumber: '2.3.S.1', titleZh: '一般性质' },
-            studyTaggingFile: { studyTitle: 'test', studyId: 'S-1', categories: { 'cat-1': 'v' }, fileTags: [{ name: 'tag-1' }] },
+            studies: [buildStudy({ studyId: 'S-1', title: 'test' })],
           }),
         ],
       });

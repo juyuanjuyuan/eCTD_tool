@@ -58,7 +58,7 @@ describe('CtdTemplateService', () => {
 
   describe('getTemplateTree', () => {
     it('should build tree from flat query', async () => {
-      const result = await service.getTemplateTree();
+      const result = (await service.getTemplateTree()) as any[];
 
       // Root nodes: t-m2, t-32r
       expect(result).toHaveLength(2);
@@ -90,7 +90,7 @@ describe('CtdTemplateService', () => {
         { templateNodeId: 't-23s1', ruleType: 'REQUIRED' },
       ]);
 
-      const result = await service.getTemplateTreeWithRules('cnapt2', 'cnrat1');
+      const result = (await service.getTemplateTreeWithRules('cnapt2', 'cnrat1')) as any[];
 
       // Find the leaf node in the tree
       const m2 = result.find((n: any) => n.elementName === 'module-2');
@@ -105,7 +105,7 @@ describe('CtdTemplateService', () => {
         { templateNodeId: 't-23s1', ruleType: 'FORBIDDEN' },
       ]);
 
-      const result = await service.getTemplateTreeWithRules('cnapt3', 'cnrat8');
+      const result = (await service.getTemplateTreeWithRules('cnapt3', 'cnrat8')) as any[];
 
       const m2 = result.find((n: any) => n.elementName === 'module-2');
       const s1 = m2.children[0].children[0];
@@ -531,6 +531,31 @@ describe('CtdTemplateService', () => {
       expect(options[0].type).toBe('3.2.R.1');
       expect(options[0].titleZh).toContain('工艺验证');
       expect(options[5].type).toBe('3.2.R.6');
+    });
+
+    it('should define NMPA V1.1 3.2.R.1~3.2.R.6 sub-sections exhaustively', () => {
+      // Per NMPA V1.1 node-extension-property_CN.xml
+      const options = service.getExtensionNodeOptions();
+      const byType = new Map(options.map((o) => [o.type, o]));
+
+      expect(byType.get('3.2.R.1')!.titleZh).toBe('3.2.R.1工艺验证');
+      expect(byType.get('3.2.R.2')!.titleZh).toBe('3.2.R.2批记录');
+      expect(byType.get('3.2.R.3')!.titleZh).toBe('3.2.R.3分析方法验证报告');
+      expect(byType.get('3.2.R.4')!.titleZh).toBe('3.2.R.4稳定性图谱');
+      expect(byType.get('3.2.R.5')!.titleZh).toBe('3.2.R.5可比性方案');
+      expect(byType.get('3.2.R.6')!.titleZh).toBe('3.2.R.6其他');
+      // Every entry must have an English label
+      for (const opt of options) {
+        expect(opt.titleEn).toBeTruthy();
+      }
+    });
+
+    it('template fixture should mark 3.2.R as an extension point', () => {
+      // Mirrors the seed behaviour from prisma/seed-ctd.ts: 3.2.R has
+      // allowsExtension=true so the runtime can attach 3.2.R.1~3.2.R.6.
+      const r = mockTemplateNodes.find((n) => n.ctdSectionNumber === '3.2.R');
+      expect(r).toBeDefined();
+      expect(r!.allowsExtension).toBe(true);
     });
   });
 });

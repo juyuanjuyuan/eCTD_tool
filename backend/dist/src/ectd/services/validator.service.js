@@ -68,7 +68,12 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
                         templateNode: { select: { module: true, requiresStf: true, elementName: true, allowsExtension: true, ctdSectionNumber: true, titleZh: true } },
                         fileAttachments: { include: { pdfAnalysis: true } },
                         document: { select: { xmlLang: true, wordCount: true } },
-                        studyTaggingFile: true,
+                        studies: {
+                            include: {
+                                categories: true,
+                                documents: { include: { fileAttachment: true } },
+                            },
+                        },
                         children: { select: { id: true, isLeaf: true, operation: true } },
                     },
                     orderBy: { sortOrder: 'asc' },
@@ -209,14 +214,14 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
             for (const file of node.fileAttachments || []) {
                 const size = Number(file.fileSize || 0);
                 const ext = (file.fileType || '').toLowerCase();
-                const maxSize = ext === 'xpt' ? 4 * 1024 * 1024 * 1024 : 200 * 1024 * 1024;
+                const maxSize = ext === 'xpt' ? 4 * 1024 * 1024 * 1024 : 500 * 1024 * 1024;
                 if (size > maxSize) {
                     items.push({
                         ruleCode: '2.2',
                         ruleCategory: '文件/文件夹',
                         severity: client_1.ValidationSeverity.ERROR,
                         description: `文件大小超过限制`,
-                        detail: `${file.originalName}: ${(size / 1024 / 1024).toFixed(1)}MB, 限制: ${ext === 'xpt' ? '4GB' : '200MB'}`,
+                        detail: `${file.originalName}: ${(size / 1024 / 1024).toFixed(1)}MB, 限制: ${ext === 'xpt' ? '4GB' : '500MB'}`,
                         filePath: file.ectdRelativePath,
                         suggestion: '请缩减文件大小',
                     });
@@ -243,12 +248,12 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
                         suggestion: '请使用小写字母、数字、连字符或下划线命名',
                     });
                 }
-                if (file.ectdRelativePath && file.ectdRelativePath.length > 180) {
+                if (file.ectdRelativePath && file.ectdRelativePath.length > 230) {
                     items.push({
                         ruleCode: '2.5',
                         ruleCategory: '文件/文件夹',
                         severity: client_1.ValidationSeverity.ERROR,
-                        description: `文件路径超过180字符限制`,
+                        description: `文件路径超过230字符限制`,
                         detail: `路径长度: ${file.ectdRelativePath.length}`,
                         filePath: file.ectdRelativePath,
                     });
@@ -364,7 +369,7 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
                 });
             }
             if (!isFirst && ['REPLACE', 'APPEND', 'DELETE'].includes(op)) {
-                const prevExists = await this.checkPriorNodeExists(sequence.regulatoryActivityId, sequence.sequenceNumber, node.templateNodeId);
+                const prevExists = await this.checkPriorNodeExists(sequence.applicationId, sequence.sequenceNumber, node.templateNodeId);
                 if (!prevExists) {
                     items.push({
                         ruleCode: '3.11',
@@ -564,7 +569,7 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
             if (!node.operation)
                 continue;
             const op = node.operation;
-            const lastOp = await this.getLastOperation(sequence.regulatoryActivityId, sequence.sequenceNumber, node.templateNodeId);
+            const lastOp = await this.getLastOperation(sequence.applicationId, sequence.sequenceNumber, node.templateNodeId);
             if (!lastOp)
                 continue;
             const sectionDesc = `${node.ctdSectionNumber} ${node.title}`;
@@ -616,10 +621,10 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
             }
         }
     }
-    async getLastOperation(regulatoryActivityId, currentSeqNumber, templateNodeId) {
+    async getLastOperation(applicationId, currentSeqNumber, templateNodeId) {
         const priorSeqs = await this.prisma.sequence.findMany({
             where: {
-                regulatoryActivityId,
+                applicationId,
                 sequenceNumber: { lt: currentSeqNumber },
             },
             select: { id: true, sequenceNumber: true },
@@ -639,8 +644,8 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
         }
         return null;
     }
-    async checkPriorNodeExists(regulatoryActivityId, currentSeqNumber, templateNodeId) {
-        const lastOp = await this.getLastOperation(regulatoryActivityId, currentSeqNumber, templateNodeId);
+    async checkPriorNodeExists(applicationId, currentSeqNumber, templateNodeId) {
+        const lastOp = await this.getLastOperation(applicationId, currentSeqNumber, templateNodeId);
         return lastOp !== null;
     }
     async checkLanguageConsistency(sequence, node, items) {
@@ -649,7 +654,7 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
         const currentLang = node.fileAttachments[0].xmlLang;
         const priorSeqs = await this.prisma.sequence.findMany({
             where: {
-                regulatoryActivityId: sequence.regulatoryActivityId,
+                applicationId: sequence.applicationId,
                 sequenceNumber: { lt: sequence.sequenceNumber },
             },
             select: { id: true },
@@ -867,7 +872,7 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
             if (!node.operation)
                 continue;
             const op = node.operation;
-            const lastOp = await this.getLastOperation(sequence.regulatoryActivityId, sequence.sequenceNumber, node.templateNodeId);
+            const lastOp = await this.getLastOperation(sequence.applicationId, sequence.sequenceNumber, node.templateNodeId);
             if (!lastOp)
                 continue;
             const sectionDesc = `${node.ctdSectionNumber} ${node.title}`;
@@ -925,7 +930,7 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
         const currentLang = node.fileAttachments[0].xmlLang;
         const priorSeqs = await this.prisma.sequence.findMany({
             where: {
-                regulatoryActivityId: sequence.regulatoryActivityId,
+                applicationId: sequence.applicationId,
                 sequenceNumber: { lt: sequence.sequenceNumber },
             },
             select: { id: true },
@@ -1258,131 +1263,193 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
                 }
             }
         }
+        const hasAnyModule5Node = sequence.sequenceNodes.some((n) => {
+            const sno = n.templateNode?.ctdSectionNumber || n.ctdSectionNumber || '';
+            return sno.startsWith('5.') || sno === '5';
+        });
+        if (hasAnyModule5Node) {
+            const REQUIRED_M5_CLINICAL_SUBSECTIONS = [
+                { section: '5.3.5.1', title: '个体患者数据清单' },
+                { section: '5.3.5.2', title: '有效性数据' },
+                { section: '5.3.5.3', title: '安全性数据' },
+            ];
+            const presentM5Sections = new Set();
+            for (const n of sequence.sequenceNodes) {
+                const sno = n.templateNode?.ctdSectionNumber || n.ctdSectionNumber || '';
+                if (sno)
+                    presentM5Sections.add(sno);
+            }
+            for (const req of REQUIRED_M5_CLINICAL_SUBSECTIONS) {
+                if (!presentM5Sections.has(req.section)) {
+                    items.push({
+                        ruleCode: '4.3.M5',
+                        ruleCategory: '区域性管理信息',
+                        severity: client_1.ValidationSeverity.ERROR,
+                        description: `模块五临床研究报告缺失必填子章节: ${req.section} ${req.title}`,
+                        detail: `ICH E3 要求临床研究报告包含 5.3.5.1/5.3.5.2/5.3.5.3 三个附件子章节，` +
+                            `当前序列已包含模块五内容但未找到 ${req.section}`,
+                        suggestion: `请在模块五下创建 ${req.section} ${req.title} 章节并完成内容编辑`,
+                    });
+                }
+            }
+        }
     }
     validateStf(sequence, items) {
-        const stfNodes = sequence.sequenceNodes.filter((n) => n.templateNode.requiresStf &&
+        const stfRequiredNodes = sequence.sequenceNodes.filter((n) => n.templateNode.requiresStf &&
             n.isLeaf &&
             n.operation &&
             n.operation !== 'DELETE');
-        for (const node of stfNodes) {
-            const stf = node.studyTaggingFile;
+        for (const node of stfRequiredNodes) {
             const sectionDesc = `${node.ctdSectionNumber} ${node.title}`;
-            if (!stf) {
+            const studies = (node.studies || []);
+            if (studies.length === 0) {
                 items.push({
                     ruleCode: '5.1',
                     ruleCategory: 'STF',
                     severity: client_1.ValidationSeverity.ERROR,
                     description: `STF文件必须有效`,
-                    detail: `节点 ${sectionDesc} 缺少研究标签文件(STF)`,
-                    suggestion: '模块四 4.2.X 和模块五 5.3.1-5.3.5 的文件必须有 STF',
+                    detail: `节点 ${sectionDesc} 缺少研究标签文件 (STF)，至少需要一个研究`,
+                    suggestion: '在该章节下创建一个研究并填写元数据 + 关联文件',
                 });
                 continue;
             }
-            if (!stf.studyTitle || stf.studyTitle.trim() === '') {
-                items.push({
-                    ruleCode: '5.4',
-                    ruleCategory: 'STF',
-                    severity: client_1.ValidationSeverity.WARNING,
-                    description: `研究标识的标题不能为空`,
-                    detail: `节点 ${sectionDesc}: 研究标识的标题（study-title）不能为空`,
-                });
-            }
-            const categories = stf.categories;
-            if (!categories || Object.keys(categories).length === 0) {
-                items.push({
-                    ruleCode: '5.5',
-                    ruleCategory: 'STF',
-                    severity: client_1.ValidationSeverity.WARNING,
-                    description: `研究标识的类别不能空`,
-                    detail: `节点 ${sectionDesc}: 研究标识/类别（study-identifier>>category）值不能是空的`,
-                });
-            }
-            if (!stf.studyId || stf.studyId.trim() === '') {
-                items.push({
-                    ruleCode: '5.6',
-                    ruleCategory: 'STF',
-                    severity: client_1.ValidationSeverity.WARNING,
-                    description: `研究标识的研究ID不能为空`,
-                    detail: `节点 ${sectionDesc}`,
-                });
-            }
-            if (stf.studyTitle && node.title && stf.studyTitle !== node.title) {
-                items.push({
-                    ruleCode: '5.7',
-                    ruleCategory: 'STF',
-                    severity: client_1.ValidationSeverity.WARNING,
-                    description: `研究标识的标题必须与叶元素的叶标题匹配`,
-                    detail: `节点 ${sectionDesc}: STF标题="${stf.studyTitle}", 叶标题="${node.title}"`,
-                });
-            }
-            const fileTags = stf.fileTags;
-            if (fileTags && Array.isArray(fileTags)) {
-                for (const tag of fileTags) {
-                    if (!tag.name || tag.name.trim() === '') {
+            for (const study of studies) {
+                const studyDesc = `${sectionDesc} / 研究 ${study.studyId}`;
+                if (!study.title || String(study.title).trim() === '') {
+                    items.push({
+                        ruleCode: '5.4',
+                        ruleCategory: 'STF',
+                        severity: client_1.ValidationSeverity.WARNING,
+                        description: `研究标识的标题不能为空`,
+                        detail: `${studyDesc}: 研究标题 (study-identifier > title) 不能为空`,
+                    });
+                }
+                const cats = (study.categories || []);
+                if (cats.length === 0) {
+                    items.push({
+                        ruleCode: '5.5',
+                        ruleCategory: 'STF',
+                        severity: client_1.ValidationSeverity.WARNING,
+                        description: `研究标识的类别不能空`,
+                        detail: `${studyDesc}: 至少需要提供一个 category`,
+                    });
+                }
+                if (!study.studyId || String(study.studyId).trim() === '') {
+                    items.push({
+                        ruleCode: '5.6',
+                        ruleCategory: 'STF',
+                        severity: client_1.ValidationSeverity.WARNING,
+                        description: `研究标识的研究ID不能为空`,
+                        detail: studyDesc,
+                    });
+                }
+                for (const cat of cats) {
+                    if (!cat.name || !cat.value) {
                         items.push({
                             ruleCode: '5.8',
                             ruleCategory: 'STF',
                             severity: client_1.ValidationSeverity.WARNING,
                             description: `标签属性和类别元素的值`,
-                            detail: `节点 ${sectionDesc}: 文件标签名称为空`,
+                            detail: `${studyDesc}: 存在 name 或 value 为空的 category`,
                         });
+                        break;
                     }
                 }
-            }
-            const secNum = node.ctdSectionNumber || '';
-            const isValidStfLocation = secNum.startsWith('4.2') ||
-                (secNum.startsWith('5.3.') && !secNum.startsWith('5.3.6') && !secNum.startsWith('5.3.7'));
-            if (!isValidStfLocation) {
-                items.push({
-                    ruleCode: '5.14',
-                    ruleCategory: 'STF',
-                    severity: client_1.ValidationSeverity.WARNING,
-                    description: `无效STF目录位置`,
-                    detail: `STF只存在于模块四（4.2.x章节）和模块五（5.3.1.x-5.3.5.x章节）中`,
-                });
-            }
-            if (fileTags && fileTags.length > 1) {
-                items.push({
-                    ruleCode: '5.15',
-                    ruleCategory: 'STF',
-                    severity: client_1.ValidationSeverity.WARNING,
-                    description: `STF "doc-content"的标签（file-tag）数量`,
-                    detail: `节点 ${sectionDesc}: 每个"doc-content"元素有且仅有1个"文件标签（file-tag）"`,
-                });
-            }
-            if (secNum.startsWith('5.3.7')) {
-                items.push({
-                    ruleCode: '5.16',
-                    ruleCategory: 'STF',
-                    severity: client_1.ValidationSeverity.ERROR,
-                    description: `5.3.7章节病例报告表结构`,
-                    detail: `如果当前序列使用了STF，5.3.7章节禁止被使用。病例报告表必须在STF中被引用和展现`,
-                });
+                const docs = (study.documents || []);
+                if (docs.length === 0) {
+                    items.push({
+                        ruleCode: '5.10',
+                        ruleCategory: 'STF',
+                        severity: client_1.ValidationSeverity.ERROR,
+                        description: `STF 至少需要一个 doc-content`,
+                        detail: `${studyDesc}: 研究未关联任何文件`,
+                        suggestion: '在该研究下添加至少一份文件 (study-report-body)',
+                    });
+                }
+                for (const doc of docs) {
+                    if (!doc.fileTag || String(doc.fileTag).trim() === '') {
+                        items.push({
+                            ruleCode: '5.11',
+                            ruleCategory: 'STF',
+                            severity: client_1.ValidationSeverity.WARNING,
+                            description: `doc-content 必须有 file-tag`,
+                            detail: `${studyDesc}: 存在缺失 file-tag 的文件`,
+                        });
+                        break;
+                    }
+                }
+                if (!study.stfXmlContent || !study.stfChecksum) {
+                    items.push({
+                        ruleCode: '5.12',
+                        ruleCategory: 'STF',
+                        severity: client_1.ValidationSeverity.ERROR,
+                        description: `缓存的 STF XML 内容缺失`,
+                        detail: `${studyDesc}: 系统未生成 STF XML 缓存，请重新保存研究以重新生成`,
+                        suggestion: '调用 POST /api/v1/studies/:id/regenerate-xml',
+                    });
+                }
+                if (study.stfChecksum && !/^[a-f0-9]{32}$/i.test(study.stfChecksum)) {
+                    items.push({
+                        ruleCode: '5.13',
+                        ruleCategory: 'STF',
+                        severity: client_1.ValidationSeverity.ERROR,
+                        description: `STF checksum 格式不合法`,
+                        detail: `${studyDesc}: 校验和应为 32 位十六进制 MD5`,
+                    });
+                }
+                const opU = String(study.operation || '').toUpperCase();
+                if ((opU === 'REPLACE' || opU === 'APPEND' || opU === 'DELETE') &&
+                    !study.modifiedFromId) {
+                    items.push({
+                        ruleCode: '5.18',
+                        ruleCategory: 'STF',
+                        severity: client_1.ValidationSeverity.ERROR,
+                        description: `生命周期操作缺少 modified-file 引用`,
+                        detail: `${studyDesc}: ${opU} 操作必须挂在一个前序研究上`,
+                    });
+                }
             }
         }
-        const stfRequiredNodes = sequence.sequenceNodes.filter((n) => n.templateNode.requiresStf &&
+        const nonStfWithStudies = sequence.sequenceNodes.filter((n) => !n.templateNode.requiresStf &&
             n.isLeaf &&
-            n.operation &&
-            n.operation !== 'DELETE' &&
-            !n.studyTaggingFile);
-        for (const node of stfRequiredNodes) {
-            items.push({
-                ruleCode: '5.17',
-                ruleCategory: 'STF',
-                severity: client_1.ValidationSeverity.ERROR,
-                description: `使用STF`,
-                detail: `第4.2章节中的叶元素必须使用STF引用。第5.3.1至5.3.5章节中的叶元素必须使用STF引用`,
-            });
-        }
-        const nonStfWithStf = sequence.sequenceNodes.filter((n) => !n.templateNode.requiresStf && n.studyTaggingFile);
-        for (const node of nonStfWithStf) {
+            ((n.studies || []).length > 0));
+        for (const node of nonStfWithStudies) {
             items.push({
                 ruleCode: '5.14',
                 ruleCategory: 'STF',
                 severity: client_1.ValidationSeverity.WARNING,
-                description: `无效STF目录位置`,
-                detail: `节点 ${node.ctdSectionNumber}: 非 STF 章节不应有研究标签文件`,
+                description: `无效 STF 目录位置`,
+                detail: `节点 ${node.ctdSectionNumber}: 非 STF 章节不应包含研究 (Study)`,
             });
+        }
+        const sec537WithStudies = sequence.sequenceNodes.filter((n) => n.isLeaf &&
+            String(n.ctdSectionNumber || '').startsWith('5.3.7') &&
+            (n.studies || []).length > 0);
+        for (const node of sec537WithStudies) {
+            items.push({
+                ruleCode: '5.16',
+                ruleCategory: 'STF',
+                severity: client_1.ValidationSeverity.ERROR,
+                description: `5.3.7 章节不允许 STF`,
+                detail: `节点 ${node.ctdSectionNumber}: 5.3.7 病例报告表必须在 5.3.5.x 的 STF 内被引用，不能独立创建`,
+            });
+        }
+        for (const node of stfRequiredNodes) {
+            const seen = new Map();
+            for (const study of (node.studies || [])) {
+                seen.set(study.studyId, (seen.get(study.studyId) || 0) + 1);
+            }
+            for (const [studyId, count] of seen.entries()) {
+                if (count > 1) {
+                    items.push({
+                        ruleCode: '5.20',
+                        ruleCategory: 'STF',
+                        severity: client_1.ValidationSeverity.ERROR,
+                        description: `同一章节内研究编号重复`,
+                        detail: `节点 ${node.ctdSectionNumber}: studyId="${studyId}" 出现 ${count} 次`,
+                    });
+                }
+            }
         }
     }
     validatePdf(sequence, items) {

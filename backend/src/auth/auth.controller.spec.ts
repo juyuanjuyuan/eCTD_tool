@@ -31,6 +31,7 @@ describe('AuthController', () => {
 
   it('should get profile', async () => {
     const result = await controller.getProfile('u1');
-    expect(result.name).toBe('张三');
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('张三');
   });
 });

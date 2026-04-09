@@ -72,13 +72,16 @@ describe('RegulatoryActivityService', () => {
       });
     });
 
-    it('should use last sequence number as relatedSequence', async () => {
+    it('should use next global sequence number as relatedSequence', async () => {
+      // Under method C, related-sequence marks the starting sequence number of
+      // this new RA within the application, which is (max + 1) or 0000 when
+      // the application has no sequences yet.
       prisma.sequence.findFirst.mockResolvedValue({ sequenceNumber: '0003' });
 
       await service.create('app-1', { regulatoryActivityTypeCode: 'cnrat1' });
 
       expect(prisma.regulatoryActivity.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ relatedSequence: '0003' }),
+        data: expect.objectContaining({ relatedSequence: '0004' }),
         include: expect.anything(),
       });
     });

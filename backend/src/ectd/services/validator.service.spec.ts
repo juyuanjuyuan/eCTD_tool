@@ -74,7 +74,9 @@ function buildLeafNode(overrides: any = {}) {
     templateNode: { module: 2, requiresStf: false, elementName: 'm2-3-qos', allowsExtension: false, ctdSectionNumber: '2.3', titleZh: '质量综述' },
     fileAttachments: [],
     document: null,
-    studyTaggingFile: null,
+    // Plan 12: v2 STF model. Default to no studies; rule 5.1 fires only on
+    // STF-required nodes that have an empty studies array.
+    studies: [],
     children: [],
     substance: undefined,
     manufacturer: undefined,
@@ -152,12 +154,12 @@ describe('ValidatorService', () => {
   // ==================== Category 2: File/Folder Validation ====================
 
   describe('validate - Category 2: File Structure', () => {
-    it('should flag files exceeding 200MB', async () => {
+    it('should flag files exceeding 500MB', async () => {
       const seq = buildSequence({
         sequenceNodes: [
           buildLeafNode({
             fileAttachments: [{
-              fileSize: 201 * 1024 * 1024,
+              fileSize: 501 * 1024 * 1024,
               fileType: 'pdf',
               originalName: 'big.pdf',
               storedName: 'big.pdf',
@@ -217,8 +219,8 @@ describe('ValidatorService', () => {
       expect(error).toBeDefined();
     });
 
-    it('should flag paths exceeding 180 characters', async () => {
-      const longPath = 'm2/23-qos/' + 'a'.repeat(175) + '.pdf';
+    it('should flag paths exceeding 230 characters (ICH eCTD v3.2.2)', async () => {
+      const longPath = 'm2/23-qos/' + 'a'.repeat(225) + '.pdf';
       const seq = buildSequence({
         sequenceNodes: [
           buildLeafNode({
@@ -235,7 +237,7 @@ describe('ValidatorService', () => {
       mockPrisma.sequence.findUnique.mockResolvedValue(seq);
 
       const result = await service.validate('seq1');
-      const error = result.items.find((i) => i.ruleCode === '2.5' && i.description.includes('180'));
+      const error = result.items.find((i) => i.ruleCode === '2.5' && i.description.includes('230'));
       expect(error).toBeDefined();
     });
 
@@ -740,6 +742,107 @@ describe('ValidatorService', () => {
       );
       expect(warning).toBeDefined();
     });
+
+    // -------- 4.3.M5: ICH E3 Module 5 clinical completeness --------
+
+    it('4.3.M5: should flag missing 5.3.5.1/5.3.5.2/5.3.5.3 when module 5 is present', async () => {
+      const seq = buildSequence({
+        sequenceNodes: [
+          buildLeafNode({
+            id: 'm5-root',
+            ctdSectionNumber: '5.3',
+            title: '临床研究报告',
+            templateNode: {
+              module: 5,
+              requiresStf: false,
+              elementName: 'm5-3',
+              allowsExtension: false,
+              ctdSectionNumber: '5.3',
+              titleZh: '临床研究报告',
+            },
+          }),
+        ],
+      });
+      mockPrisma.sequence.findUnique.mockResolvedValue(seq);
+
+      const result = await service.validate('seq1');
+      const errors = result.items.filter((i) => i.ruleCode === '4.3.M5');
+      // All 3 required subsections (5.3.5.1, 5.3.5.2, 5.3.5.3) should be flagged missing
+      expect(errors).toHaveLength(3);
+      expect(errors.every((e) => e.severity === ValidationSeverity.ERROR)).toBe(true);
+      expect(errors.some((e) => e.description.includes('5.3.5.1'))).toBe(true);
+      expect(errors.some((e) => e.description.includes('5.3.5.2'))).toBe(true);
+      expect(errors.some((e) => e.description.includes('5.3.5.3'))).toBe(true);
+    });
+
+    it('4.3.M5: should NOT flag missing clinical subsections when module 5 is absent', async () => {
+      // Sequence with only module 2 content — rule should be skipped entirely
+      const seq = buildSequence({
+        sequenceNodes: [
+          buildLeafNode({
+            id: 'm2-only',
+            ctdSectionNumber: '2.3',
+            templateNode: {
+              module: 2,
+              requiresStf: false,
+              elementName: 'm2-3-qos',
+              allowsExtension: false,
+              ctdSectionNumber: '2.3',
+              titleZh: '质量综述',
+            },
+          }),
+        ],
+      });
+      mockPrisma.sequence.findUnique.mockResolvedValue(seq);
+
+      const result = await service.validate('seq1');
+      const errors = result.items.filter((i) => i.ruleCode === '4.3.M5');
+      expect(errors).toHaveLength(0);
+    });
+
+    it('4.3.M5: should pass when all three 5.3.5.x subsections are present', async () => {
+      const seq = buildSequence({
+        sequenceNodes: [
+          buildLeafNode({
+            id: 'm5-root',
+            ctdSectionNumber: '5.3',
+            templateNode: {
+              module: 5, requiresStf: false, elementName: 'm5-3', allowsExtension: false,
+              ctdSectionNumber: '5.3', titleZh: '临床研究报告',
+            },
+          }),
+          buildLeafNode({
+            id: 'm5-3-5-1',
+            ctdSectionNumber: '5.3.5.1',
+            templateNode: {
+              module: 5, requiresStf: false, elementName: 'm5-3-5-1', allowsExtension: false,
+              ctdSectionNumber: '5.3.5.1', titleZh: '个体患者数据清单',
+            },
+          }),
+          buildLeafNode({
+            id: 'm5-3-5-2',
+            ctdSectionNumber: '5.3.5.2',
+            templateNode: {
+              module: 5, requiresStf: false, elementName: 'm5-3-5-2', allowsExtension: false,
+              ctdSectionNumber: '5.3.5.2', titleZh: '有效性数据',
+            },
+          }),
+          buildLeafNode({
+            id: 'm5-3-5-3',
+            ctdSectionNumber: '5.3.5.3',
+            templateNode: {
+              module: 5, requiresStf: false, elementName: 'm5-3-5-3', allowsExtension: false,
+              ctdSectionNumber: '5.3.5.3', titleZh: '安全性数据',
+            },
+          }),
+        ],
+      });
+      mockPrisma.sequence.findUnique.mockResolvedValue(seq);
+
+      const result = await service.validate('seq1');
+      const errors = result.items.filter((i) => i.ruleCode === '4.3.M5');
+      expect(errors).toHaveLength(0);
+    });
   });
 
   // ==================== Category 5: STF Validation ====================
@@ -770,7 +873,19 @@ describe('ValidatorService', () => {
           buildLeafNode({
             templateNode: { module: 4, requiresStf: true, elementName: 'm4-study', allowsExtension: false, ctdSectionNumber: '4.2.1', titleZh: '研究报告' },
             ctdSectionNumber: '4.2.1',
-            studyTaggingFile: { studyTitle: 'Study Title', studyId: '', categories: {}, fileTags: [] },
+            studies: [
+              {
+                id: 's1',
+                studyId: '',
+                title: 'Study Title',
+                operation: 'NEW',
+                modifiedFromId: null,
+                stfXmlContent: '<x/>',
+                stfChecksum: 'd41d8cd98f00b204e9800998ecf8427e',
+                categories: [{ name: 'species', value: 'rat' }],
+                documents: [{ fileTag: 'study-report-body' }],
+              },
+            ],
             fileAttachments: [{ ectdRelativePath: 'm4/42-stud-rep/study.pdf', fileType: 'pdf' }],
           }),
         ],
@@ -782,31 +897,28 @@ describe('ValidatorService', () => {
       expect(warning).toBeDefined();
     });
 
-    it('should warn about STF title mismatch with leaf title (5.7)', async () => {
-      const seq = buildSequence({
-        sequenceNodes: [
-          buildLeafNode({
-            title: '研究报告A',
-            templateNode: { module: 4, requiresStf: true, elementName: 'm4-study', allowsExtension: false, ctdSectionNumber: '4.2.1', titleZh: '研究报告' },
-            ctdSectionNumber: '4.2.1',
-            studyTaggingFile: { studyTitle: 'Different Title', studyId: 'ST001', categories: { type: 'test' }, fileTags: [{ name: 'tag1' }] },
-            fileAttachments: [{ ectdRelativePath: 'm4/42-stud-rep/study.pdf', fileType: 'pdf' }],
-          }),
-        ],
-      });
-      mockPrisma.sequence.findUnique.mockResolvedValue(seq);
-
-      const result = await service.validate('seq1');
-      const warning = result.items.find((i) => i.ruleCode === '5.7');
-      expect(warning).toBeDefined();
-    });
+    // Plan 12: rule 5.7 (study title must match leaf title) was retired —
+    // a single CTD leaf can host multiple studies, so requiring all of them
+    // to share the leaf's title no longer makes sense.
 
     it('should warn about STF on non-STF nodes (5.14)', async () => {
       const seq = buildSequence({
         sequenceNodes: [
           buildLeafNode({
             templateNode: { module: 2, requiresStf: false, elementName: 'm2-qos', allowsExtension: false, ctdSectionNumber: '2.3', titleZh: '质量综述' },
-            studyTaggingFile: { studyTitle: 'Test', studyId: 'ST001', categories: {}, fileTags: [] },
+            studies: [
+              {
+                id: 's1',
+                studyId: 'ST001',
+                title: 'Test',
+                operation: 'NEW',
+                modifiedFromId: null,
+                stfXmlContent: '<x/>',
+                stfChecksum: 'd41d8cd98f00b204e9800998ecf8427e',
+                categories: [],
+                documents: [],
+              },
+            ],
           }),
         ],
       });
@@ -825,7 +937,7 @@ describe('ValidatorService', () => {
             operation: 'DELETE',
             templateNode: { module: 4, requiresStf: true, elementName: 'm4-study', allowsExtension: false, ctdSectionNumber: '4.2.1', titleZh: '研究报告' },
             ctdSectionNumber: '4.2.1',
-            studyTaggingFile: null,
+            studies: [],
             fileAttachments: [],
           }),
         ],
@@ -843,7 +955,19 @@ describe('ValidatorService', () => {
           buildLeafNode({
             templateNode: { module: 5, requiresStf: true, elementName: 'm5-3-7', allowsExtension: false, ctdSectionNumber: '5.3.7', titleZh: '病例报告表' },
             ctdSectionNumber: '5.3.7',
-            studyTaggingFile: { studyTitle: 'CRF', studyId: 'ST001', categories: { type: 'test' }, fileTags: [{ name: 'tag1' }] },
+            studies: [
+              {
+                id: 's1',
+                studyId: 'ST001',
+                title: 'CRF',
+                operation: 'NEW',
+                modifiedFromId: null,
+                stfXmlContent: '<x/>',
+                stfChecksum: 'd41d8cd98f00b204e9800998ecf8427e',
+                categories: [{ name: 'species', value: 'rat' }],
+                documents: [{ fileTag: 'study-report-body' }],
+              },
+            ],
             fileAttachments: [{ ectdRelativePath: 'm5/53-clin-stud-rep/crf.pdf', fileType: 'pdf' }],
           }),
         ],

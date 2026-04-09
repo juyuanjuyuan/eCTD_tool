@@ -13,11 +13,11 @@ const file_module_1 = require("../file/file.module");
 const ectd_controller_1 = require("./ectd.controller");
 const cn_regional_xml_service_1 = require("./services/cn-regional-xml.service");
 const index_xml_service_1 = require("./services/index-xml.service");
-const stf_service_1 = require("./services/stf.service");
 const lifecycle_service_1 = require("./services/lifecycle.service");
 const validator_service_1 = require("./services/validator.service");
 const package_assembler_service_1 = require("./services/package-assembler.service");
 const md5_service_1 = require("./services/md5.service");
+const study_tagging_file_service_1 = require("./services/study-tagging-file.service");
 let EctdModule = class EctdModule {
 };
 exports.EctdModule = EctdModule;
@@ -28,20 +28,20 @@ exports.EctdModule = EctdModule = __decorate([
         providers: [
             cn_regional_xml_service_1.CnRegionalXmlService,
             index_xml_service_1.IndexXmlService,
-            stf_service_1.StfService,
             lifecycle_service_1.LifecycleService,
             validator_service_1.ValidatorService,
             package_assembler_service_1.PackageAssemblerService,
             md5_service_1.Md5Service,
+            study_tagging_file_service_1.StudyTaggingFileService,
         ],
         exports: [
             cn_regional_xml_service_1.CnRegionalXmlService,
             index_xml_service_1.IndexXmlService,
-            stf_service_1.StfService,
             lifecycle_service_1.LifecycleService,
             validator_service_1.ValidatorService,
             package_assembler_service_1.PackageAssemblerService,
             md5_service_1.Md5Service,
+            study_tagging_file_service_1.StudyTaggingFileService,
         ],
     })
 ], EctdModule);

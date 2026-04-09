@@ -24,7 +24,7 @@ export class LifecycleService {
     const sequence = await this.prisma.sequence.findUnique({
       where: { id: sequenceId },
       include: {
-        regulatoryActivity: { select: { id: true } },
+        regulatoryActivity: { select: { id: true, applicationId: true } },
       },
     });
     if (!sequence) return { isValid: false, message: '序列不存在' };
@@ -48,8 +48,9 @@ export class LifecycleService {
       if (!node) return { isValid: false, message: '节点不存在' };
 
       // Find the same template node's operation in the previous sequence
+      // (scoped to the entire application under global numbering)
       const prevOp = await this.findPreviousOperation(
-        sequence.regulatoryActivityId,
+        sequence.regulatoryActivity.applicationId,
         sequence.sequenceNumber,
         node.templateNodeId,
       );
@@ -61,17 +62,19 @@ export class LifecycleService {
   }
 
   /**
-   * Find the most recent operation for a template node in prior sequences
+   * Find the most recent operation for a template node in prior sequences.
+   * Scope: application-wide, because under method C a template node's history
+   * can span multiple RAs within the same application.
    */
   private async findPreviousOperation(
-    regulatoryActivityId: string,
+    applicationId: string,
     currentSeqNumber: string,
     templateNodeId: string,
   ): Promise<LeafOperation | null> {
-    // Get all prior sequences in this RA
+    // Get all prior sequences in this application
     const priorSequences = await this.prisma.sequence.findMany({
       where: {
-        regulatoryActivityId,
+        regulatoryActivity: { applicationId },
         sequenceNumber: { lt: currentSeqNumber },
       },
       orderBy: { sequenceNumber: 'desc' },
@@ -151,14 +154,17 @@ export class LifecycleService {
 
     const sequence = await this.prisma.sequence.findUnique({
       where: { id: sequenceId },
-      select: { regulatoryActivityId: true, sequenceNumber: true },
+      include: {
+        regulatoryActivity: { select: { applicationId: true } },
+      },
     });
     if (!sequence) return { isValid: false, message: '序列不存在' };
 
     // Find the original file's xml:lang from previous sequences
+    // (application-scoped under method C)
     const priorSequences = await this.prisma.sequence.findMany({
       where: {
-        regulatoryActivityId: sequence.regulatoryActivityId,
+        regulatoryActivity: { applicationId: sequence.regulatoryActivity.applicationId },
         sequenceNumber: { lt: sequence.sequenceNumber },
       },
       orderBy: { sequenceNumber: 'desc' },

@@ -225,6 +225,7 @@ describe('LifecycleService', () => {
       mockPrisma.sequence.findUnique.mockResolvedValue({
         regulatoryActivityId: 'ra1',
         sequenceNumber: '0001',
+        regulatoryActivity: { applicationId: 'app1' },
       });
       mockPrisma.sequence.findMany.mockResolvedValue([{ id: 'seq0' }]);
       mockPrisma.sequenceNode.findFirst.mockResolvedValue({
@@ -240,6 +241,7 @@ describe('LifecycleService', () => {
       mockPrisma.sequence.findUnique.mockResolvedValue({
         regulatoryActivityId: 'ra1',
         sequenceNumber: '0001',
+        regulatoryActivity: { applicationId: 'app1' },
       });
       mockPrisma.sequence.findMany.mockResolvedValue([{ id: 'seq0' }]);
       mockPrisma.sequenceNode.findFirst.mockResolvedValue({
@@ -257,6 +259,7 @@ describe('LifecycleService', () => {
       mockPrisma.sequence.findUnique.mockResolvedValue({
         regulatoryActivityId: 'ra1',
         sequenceNumber: '0001',
+        regulatoryActivity: { applicationId: 'app1' },
       });
       mockPrisma.sequence.findMany.mockResolvedValue([{ id: 'seq0' }]);
       mockPrisma.sequenceNode.findFirst.mockResolvedValue({

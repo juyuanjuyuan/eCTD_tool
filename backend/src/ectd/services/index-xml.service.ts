@@ -32,12 +32,30 @@ interface SequenceNodeTree {
   productName: string | null;
   dosageForm: string | null;
   indication: string | null;
+  // Plan 12: M4 4.2.x and M5 5.3.1-5.3.5 leaves are emitted as references to
+  // STF files rather than directly to PDFs. requiresStf gates that branch.
+  requiresStf: boolean;
   children: SequenceNodeTree[];
   fileAttachments: Array<{
     ectdRelativePath: string;
     md5Checksum: string;
     xmlLang: string;
   }>;
+  studies: StudyLeafInput[];
+}
+
+/**
+ * Snapshot of a Study + its first document, used to derive the STF file path
+ * within the eCTD package and to emit a leaf referencing it from index.xml.
+ */
+interface StudyLeafInput {
+  id: string;
+  studyId: string;
+  title: string;
+  operation: string;
+  stfChecksum: string | null;
+  /** Path of any one of the study's PDFs, used as the STF directory anchor. */
+  anchorEctdRelativePath: string | null;
 }
 
 @Injectable()
@@ -58,13 +76,17 @@ export class IndexXmlService {
       select: {
         id: true,
         sequenceNumber: true,
-        regulatoryActivityId: true,
+        regulatoryActivity: { select: { applicationId: true } },
       },
     });
     if (!sequence) throw new Error(`序列 ${sequenceId} 不存在`);
 
     // Load prior sequence mapping for modified-file references
-    const priorLeafIdMap = await this.buildPriorLeafIdMap(sequence);
+    const priorLeafIdMap = await this.buildPriorLeafIdMap({
+      id: sequence.id,
+      sequenceNumber: sequence.sequenceNumber,
+      applicationId: sequence.regulatoryActivity.applicationId,
+    });
 
     const moduleRoots = await this.loadModuleNodes(sequenceId);
     return this.buildXml(sequenceId, moduleRoots, priorLeafIdMap);
@@ -72,25 +94,29 @@ export class IndexXmlService {
 
   /**
    * Build a map from templateNodeId -> prior sequence leaf ID
-   * for REPLACE/DELETE/APPEND operations' modified-file attribute
+   * for REPLACE/DELETE/APPEND operations' modified-file attribute.
+   *
+   * Scope: the entire application, under method C. Walks all prior sequences
+   * (across RAs) in descending order and records the first occurrence per
+   * templateNodeId, i.e. the most recent prior operation for that template.
    */
   private async buildPriorLeafIdMap(
-    sequence: { id: string; sequenceNumber: string; regulatoryActivityId: string },
+    sequence: { id: string; sequenceNumber: string; applicationId: string },
   ): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     if (sequence.sequenceNumber === '0000') return map;
 
-    // Find the immediate prior sequence
     const priorSequences = await this.prisma.sequence.findMany({
       where: {
-        regulatoryActivityId: sequence.regulatoryActivityId,
+        regulatoryActivity: { applicationId: sequence.applicationId },
         sequenceNumber: { lt: sequence.sequenceNumber },
       },
       orderBy: { sequenceNumber: 'desc' },
       select: { id: true },
     });
 
-    // For each prior sequence (most recent first), find leaf nodes
+    // For each prior sequence (most recent first), find leaf nodes and
+    // record the most recent occurrence of each templateNodeId.
     for (const priorSeq of priorSequences) {
       const priorNodes = await this.prisma.sequenceNode.findMany({
         where: {
@@ -108,8 +134,6 @@ export class IndexXmlService {
           map.set(node.templateNodeId, this.md5Service.generateDeterministicLeafId(priorSeq.id, node.id));
         }
       }
-      // Only need the most recent prior sequence that has each node
-      break;
     }
 
     return map;
@@ -119,12 +143,24 @@ export class IndexXmlService {
     const allNodes = await this.prisma.sequenceNode.findMany({
       where: { sequenceId },
       include: {
-        templateNode: { select: { module: true } },
+        templateNode: { select: { module: true, requiresStf: true } },
         fileAttachments: {
           select: {
             ectdRelativePath: true,
             md5Checksum: true,
             xmlLang: true,
+          },
+        },
+        studies: {
+          orderBy: { studyId: 'asc' },
+          include: {
+            documents: {
+              orderBy: { sortOrder: 'asc' },
+              take: 1,
+              include: {
+                fileAttachment: { select: { ectdRelativePath: true } },
+              },
+            },
           },
         },
       },
@@ -150,8 +186,20 @@ export class IndexXmlService {
         productName: node.productName,
         dosageForm: node.dosageForm,
         indication: node.indication,
+        requiresStf: node.templateNode.requiresStf,
         children: [],
         fileAttachments: node.fileAttachments,
+        // Defensive default: legacy mocks (and the prior PDF-leaf code path)
+        // do not populate `studies`. Treat missing as empty.
+        studies: (node.studies ?? []).map((s): StudyLeafInput => ({
+          id: s.id,
+          studyId: s.studyId,
+          title: s.title,
+          operation: s.operation,
+          stfChecksum: s.stfChecksum,
+          anchorEctdRelativePath:
+            s.documents[0]?.fileAttachment?.ectdRelativePath ?? null,
+        })),
       });
     }
 
@@ -278,6 +326,14 @@ export class IndexXmlService {
       ? priorLeafIdMap.get(node.templateNodeId)
       : undefined;
 
+    // Plan 12: M4 4.2.x and M5 5.3.1-5.3.5 leaves point at STF files instead
+    // of directly at PDFs. The PDF references live inside each STF's
+    // <doc-content> elements (handled by package-assembler + StudyTaggingFileService).
+    if (node.requiresStf && node.studies.length > 0) {
+      this.buildStfLeaves(lines, node, indent, sequenceId, priorLeafIdMap);
+      return;
+    }
+
     if (node.fileAttachments.length > 0) {
       for (let i = 0; i < node.fileAttachments.length; i++) {
         const file = node.fileAttachments[i];
@@ -299,6 +355,78 @@ export class IndexXmlService {
     }
   }
 
+  /**
+   * Plan 12: emit one <leaf> per Study attached to a STF-required node. Each
+   * leaf references the STF XML file (not the underlying PDFs). The STF lives
+   * in the same directory as its referenced PDFs (decision 2), so we derive
+   * the STF's eCTD-relative path by stripping the basename off any of the
+   * study's documents and appending `<normalized-study-id>.xml`.
+   *
+   * If a study has no documents (legacy / partial state), we skip it and
+   * leave the validator to surface a missing-document error.
+   */
+  private buildStfLeaves(
+    lines: string[],
+    node: SequenceNodeTree,
+    indent: string,
+    sequenceId: string,
+    priorLeafIdMap: Map<string, string>,
+  ): void {
+    for (let i = 0; i < node.studies.length; i++) {
+      const study = node.studies[i];
+      if (!study.anchorEctdRelativePath) continue;
+
+      const stfRelPath = this.deriveStfPath(
+        study.anchorEctdRelativePath,
+        study.studyId,
+      );
+      const op = study.operation.toLowerCase();
+      const modifiedFile = ['replace', 'delete', 'append'].includes(op)
+        ? priorLeafIdMap.get(node.templateNodeId)
+        : undefined;
+
+      // Use a deterministic id with the index so multiple studies under the
+      // same node get distinct IDs without colliding with PDF-leaf ids.
+      const leafId = this.md5Service.generateDeterministicLeafId(
+        sequenceId,
+        node.id,
+        // offset by a large number so STF leaf IDs never collide with PDF
+        // leaf IDs from the legacy fallback path
+        10000 + i,
+      );
+
+      const parts: string[] = [`ID="${leafId}"`, `operation="${op}"`];
+      if (modifiedFile) parts.push(`modified-file="${modifiedFile}"`);
+      if (op !== 'delete') {
+        parts.push(`xlink:href="${this.escapeXml(stfRelPath)}"`);
+        parts.push(`xlink:type="simple"`);
+        parts.push(`checksum="${study.stfChecksum ?? ''}"`);
+        parts.push(`checksum-type="MD5"`);
+      }
+
+      lines.push(`${indent}<leaf ${parts.join('\n              ')}>`);
+      lines.push(
+        `${indent}  <title>${this.escapeXml(study.title || node.title)}</title>`,
+      );
+      lines.push(`${indent}</leaf>`);
+    }
+  }
+
+  /**
+   * Strip the basename off `<dir>/<file.pdf>` and append a normalized
+   * `<study-id>.xml` to keep the STF in the same folder as its PDFs.
+   */
+  private deriveStfPath(anchorPath: string, studyId: string): string {
+    const idx = anchorPath.lastIndexOf('/');
+    const dir = idx >= 0 ? anchorPath.substring(0, idx) : '';
+    const slug = studyId
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const fileName = `study-${slug}.xml`;
+    return dir ? `${dir}/${fileName}` : fileName;
+  }
+
   private buildLeafAttrs(
     leafId: string,
     operation: string,
@@ -313,6 +441,7 @@ export class IndexXmlService {
 
     if (operation !== 'delete') {
       parts.push(`xlink:href="${this.escapeXml(file.ectdRelativePath)}"`);
+      parts.push(`xlink:type="simple"`);
       parts.push(`checksum="${file.md5Checksum}"`);
       parts.push(`checksum-type="MD5"`);
     }
@@ -355,8 +484,12 @@ export class IndexXmlService {
 
   private hasActiveLeaves(node: SequenceNodeTree): boolean {
     if (node.isLeaf && node.operation) {
+      // STF-required nodes count as active when they have studies, even if
+      // fileAttachments is empty (the PDFs are referenced via the studies).
       return (
-        node.fileAttachments.length > 0 || node.operation.toUpperCase() === 'DELETE'
+        node.fileAttachments.length > 0 ||
+        node.studies.length > 0 ||
+        node.operation.toUpperCase() === 'DELETE'
       );
     }
     return node.children.some((child) => this.hasActiveLeaves(child));

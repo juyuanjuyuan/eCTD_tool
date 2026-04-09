@@ -40,16 +40,17 @@ export class RegulatoryActivityService {
       dto.regulatoryActivityTypeCode,
     );
 
-    // Determine related-sequence: the last sequence number in this application
+    // Determine related-sequence: the global sequence number this RA will
+    // start at, i.e. (max sequenceNumber in the application) + 1. For a brand
+    // new application it's 0000.
     const lastSequence = await this.prisma.sequence.findFirst({
       where: {
         regulatoryActivity: { applicationId },
       },
       orderBy: { sequenceNumber: 'desc' },
     });
-    const relatedSequence = lastSequence
-      ? lastSequence.sequenceNumber
-      : '0000';
+    const nextNum = lastSequence ? parseInt(lastSequence.sequenceNumber) + 1 : 0;
+    const relatedSequence = nextNum.toString().padStart(4, '0');
 
     return this.prisma.regulatoryActivity.create({
       data: {

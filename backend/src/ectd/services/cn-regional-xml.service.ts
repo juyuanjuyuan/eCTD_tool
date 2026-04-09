@@ -61,7 +61,11 @@ export class CnRegionalXmlService {
     const ra = sequence.regulatoryActivity;
 
     // Load prior sequence leaf ID map for modified-file references
-    const priorLeafIdMap = await this.buildPriorLeafIdMap(sequence);
+    const priorLeafIdMap = await this.buildPriorLeafIdMap({
+      id: sequence.id,
+      sequenceNumber: sequence.sequenceNumber,
+      applicationId: app.id,
+    });
 
     // Load module 1 sequence nodes (tree structure)
     const module1Nodes = await this.loadModule1Nodes(sequenceId);
@@ -73,17 +77,21 @@ export class CnRegionalXmlService {
 
   /**
    * Build a map from templateNodeId -> prior sequence leaf ID
-   * for REPLACE/DELETE/APPEND operations' modified-file attribute
+   * for REPLACE/DELETE/APPEND operations' modified-file attribute.
+   *
+   * Scope: walk all sequences in the application with sequenceNumber < current,
+   * in descending order, and record the first occurrence per templateNodeId.
+   * This gives the most recent prior operation across all RAs.
    */
   private async buildPriorLeafIdMap(
-    sequence: { id: string; sequenceNumber: string; regulatoryActivityId: string },
+    sequence: { id: string; sequenceNumber: string; applicationId: string },
   ): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     if (sequence.sequenceNumber === '0000') return map;
 
     const priorSequences = await this.prisma.sequence.findMany({
       where: {
-        regulatoryActivityId: sequence.regulatoryActivityId,
+        regulatoryActivity: { applicationId: sequence.applicationId },
         sequenceNumber: { lt: sequence.sequenceNumber },
       },
       orderBy: { sequenceNumber: 'desc' },
@@ -106,7 +114,9 @@ export class CnRegionalXmlService {
           map.set(node.templateNodeId, this.md5Service.generateDeterministicLeafId(priorSeq.id, node.id));
         }
       }
-      break;
+      // Keep walking: earlier sequences may define templateNodes that the
+      // most recent one doesn't, and we want the most recent occurrence of
+      // each templateNodeId. The `!map.has` guard above ensures that.
     }
 
     return map;
@@ -306,6 +316,7 @@ export class CnRegionalXmlService {
         ? file.ectdRelativePath.substring('m1/cn/'.length)
         : file.ectdRelativePath;
       parts.push(`xlink:href="${this.escapeXml(href)}"`);
+      parts.push(`xlink:type="simple"`);
       parts.push(`checksum="${file.md5Checksum}"`);
       parts.push(`checksum-type="MD5"`);
     }

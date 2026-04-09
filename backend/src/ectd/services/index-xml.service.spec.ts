@@ -22,6 +22,7 @@ describe('IndexXmlService', () => {
       id: 'seq1',
       sequenceNumber: '0000',
       regulatoryActivityId: 'ra-1',
+      regulatoryActivity: { applicationId: 'app-1' },
     });
     mockPrisma.sequence.findMany.mockResolvedValue([]);
   });

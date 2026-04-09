@@ -37,6 +37,7 @@ const client_1 = require("@prisma/client");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const fast_xml_parser_1 = require("fast-xml-parser");
+const stf_default_categories_js_1 = require("./seeds/stf-default-categories.js");
 const prisma = new client_1.PrismaClient();
 const XML_DIR = path.resolve(process.cwd(), '../reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包');
 function parseXmlFile(filename) {
@@ -106,6 +107,7 @@ function buildTemplateNodes() {
             requiresStf: requiresStf(sno),
             requiresESeal: false,
             allowsExtension: isExtensionPoint(name, sno),
+            defaultStfCategories: stf_default_categories_js_1.STF_DEFAULTS[sno] ?? null,
         });
     }
     for (const el of cnElements) {
@@ -122,6 +124,7 @@ function buildTemplateNodes() {
             requiresStf: false,
             requiresESeal: E_SEAL_SECTIONS.has(name),
             allowsExtension: false,
+            defaultStfCategories: null,
         });
     }
     return nodes;
@@ -254,9 +257,16 @@ const COMPLETENESS_RULES = [
     },
 ];
 async function seedTemplateNodes() {
+    (0, stf_default_categories_js_1.validateStfDefaults)();
     const existing = await prisma.ctdTemplateNode.count();
     if (existing > 0) {
-        console.log(`CTD template nodes already seeded (${existing} nodes). Skipping.`);
+        console.log(`CTD template nodes already seeded (${existing} nodes). Skipping structural seed.`);
+        const { updatedSections, unmatchedSections } = await (0, stf_default_categories_js_1.applyStfDefaultCategories)(prisma);
+        console.log(`  Backfilled default_stf_categories for ${updatedSections} nodes ` +
+            `(${unmatchedSections.length} sections unmatched)`);
+        if (unmatchedSections.length > 0) {
+            console.warn(`  Warning: STF_DEFAULTS references sections not present in DB: ${unmatchedSections.join(', ')}`);
+        }
         return;
     }
     console.log('Building CTD template tree from XML...');
@@ -271,6 +281,10 @@ async function seedTemplateNodes() {
     for (const node of nodes) {
         const nodeType = nodeTypes.get(node.ctdSectionNumber) || client_1.CtdNodeType.LEAF;
         const isLeaf = nodeType === client_1.CtdNodeType.LEAF;
+        const nodeRequiresStf = isLeaf && node.requiresStf;
+        const defaultStfCategoriesValue = nodeRequiresStf && node.defaultStfCategories
+            ? node.defaultStfCategories
+            : undefined;
         const created = await prisma.ctdTemplateNode.create({
             data: {
                 module: node.module,
@@ -280,9 +294,10 @@ async function seedTemplateNodes() {
                 titleEn: node.titleEn,
                 nodeType,
                 isLeaf,
-                requiresStf: isLeaf && node.requiresStf,
+                requiresStf: nodeRequiresStf,
                 requiresESeal: node.requiresESeal,
                 allowsExtension: node.allowsExtension,
+                defaultStfCategories: defaultStfCategoriesValue,
                 sortOrder: node.sortOrder,
             },
         });
@@ -312,6 +327,11 @@ async function seedTemplateNodes() {
     for (const [mod, count] of Array.from(moduleStats.entries()).sort((a, b) => a[0] - b[0])) {
         console.log(`  Module ${mod}: ${count} nodes`);
     }
+    const stfPresetCount = nodes.filter((n) => {
+        const isLeafNode = nodeTypes.get(n.ctdSectionNumber) === client_1.CtdNodeType.LEAF;
+        return isLeafNode && n.requiresStf && n.defaultStfCategories !== null;
+    }).length;
+    console.log(`  ✓ ${stfPresetCount} leaf nodes have preset default_stf_categories`);
     return nameToId;
 }
 async function seedCompletenessRules(nameToId) {

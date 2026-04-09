@@ -1,21 +1,7 @@
-import { IsString, IsOptional, IsObject, IsArray, ValidateNested } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsString } from 'class-validator';
 
-export class SaveStfDto {
-  @IsString()
-  studyTitle: string;
-
-  @IsString()
-  studyId: string;
-
-  @IsOptional()
-  @IsObject()
-  categories?: Record<string, string>;
-
-  @IsOptional()
-  @IsArray()
-  fileTags?: Array<{ name: string; infoType: string }>;
-}
+// NOTE: Plan 12 — SaveStfDto removed. v2 study DTOs are defined in
+// `backend/src/study/dto/` and shipped with StudyModule.
 
 export class ValidateOperationDto {
   @IsString()

@@ -13,6 +13,7 @@ exports.ApplicationService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const controlled_vocabulary_service_1 = require("../controlled-vocabulary/controlled-vocabulary.service");
+const create_application_dto_1 = require("./dto/create-application.dto");
 let ApplicationService = class ApplicationService {
     prisma;
     cvService;
@@ -28,7 +29,12 @@ let ApplicationService = class ApplicationService {
             throw new common_1.NotFoundException(`项目 ${projectId} 不存在`);
         const appTypeVersion = await this.cvService.getCvVersion('application-type', dto.applicationTypeCode);
         const productTypeVersion = await this.cvService.getCvVersion('product-type', dto.productTypeCode);
-        const applicationNumber = this.generateApplicationNumber(dto.applicationTypeCode, dto.productTypeCode);
+        const applicationNumber = dto.applicationNumber ??
+            this.generateApplicationNumber(dto.applicationTypeCode, dto.productTypeCode);
+        if (!create_application_dto_1.APPLICATION_NUMBER_REGEX.test(applicationNumber)) {
+            throw new common_1.BadRequestException(`申请编号格式错误: "${applicationNumber}" 不符合 NMPA V1.1 规范 ` +
+                `(字母 x/y/l/s + 4位年份 + 5位流水号，共10个字符)`);
+        }
         const existing = await this.prisma.application.findUnique({
             where: { applicationNumber },
         });

@@ -3,9 +3,9 @@ export declare class ApprovalService {
     private readonly prisma;
     constructor(prisma: PrismaService);
     submitForApproval(nodeId: string, userId: string): Promise<{
+        ctdSectionNumber: string;
         id: string;
         elementName: string;
-        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;
@@ -28,9 +28,9 @@ export declare class ApprovalService {
         rejectionReason: string | null;
     }>;
     approveNode(nodeId: string, approverId: string): Promise<{
+        ctdSectionNumber: string;
         id: string;
         elementName: string;
-        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;
@@ -53,9 +53,9 @@ export declare class ApprovalService {
         rejectionReason: string | null;
     }>;
     rejectNode(nodeId: string, approverId: string, reason: string): Promise<{
+        ctdSectionNumber: string;
         id: string;
         elementName: string;
-        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;
@@ -78,9 +78,9 @@ export declare class ApprovalService {
         rejectionReason: string | null;
     }>;
     unlockApproval(nodeId: string): Promise<{
+        ctdSectionNumber: string;
         id: string;
         elementName: string;
-        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;
@@ -112,8 +112,8 @@ export declare class ApprovalService {
         requiredApproved: number;
         allRequiredApproved: boolean;
         nodes: {
-            id: string;
             ctdSectionNumber: string;
+            id: string;
             status: import("@prisma/client").$Enums.SequenceNodeStatus;
             title: string;
             isRequired: boolean;

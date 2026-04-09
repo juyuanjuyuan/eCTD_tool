@@ -1,5 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PDFDocument, PDFName, PDFDict, PDFArray, PDFString, PDFHexString } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFName,
+  PDFDict,
+  PDFArray,
+  PDFString,
+  PDFHexString,
+  PDFRef,
+} from 'pdf-lib';
 
 export interface ComplianceIssue {
   ruleId: string;
@@ -21,8 +29,8 @@ export interface ComplianceResult {
   };
 }
 
-// Max file size 200MB (V1.1 下调)
-const MAX_FILE_SIZE_MB = 200;
+// Max file size 500MB (ICH eCTD Submission Formats v1.2 §2.3)
+const MAX_FILE_SIZE_MB = 500;
 
 @Injectable()
 export class PDFComplianceService {
@@ -174,14 +182,30 @@ export class PDFComplianceService {
       });
     }
 
-    // Font embedding check
-    const unembeddedFonts = this.safeCheck(() => this.checkFontEmbedding(pdfDoc), [] as string[], '6.W2', '字体嵌入检查', warnings);
-    if (unembeddedFonts.length > 0) {
+    // ==================== 6.25: Font Embedding (ERROR) ====================
+    // eCTD Submission Format v1.2 要求所有字体必须嵌入 PDF，且只允许 TrueType/OpenType/Type1。
+    const fontReport = this.safeCheck(
+      () => this.checkFontCompliance(pdfDoc),
+      { unembedded: [] as string[], invalidSubtype: [] as { name: string; subtype: string }[] },
+      '6.25',
+      '字体嵌入检查',
+      warnings,
+    );
+    for (const fontName of fontReport.unembedded) {
+      errors.push({
+        ruleId: '6.25',
+        severity: 'error',
+        message: `字体 ${fontName} 未嵌入，违反 eCTD Submission Format v1.2`,
+        detail: 'PDF 所有字体必须嵌入 (FontFile/FontFile2/FontFile3)，且只允许 TrueType/OpenType/Type1',
+      });
+    }
+    // 6.26: Font subtype (WARNING) — only TrueType/OpenType/Type1 are allowed
+    for (const { name, subtype } of fontReport.invalidSubtype) {
       warnings.push({
-        ruleId: '6.W2',
+        ruleId: '6.26',
         severity: 'warning',
-        message: `${unembeddedFonts.length} 个字体未嵌入`,
-        detail: `未嵌入字体: ${unembeddedFonts.join(', ')}`,
+        message: `字体 ${name} 的类型 ${subtype} 不是 TrueType/OpenType/Type1`,
+        detail: 'eCTD Submission Format v1.2 要求字体类型仅限 TrueType、OpenType 或 Type1',
       });
     }
 
@@ -387,9 +411,79 @@ export class PDFComplianceService {
     return false;
   }
 
-  private checkFontEmbedding(pdfDoc: PDFDocument): string[] {
+  /**
+   * Rule 6.25 / 6.26 — Font compliance per eCTD Submission Format v1.2.
+   *
+   * Walks every font resource on every page and validates:
+   *   - The font (or composite Type0 descendant) has an embedded
+   *     FontFile / FontFile2 / FontFile3 stream.
+   *   - The font Subtype is TrueType / Type1 / OpenType (Type0 allowed only
+   *     when its descendant is CIDFontType0/CIDFontType2).
+   *
+   * The Standard 14 PDF fonts are skipped because pdf-lib and other legit
+   * producers may reference them without embedding; eCTD guidance allows
+   * this as long as they are truly the standard fonts (names are reserved).
+   */
+  private checkFontCompliance(pdfDoc: PDFDocument): {
+    unembedded: string[];
+    invalidSubtype: { name: string; subtype: string }[];
+  } {
     const unembedded: string[] = [];
+    const invalidSubtype: { name: string; subtype: string }[] = [];
+    const visited = new Set<string>(); // dedupe by PDFRef.toString()
+
+    const standard14 = new Set([
+      'Courier', 'Courier-Bold', 'Courier-BoldOblique', 'Courier-Oblique',
+      'Helvetica', 'Helvetica-Bold', 'Helvetica-BoldOblique', 'Helvetica-Oblique',
+      'Times-Roman', 'Times-Bold', 'Times-BoldItalic', 'Times-Italic',
+      'Symbol', 'ZapfDingbats',
+    ]);
+    const validTopSubtypes = new Set(['/Type1', '/TrueType', '/Type0']);
+    const validCidSubtypes = new Set(['/CIDFontType0', '/CIDFontType2']);
+
+    const cleanName = (raw: string): string => raw.replace(/^\//, '').replace(/^[A-Z]{6}\+/, '');
+
+    const inspectFont = (fontObj: unknown, alreadyReported: Set<string>): void => {
+      if (!(fontObj instanceof PDFDict)) return;
+
+      const baseFontNode = fontObj.lookup(PDFName.of('BaseFont'));
+      const rawName = baseFontNode ? baseFontNode.toString() : 'Unknown';
+      const name = cleanName(rawName);
+
+      const subtypeNode = fontObj.lookup(PDFName.of('Subtype'));
+      const subtype = subtypeNode ? subtypeNode.toString() : '';
+
+      // Type0 → delegate to DescendantFonts[0]
+      if (subtype === '/Type0') {
+        const descendants = fontObj.lookup(PDFName.of('DescendantFonts'));
+        if (descendants instanceof PDFArray && descendants.size() > 0) {
+          const descRaw = descendants.lookup(0);
+          const descFont = descRaw instanceof PDFRef ? pdfDoc.context.lookup(descRaw) : descRaw;
+          if (descFont instanceof PDFDict) {
+            const descSubNode = descFont.lookup(PDFName.of('Subtype'));
+            const descSub = descSubNode ? descSubNode.toString() : '';
+            if (!validCidSubtypes.has(descSub) && !alreadyReported.has(`sub:${name}`)) {
+              invalidSubtype.push({ name, subtype: `${subtype} → ${descSub || 'missing'}` });
+              alreadyReported.add(`sub:${name}`);
+            }
+            // Check embedding on the descendant's FontDescriptor
+            this.checkFontFile(descFont, name, unembedded, standard14, alreadyReported);
+          }
+        }
+        return;
+      }
+
+      // Non-Type0: validate subtype directly
+      if (subtype && !validTopSubtypes.has(subtype) && !alreadyReported.has(`sub:${name}`)) {
+        invalidSubtype.push({ name, subtype });
+        alreadyReported.add(`sub:${name}`);
+      }
+
+      this.checkFontFile(fontObj, name, unembedded, standard14, alreadyReported);
+    };
+
     const pages = pdfDoc.getPages();
+    const reported = new Set<string>();
     for (const page of pages) {
       const resources = page.node.lookup(PDFName.of('Resources'));
       if (!(resources instanceof PDFDict)) continue;
@@ -397,36 +491,51 @@ export class PDFComplianceService {
       const fonts = resources.lookup(PDFName.of('Font'));
       if (!(fonts instanceof PDFDict)) continue;
 
-      const fontEntries = fonts.entries();
-      for (const [, fontRef] of fontEntries) {
-        const font = pdfDoc.context.lookup(fontRef);
-        if (!(font instanceof PDFDict)) continue;
+      for (const [, fontRef] of fonts.entries()) {
+        // Dedupe by ref id so we don't scan shared fonts repeatedly
+        const refKey = fontRef instanceof PDFRef ? fontRef.toString() : Math.random().toString();
+        if (visited.has(refKey)) continue;
+        visited.add(refKey);
 
-        const baseFont = font.lookup(PDFName.of('BaseFont'));
-        const fontDesc = font.lookup(PDFName.of('FontDescriptor'));
-
-        if (fontDesc instanceof PDFDict) {
-          const fontFile = fontDesc.lookup(PDFName.of('FontFile'));
-          const fontFile2 = fontDesc.lookup(PDFName.of('FontFile2'));
-          const fontFile3 = fontDesc.lookup(PDFName.of('FontFile3'));
-
-          if (!fontFile && !fontFile2 && !fontFile3) {
-            // Font not embedded
-            const name = baseFont ? baseFont.toString().replace('/', '') : 'Unknown';
-            // Standard 14 fonts don't need embedding
-            const standard14 = [
-              'Courier', 'Courier-Bold', 'Courier-BoldOblique', 'Courier-Oblique',
-              'Helvetica', 'Helvetica-Bold', 'Helvetica-BoldOblique', 'Helvetica-Oblique',
-              'Times-Roman', 'Times-Bold', 'Times-BoldItalic', 'Times-Italic',
-              'Symbol', 'ZapfDingbats',
-            ];
-            if (!standard14.includes(name) && !unembedded.includes(name)) {
-              unembedded.push(name);
-            }
-          }
-        }
+        const fontObj = fontRef instanceof PDFRef ? pdfDoc.context.lookup(fontRef) : fontRef;
+        inspectFont(fontObj, reported);
       }
     }
-    return unembedded;
+    return { unembedded, invalidSubtype };
+  }
+
+  /**
+   * Check that a font dict (either a simple font or a CID descendant) has
+   * an embedded FontFile/FontFile2/FontFile3 stream referenced from its
+   * FontDescriptor.
+   */
+  private checkFontFile(
+    fontDict: PDFDict,
+    name: string,
+    unembedded: string[],
+    standard14: Set<string>,
+    alreadyReported: Set<string>,
+  ): void {
+    const reportKey = `emb:${name}`;
+    if (alreadyReported.has(reportKey)) return;
+
+    const fontDesc = fontDict.lookup(PDFName.of('FontDescriptor'));
+    if (!(fontDesc instanceof PDFDict)) {
+      // No descriptor at all — Standard 14 fonts are allowed to omit it.
+      if (!standard14.has(name)) {
+        unembedded.push(name);
+        alreadyReported.add(reportKey);
+      }
+      return;
+    }
+    const fontFile = fontDesc.lookup(PDFName.of('FontFile'));
+    const fontFile2 = fontDesc.lookup(PDFName.of('FontFile2'));
+    const fontFile3 = fontDesc.lookup(PDFName.of('FontFile3'));
+    if (!fontFile && !fontFile2 && !fontFile3) {
+      if (!standard14.has(name)) {
+        unembedded.push(name);
+        alreadyReported.add(reportKey);
+      }
+    }
   }
 }

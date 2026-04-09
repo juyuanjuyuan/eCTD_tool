@@ -8,8 +8,8 @@ export declare class ProjectService {
     private activityLog;
     constructor(prisma: PrismaService, redis: RedisCacheService, activityLog: ActivityLogService);
     create(dto: CreateProjectDto, userId: string): Promise<{
-        description: string | null;
         id: string;
+        description: string | null;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;
@@ -27,8 +27,8 @@ export declare class ProjectService {
                 name: string;
             };
         } & {
-            description: string | null;
             id: string;
+            description: string | null;
             name: string;
             status: import("@prisma/client").$Enums.ProjectStatus;
             createdAt: Date;
@@ -62,8 +62,8 @@ export declare class ProjectService {
             projectId: string;
         })[];
     } & {
-        description: string | null;
         id: string;
+        description: string | null;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;
@@ -71,8 +71,8 @@ export declare class ProjectService {
         createdBy: string;
     }>;
     update(id: string, dto: UpdateProjectDto, userId: string): Promise<{
-        description: string | null;
         id: string;
+        description: string | null;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;
@@ -80,8 +80,8 @@ export declare class ProjectService {
         createdBy: string;
     }>;
     archive(id: string, userId: string): Promise<{
-        description: string | null;
         id: string;
+        description: string | null;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;

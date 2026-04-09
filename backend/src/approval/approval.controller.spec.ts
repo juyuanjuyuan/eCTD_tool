@@ -10,7 +10,7 @@ describe('ApprovalController', () => {
       approveNode: jest.fn().mockResolvedValue({ approvalStatus: 'APPROVED' }),
       rejectNode: jest.fn().mockResolvedValue({ approvalStatus: 'REJECTED' }),
       unlockApproval: jest.fn().mockResolvedValue({ approvalStatus: 'DRAFT' }),
-      getApprovalHistory: jest.fn().mockResolvedValue({ status: 'APPROVED' }),
+      getApprovalHistory: jest.fn().mockResolvedValue({ approvalStatus: 'APPROVED' }),
     };
     controller = new ApprovalController(service as any);
   });
@@ -38,7 +38,7 @@ describe('ApprovalController', () => {
 
   it('should get history', async () => {
     const result = await controller.getHistory('node-1');
-    expect(result.status).toBe('APPROVED');
+    expect(result.approvalStatus).toBe('APPROVED');
   });
 });
 

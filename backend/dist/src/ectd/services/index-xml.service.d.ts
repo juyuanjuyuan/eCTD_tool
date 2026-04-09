@@ -13,6 +13,8 @@ export declare class IndexXmlService {
     private buildNodeExtension;
     private buildLeafElements;
     private buildLeafFromAttachments;
+    private buildStfLeaves;
+    private deriveStfPath;
     private buildLeafAttrs;
     private buildBackboneAttributes;
     private hasActiveLeaves;

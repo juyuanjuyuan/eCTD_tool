@@ -404,7 +404,7 @@ describe('eCTD Advanced Scenarios', () => {
       const md5 = new Md5Service();
       const indexService = new IndexXmlService(indexMockPrisma as any, md5);
 
-      indexMockPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq-rebuild', sequenceNumber: '0000', regulatoryActivityId: 'ra-1' });
+      indexMockPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq-rebuild', sequenceNumber: '0000', regulatoryActivityId: 'ra-1', regulatoryActivity: { applicationId: 'app-1' } });
       indexMockPrisma.sequence.findMany.mockResolvedValue([]);
       indexMockPrisma.sequenceNode.findMany.mockResolvedValue([
         {
@@ -478,7 +478,7 @@ describe('eCTD Advanced Scenarios', () => {
       const md5 = new Md5Service();
       const indexService = new IndexXmlService(indexPrisma as any, md5);
 
-      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq1', sequenceNumber: '0000', regulatoryActivityId: 'ra-1' });
+      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq1', sequenceNumber: '0000', regulatoryActivityId: 'ra-1', regulatoryActivity: { applicationId: 'app-1' } });
       indexPrisma.sequence.findMany.mockResolvedValue([]);
       indexPrisma.sequenceNode.findMany.mockResolvedValue([
         {
@@ -510,7 +510,7 @@ describe('eCTD Advanced Scenarios', () => {
       const md5 = new Md5Service();
       const indexService = new IndexXmlService(indexPrisma as any, md5);
 
-      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq1', sequenceNumber: '0000', regulatoryActivityId: 'ra-1' });
+      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq1', sequenceNumber: '0000', regulatoryActivityId: 'ra-1', regulatoryActivity: { applicationId: 'app-1' } });
       indexPrisma.sequence.findMany.mockResolvedValue([]);
       indexPrisma.sequenceNode.findMany.mockResolvedValue([
         {
@@ -558,7 +558,7 @@ describe('eCTD Advanced Scenarios', () => {
       const md5 = new Md5Service();
       const indexService = new IndexXmlService(indexPrisma as any, md5);
 
-      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq1', sequenceNumber: '0000', regulatoryActivityId: 'ra-1' });
+      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq1', sequenceNumber: '0000', regulatoryActivityId: 'ra-1', regulatoryActivity: { applicationId: 'app-1' } });
       indexPrisma.sequence.findMany.mockResolvedValue([]);
       indexPrisma.sequenceNode.findMany.mockResolvedValue([
         {
@@ -628,7 +628,7 @@ describe('eCTD Advanced Scenarios', () => {
       const md5 = new Md5Service();
       const indexService = new IndexXmlService(indexPrisma as any, md5);
 
-      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq1', sequenceNumber: '0000', regulatoryActivityId: 'ra-1' });
+      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq1', sequenceNumber: '0000', regulatoryActivityId: 'ra-1', regulatoryActivity: { applicationId: 'app-1' } });
       indexPrisma.sequence.findMany.mockResolvedValue([]);
       indexPrisma.sequenceNode.findMany.mockResolvedValue([
         {
@@ -712,7 +712,7 @@ describe('eCTD Advanced Scenarios', () => {
       const md5 = new Md5Service();
       const indexService = new IndexXmlService(indexPrisma as any, md5);
 
-      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq1', sequenceNumber: '0000', regulatoryActivityId: 'ra-1' });
+      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq1', sequenceNumber: '0000', regulatoryActivityId: 'ra-1', regulatoryActivity: { applicationId: 'app-1' } });
       indexPrisma.sequence.findMany.mockResolvedValue([]);
       indexPrisma.sequenceNode.findMany.mockResolvedValue([
         {
@@ -761,7 +761,7 @@ describe('eCTD Advanced Scenarios', () => {
       const md5 = new Md5Service();
       const indexService = new IndexXmlService(indexPrisma as any, md5);
 
-      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq-large', sequenceNumber: '0000', regulatoryActivityId: 'ra-1' });
+      indexPrisma.sequence.findUnique.mockResolvedValue({ id: 'seq-large', sequenceNumber: '0000', regulatoryActivityId: 'ra-1', regulatoryActivity: { applicationId: 'app-1' } });
       indexPrisma.sequence.findMany.mockResolvedValue([]);
 
       const nodes: any[] = [

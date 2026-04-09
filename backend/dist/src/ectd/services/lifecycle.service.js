@@ -24,7 +24,7 @@ let LifecycleService = LifecycleService_1 = class LifecycleService {
         const sequence = await this.prisma.sequence.findUnique({
             where: { id: sequenceId },
             include: {
-                regulatoryActivity: { select: { id: true } },
+                regulatoryActivity: { select: { id: true, applicationId: true } },
             },
         });
         if (!sequence)
@@ -43,15 +43,15 @@ let LifecycleService = LifecycleService_1 = class LifecycleService {
             });
             if (!node)
                 return { isValid: false, message: '节点不存在' };
-            const prevOp = await this.findPreviousOperation(sequence.regulatoryActivityId, sequence.sequenceNumber, node.templateNodeId);
+            const prevOp = await this.findPreviousOperation(sequence.regulatoryActivity.applicationId, sequence.sequenceNumber, node.templateNodeId);
             return this.checkOperationTransition(prevOp, operation);
         }
         return { isValid: true };
     }
-    async findPreviousOperation(regulatoryActivityId, currentSeqNumber, templateNodeId) {
+    async findPreviousOperation(applicationId, currentSeqNumber, templateNodeId) {
         const priorSequences = await this.prisma.sequence.findMany({
             where: {
-                regulatoryActivityId,
+                regulatoryActivity: { applicationId },
                 sequenceNumber: { lt: currentSeqNumber },
             },
             orderBy: { sequenceNumber: 'desc' },
@@ -109,13 +109,15 @@ let LifecycleService = LifecycleService_1 = class LifecycleService {
             return { isValid: false, message: '节点不存在' };
         const sequence = await this.prisma.sequence.findUnique({
             where: { id: sequenceId },
-            select: { regulatoryActivityId: true, sequenceNumber: true },
+            include: {
+                regulatoryActivity: { select: { applicationId: true } },
+            },
         });
         if (!sequence)
             return { isValid: false, message: '序列不存在' };
         const priorSequences = await this.prisma.sequence.findMany({
             where: {
-                regulatoryActivityId: sequence.regulatoryActivityId,
+                regulatoryActivity: { applicationId: sequence.regulatoryActivity.applicationId },
                 sequenceNumber: { lt: sequence.sequenceNumber },
             },
             orderBy: { sequenceNumber: 'desc' },

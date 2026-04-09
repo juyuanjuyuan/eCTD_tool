@@ -87,10 +87,13 @@ describe('CnRegionalXmlService', () => {
       expect(xml).toContain('<phone>010-12345678</phone>');
       expect(xml).toContain('<email>test@example.com</email>');
 
-      // Content with leaf element
+      // Content with leaf element. Per ICH, xlink:href in cn-regional.xml is
+      // relative to the XML file's own location (m1/cn/), so the m1/cn/ prefix
+      // is stripped from the stored ectdRelativePath.
       expect(xml).toContain('<cn-content>');
       expect(xml).toContain('operation="new"');
-      expect(xml).toContain('xlink:href="m1/cn/02/application-form.pdf"');
+      expect(xml).toContain('xlink:href="02/application-form.pdf"');
+      expect(xml).toContain('xlink:type="simple"');
       expect(xml).toContain('checksum="abc123"');
       expect(xml).toContain('checksum-type="MD5"');
       expect(xml).toContain('<title>申请表</title>');

@@ -3,12 +3,12 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 /** eCTD-allowed file extensions (技术规范 3.3.1) */
 export const ALLOWED_EXTENSIONS = new Set(['.pdf', '.xml', '.xpt', '.txt', '.xsl']);
 
-/** Max path length from sequence folder (技术规范 3.3.2) */
-const MAX_PATH_LENGTH = 180;
+/** Max path length from sequence folder (ICH eCTD v3.2.2 §2.4: 230 chars) */
+const MAX_PATH_LENGTH = 230;
 /** Max single file/folder name length (技术规范 3.3.2) */
 const MAX_NAME_LENGTH = 64;
-/** Max file size for normal files: 200MB */
-const MAX_FILE_SIZE = 200 * 1024 * 1024;
+/** Max file size for normal files: 500MB (ICH eCTD Submission Formats v1.2 §2.3) */
+const MAX_FILE_SIZE = 500 * 1024 * 1024;
 /** Max file size for SAS XPT files: 4GB */
 const MAX_XPT_FILE_SIZE = 4 * 1024 * 1024 * 1024;
 
@@ -99,7 +99,7 @@ export class FileNameNormalizerService {
   validateFileSize(size: number, filename: string): void {
     const ext = this.getExtension(filename);
     const maxSize = ext === '.xpt' ? MAX_XPT_FILE_SIZE : MAX_FILE_SIZE;
-    const maxLabel = ext === '.xpt' ? '4GB' : '200MB';
+    const maxLabel = ext === '.xpt' ? '4GB' : '500MB';
 
     if (size > maxSize) {
       throw new BadRequestException(

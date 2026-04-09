@@ -38,9 +38,8 @@ let RegulatoryActivityService = class RegulatoryActivityService {
             },
             orderBy: { sequenceNumber: 'desc' },
         });
-        const relatedSequence = lastSequence
-            ? lastSequence.sequenceNumber
-            : '0000';
+        const nextNum = lastSequence ? parseInt(lastSequence.sequenceNumber) + 1 : 0;
+        const relatedSequence = nextNum.toString().padStart(4, '0');
         return this.prisma.regulatoryActivity.create({
             data: {
                 applicationId,

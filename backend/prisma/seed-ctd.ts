@@ -2,6 +2,12 @@ import { PrismaClient, CtdNodeType, CompletenessRuleType, CompletenessRuleSeveri
 import * as fs from 'fs';
 import * as path from 'path';
 import { XMLParser } from 'fast-xml-parser';
+import {
+  STF_DEFAULTS,
+  applyStfDefaultCategories,
+  validateStfDefaults,
+} from './seeds/stf-default-categories.js';
+import type { StfCategoryDimension } from './seeds/stf-default-categories.js';
 
 const prisma = new PrismaClient();
 
@@ -87,6 +93,7 @@ interface TemplateNode {
   requiresStf: boolean;
   requiresESeal: boolean;
   allowsExtension: boolean;
+  defaultStfCategories: StfCategoryDimension[] | null;
 }
 
 function buildTemplateNodes(): TemplateNode[] {
@@ -118,6 +125,7 @@ function buildTemplateNodes(): TemplateNode[] {
       requiresStf: requiresStf(sno),
       requiresESeal: false,
       allowsExtension: isExtensionPoint(name, sno),
+      defaultStfCategories: STF_DEFAULTS[sno] ?? null,
     });
   }
 
@@ -137,6 +145,7 @@ function buildTemplateNodes(): TemplateNode[] {
       requiresStf: false,
       requiresESeal: E_SEAL_SECTIONS.has(name),
       allowsExtension: false,
+      defaultStfCategories: null,
     });
   }
 
@@ -300,9 +309,26 @@ const COMPLETENESS_RULES: CompletenessRuleInput[] = [
 // ==================== Seed Functions ====================
 
 async function seedTemplateNodes() {
+  // Always validate the STF defaults table before touching the DB so that any
+  // accidental typo in category names (e.g. route-admin vs route-of-admin)
+  // fails loud at seed time instead of silently corrupting data.
+  validateStfDefaults();
+
   const existing = await prisma.ctdTemplateNode.count();
   if (existing > 0) {
-    console.log(`CTD template nodes already seeded (${existing} nodes). Skipping.`);
+    console.log(`CTD template nodes already seeded (${existing} nodes). Skipping structural seed.`);
+    // Still apply STF default categories idempotently so that DBs seeded before
+    // Plan 12 can be backfilled in-place without a full re-seed.
+    const { updatedSections, unmatchedSections } = await applyStfDefaultCategories(prisma);
+    console.log(
+      `  Backfilled default_stf_categories for ${updatedSections} nodes ` +
+        `(${unmatchedSections.length} sections unmatched)`,
+    );
+    if (unmatchedSections.length > 0) {
+      console.warn(
+        `  Warning: STF_DEFAULTS references sections not present in DB: ${unmatchedSections.join(', ')}`,
+      );
+    }
     return;
   }
 
@@ -326,6 +352,15 @@ async function seedTemplateNodes() {
     const nodeType = nodeTypes.get(node.ctdSectionNumber) || CtdNodeType.LEAF;
     const isLeaf = nodeType === CtdNodeType.LEAF;
 
+    const nodeRequiresStf = isLeaf && node.requiresStf;
+    // defaultStfCategories 只对"需要 STF 的叶节点"有意义：
+    // - 非叶节点 / 非 STF 节点 -> undefined (落库 null)
+    // - 叶节点但 STF_DEFAULTS 里没定义 -> undefined (前端走"高级区"手动添加)
+    const defaultStfCategoriesValue =
+      nodeRequiresStf && node.defaultStfCategories
+        ? (node.defaultStfCategories as unknown as object)
+        : undefined;
+
     const created = await prisma.ctdTemplateNode.create({
       data: {
         module: node.module,
@@ -335,9 +370,10 @@ async function seedTemplateNodes() {
         titleEn: node.titleEn,
         nodeType,
         isLeaf,
-        requiresStf: isLeaf && node.requiresStf,
+        requiresStf: nodeRequiresStf,
         requiresESeal: node.requiresESeal,
         allowsExtension: node.allowsExtension,
+        defaultStfCategories: defaultStfCategoriesValue,
         sortOrder: node.sortOrder,
       },
     });
@@ -372,6 +408,14 @@ async function seedTemplateNodes() {
   for (const [mod, count] of Array.from(moduleStats.entries()).sort((a, b) => a[0] - b[0])) {
     console.log(`  Module ${mod}: ${count} nodes`);
   }
+
+  // Count how many nodes ended up with a preset default_stf_categories.
+  // (In-memory — avoids the Prisma DbNull/AnyNull filter dance on Json? columns.)
+  const stfPresetCount = nodes.filter((n) => {
+    const isLeafNode = nodeTypes.get(n.ctdSectionNumber) === CtdNodeType.LEAF;
+    return isLeafNode && n.requiresStf && n.defaultStfCategories !== null;
+  }).length;
+  console.log(`  ✓ ${stfPresetCount} leaf nodes have preset default_stf_categories`);
 
   return nameToId;
 }

@@ -9,14 +9,21 @@ describe('CtdTemplateController', () => {
       getTemplateTree: jest.fn().mockResolvedValue({ children: [] }),
       getTemplateTreeWithRules: jest.fn().mockResolvedValue({ children: [] }),
       getExtensionNodeOptions: jest.fn().mockReturnValue([]),
-      initializeSequenceNodes: jest.fn().mockResolvedValue({ count: 10 }),
+      initializeSequenceNodes: jest.fn().mockResolvedValue({ message: '序列目录初始化完成', nodeCount: 10 }),
       previewRequiredSections: jest.fn().mockResolvedValue([]),
       getSequenceNodeTree: jest.fn().mockResolvedValue({ children: [] }),
       updateSequenceNode: jest.fn().mockResolvedValue({ id: 'node-1' }),
       updateBackboneAttributes: jest.fn().mockResolvedValue({ id: 'node-1' }),
       createExtensionNode: jest.fn().mockResolvedValue({ id: 'ext-1' }),
       deleteExtensionNode: jest.fn().mockResolvedValue({ success: true }),
-      checkCompleteness: jest.fn().mockResolvedValue({ isComplete: true }),
+      checkCompleteness: jest.fn().mockResolvedValue({
+        totalSections: 10,
+        requiredSections: 5,
+        completedRequired: 5,
+        forbiddenViolations: [],
+        missingRequired: [],
+        moduleStats: {},
+      }),
     };
 
     controller = new CtdTemplateController(service as any);
@@ -39,7 +46,7 @@ describe('CtdTemplateController', () => {
 
   it('should initialize sequence', async () => {
     const result = await controller.initializeSequence('seq-1');
-    expect(result.count).toBe(10);
+    expect(result.nodeCount).toBe(10);
   });
 
   it('should preview required sections', async () => {
@@ -74,6 +81,7 @@ describe('CtdTemplateController', () => {
 
   it('should check completeness', async () => {
     const result = await controller.checkCompleteness('seq-1');
-    expect(result.isComplete).toBe(true);
+    expect(result.missingRequired).toHaveLength(0);
+    expect(result.completedRequired).toBe(5);
   });
 });

@@ -28,5 +28,6 @@ export declare class PDFComplianceService {
     private checkBookmarks;
     private checkBookmarkZoom;
     private checkAttachments;
-    private checkFontEmbedding;
+    private checkFontCompliance;
+    private checkFontFile;
 }

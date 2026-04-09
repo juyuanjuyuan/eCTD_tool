@@ -36,6 +36,7 @@ export class ControlledVocabularyService implements OnModuleInit {
 
   async onModuleInit() {
     await this.seedControlledVocabularies();
+    await this.seedStfVocabularies();
   }
 
   async seedControlledVocabularies() {
@@ -155,6 +156,155 @@ export class ControlledVocabularyService implements OnModuleInit {
       parseInt(parts[1]) - 1,
       parseInt(parts[2]),
     );
+  }
+
+  // ==================== STF Vocabulary Seed ====================
+
+  /**
+   * Load ICH STF v2 controlled vocabulary from valid-values.xml
+   * (附件2-6) into the ControlledVocabulary table.
+   *
+   * Naming convention:
+   *   - stf-category-<name>   one row per <category name="X"><valid-value ...>
+   *   - stf-file-tag-m4       all <file-tag><valid-value ...> values (mirrored)
+   *   - stf-file-tag-m5       all <file-tag><valid-value ...> values (mirrored)
+   *
+   * Design note on file-tag mirroring:
+   *   valid-values.xml has a single flat <file-tag> block that is shared by
+   *   modules 4 and 5. Plan 12 §1.2 asks for per-module keys
+   *   (stf-file-tag-m4 / stf-file-tag-m5). We therefore write every file-tag
+   *   row TWICE, once under each vocabularyName, so the per-module query API
+   *   can look up by a single key without fan-out at read time.
+   *
+   * Realm encoding:
+   *   The CV table has no realm column. We prefix descriptionEn with the
+   *   realm, e.g. "[ich] mouse", and store the bare value in descriptionZh
+   *   as a display fallback. Query APIs parse the prefix back out.
+   */
+  async seedStfVocabularies(): Promise<void> {
+    const existingCount = await this.prisma.controlledVocabulary.count({
+      where: { vocabularyName: { startsWith: 'stf-' } },
+    });
+    if (existingCount > 0) {
+      this.logger.log('STF CV already seeded');
+      return;
+    }
+
+    const filePath = path.resolve(
+      process.cwd(),
+      '../reference/eCTD技术规范V1.1附件包/附件2-6：STF标签值文件/valid-values.xml',
+    );
+
+    if (!fs.existsSync(filePath)) {
+      this.logger.warn(`STF valid-values.xml not found at ${filePath}`);
+      return;
+    }
+
+    const { categories, fileTags, version, validFrom } =
+      this.parseStfValidValuesFile(filePath);
+
+    // Insert categories
+    let categoryRowCount = 0;
+    for (const category of categories) {
+      const vocabularyName = `stf-category-${category.name}`;
+      for (const entry of category.values) {
+        await this.prisma.controlledVocabulary.create({
+          data: {
+            vocabularyName,
+            code: entry.value,
+            version,
+            validFrom,
+            descriptionZh: entry.value,
+            descriptionEn: `[${entry.realm}] ${entry.value}`,
+          },
+        });
+        categoryRowCount++;
+      }
+    }
+
+    // Insert file-tags mirrored under both m4 and m5 keys
+    let fileTagRowCount = 0;
+    for (const moduleKey of ['m4', 'm5'] as const) {
+      const vocabularyName = `stf-file-tag-${moduleKey}`;
+      for (const entry of fileTags) {
+        await this.prisma.controlledVocabulary.create({
+          data: {
+            vocabularyName,
+            code: entry.value,
+            version,
+            validFrom,
+            descriptionZh: entry.value,
+            descriptionEn: `[${entry.realm}] ${entry.value}`,
+          },
+        });
+        fileTagRowCount++;
+      }
+    }
+
+    this.logger.log(
+      `STF CV seeded: ${categories.length} categories (${categoryRowCount} values), ${fileTagRowCount} file-tag rows (mirrored m4+m5)`,
+    );
+  }
+
+  /**
+   * Parse the ICH STF valid-values.xml file into in-memory structures.
+   * Public visibility (via a thin accessor) would allow reuse from a
+   * standalone prisma seed; kept private here because prisma/seed.ts does
+   * not currently reference seeds from a seeds/ directory.
+   */
+  private parseStfValidValuesFile(filePath: string): {
+    categories: Array<{
+      name: string;
+      values: Array<{ value: string; realm: string }>;
+    }>;
+    fileTags: Array<{ value: string; realm: string }>;
+    version: string;
+    validFrom: Date;
+  } {
+    const xml = fs.readFileSync(filePath, 'utf-8');
+    const parsed = this.xmlParser.parse(xml);
+
+    const root = parsed['ectd:study-values'];
+    if (!root) {
+      throw new Error(
+        'Invalid STF valid-values.xml: missing <ectd:study-values> root',
+      );
+    }
+
+    const normaliseEntries = (raw: any): Array<{ value: string; realm: string }> => {
+      if (!raw) return [];
+      const entries = Array.isArray(raw) ? raw : [raw];
+      return entries.map((e: any) => ({
+        value: String(e['@_value']),
+        realm: String(e['@_realm'] || 'ich'),
+      }));
+    };
+
+    // Categories: one or many <category name="..."> blocks
+    const rawCategories = Array.isArray(root.category)
+      ? root.category
+      : root.category
+        ? [root.category]
+        : [];
+
+    const categories = rawCategories.map((cat: any) => ({
+      name: String(cat['@_name']),
+      values: normaliseEntries(cat['valid-value']),
+    }));
+
+    // file-tag block (single element, flat list)
+    const fileTagBlock = root['file-tag'];
+    const fileTags = normaliseEntries(fileTagBlock?.['valid-value']);
+
+    // Version is expressed only in a comment header ("v6.0 - November 2023").
+    // fast-xml-parser drops comments by default, so we hardcode to match the
+    // frozen v6.0 baseline; upgrades will bump this constant.
+    return {
+      categories,
+      fileTags,
+      version: '6.0',
+      validFrom: new Date('2023-11-01'),
+    };
   }
 
   // ==================== Query APIs ====================
@@ -278,5 +428,111 @@ export class ControlledVocabularyService implements OnModuleInit {
       orderBy: { validFrom: 'desc' },
     });
     return cv?.version || '1.0';
+  }
+
+  // ==================== STF Query APIs ====================
+
+  /**
+   * Parse "[realm] value" encoding used in descriptionEn.
+   * Falls back to realm="ich" if the prefix is missing.
+   */
+  private decodeStfDescription(descriptionEn: string, fallbackValue: string): {
+    value: string;
+    realm: string;
+  } {
+    const match = /^\[([^\]]+)\]\s*(.*)$/.exec(descriptionEn || '');
+    if (match) {
+      return { realm: match[1], value: match[2] || fallbackValue };
+    }
+    return { realm: 'ich', value: fallbackValue };
+  }
+
+  /**
+   * Return every STF category grouped by its category name, e.g.
+   *   [{ name: "species", values: [{ value: "rat", realm: "ich" }, ...] }, ...]
+   */
+  async getStfCategories(): Promise<
+    Array<{ name: string; values: Array<{ value: string; realm: string }> }>
+  > {
+    const cacheKey = 'cv:stf-categories';
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached as Array<{
+      name: string;
+      values: Array<{ value: string; realm: string }>;
+    }>;
+
+    const rows = await this.prisma.controlledVocabulary.findMany({
+      where: { vocabularyName: { startsWith: 'stf-category-' } },
+      orderBy: [{ vocabularyName: 'asc' }, { code: 'asc' }],
+    });
+
+    const grouped = new Map<
+      string,
+      Array<{ value: string; realm: string }>
+    >();
+    for (const row of rows) {
+      const name = row.vocabularyName.replace(/^stf-category-/, '');
+      const decoded = this.decodeStfDescription(row.descriptionEn, row.code);
+      if (!grouped.has(name)) grouped.set(name, []);
+      grouped.get(name)!.push({ value: row.code, realm: decoded.realm });
+    }
+
+    const result = Array.from(grouped.entries()).map(([name, values]) => ({
+      name,
+      values,
+    }));
+
+    await this.cache.set(cacheKey, result, 86400);
+    return result;
+  }
+
+  /**
+   * Return ICH STF file-tag values for a given module.
+   * Both modules share the same flat file-tag list from valid-values.xml,
+   * mirrored at seed time. See seedStfVocabularies() design note.
+   */
+  async getStfFileTags(
+    module: 'm4' | 'm5',
+  ): Promise<Array<{ value: string; realm: string }>> {
+    const cacheKey = `cv:stf-file-tags:${module}`;
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached as Array<{ value: string; realm: string }>;
+
+    const rows = await this.prisma.controlledVocabulary.findMany({
+      where: { vocabularyName: `stf-file-tag-${module}` },
+      orderBy: { code: 'asc' },
+    });
+
+    const result = rows.map((row) => {
+      const decoded = this.decodeStfDescription(row.descriptionEn, row.code);
+      return { value: row.code, realm: decoded.realm };
+    });
+
+    await this.cache.set(cacheKey, result, 86400);
+    return result;
+  }
+
+  /**
+   * Return values for a single STF category.
+   */
+  async getStfCategoryValues(
+    categoryName: string,
+  ): Promise<Array<{ value: string; realm: string }>> {
+    const cacheKey = `cv:stf-category-values:${categoryName}`;
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached as Array<{ value: string; realm: string }>;
+
+    const rows = await this.prisma.controlledVocabulary.findMany({
+      where: { vocabularyName: `stf-category-${categoryName}` },
+      orderBy: { code: 'asc' },
+    });
+
+    const result = rows.map((row) => {
+      const decoded = this.decodeStfDescription(row.descriptionEn, row.code);
+      return { value: row.code, realm: decoded.realm };
+    });
+
+    await this.cache.set(cacheKey, result, 86400);
+    return result;
   }
 }

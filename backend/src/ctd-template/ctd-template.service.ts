@@ -14,7 +14,20 @@ import {
 import { LeafOperation, SequenceNodeStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
 
-// Extension node definitions from node-extension-property_CN.xml
+/**
+ * 3.2.R (Regional Information) extension node definitions.
+ *
+ * Source of truth: NMPA eCTD V1.1 controlled-vocabulary file
+ *   reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包/node-extension-property_CN.xml
+ *
+ * Per NMPA V1.1, the 3.2.R section is an EXTENSION_POINT in the CTD template
+ * and permits exactly these 6 sub-sections. Extension nodes are ONLY allowed
+ * for biologic products (productTypeCode = 'cnprt2'); see `createExtensionNode`
+ * below which enforces this restriction.
+ *
+ * NB: The Chinese titles below intentionally differ from the ICH M4Q §3.2.R
+ * labels — they are NMPA regional redefinitions of the extension slots.
+ */
 const EXTENSION_NODE_DEFS: Record<string, { titleZh: string; titleEn: string }> = {
   '3.2.R.1': { titleZh: '3.2.R.1工艺验证', titleEn: 'Process Validation' },
   '3.2.R.2': { titleZh: '3.2.R.2批记录', titleEn: 'Batch Records' },
@@ -23,6 +36,9 @@ const EXTENSION_NODE_DEFS: Record<string, { titleZh: string; titleEn: string }> 
   '3.2.R.5': { titleZh: '3.2.R.5可比性方案', titleEn: 'Comparability Schemes' },
   '3.2.R.6': { titleZh: '3.2.R.6其他', titleEn: 'Other' },
 };
+
+/** Allowed product type for 3.2.R extension nodes (NMPA V1.1: biologics only) */
+const EXTENSION_NODE_ALLOWED_PRODUCT_TYPE = 'cnprt2';
 
 // Backbone attribute nodes
 const SUBSTANCE_SECTIONS = new Set(['2.3.S', '3.2.S']);
@@ -505,8 +521,13 @@ export class CtdTemplateService {
       },
     });
     if (!sequence) throw new NotFoundException(`序列 ${sequenceId} 不存在`);
-    if (sequence.regulatoryActivity.application.productTypeCode !== 'cnprt2') {
-      throw new ForbiddenException('扩展节点仅适用于生物制品(cnprt2)申请');
+    if (
+      sequence.regulatoryActivity.application.productTypeCode !==
+      EXTENSION_NODE_ALLOWED_PRODUCT_TYPE
+    ) {
+      throw new ForbiddenException(
+        `扩展节点仅适用于生物制品(${EXTENSION_NODE_ALLOWED_PRODUCT_TYPE})申请`,
+      );
     }
 
     const extDef = EXTENSION_NODE_DEFS[dto.extensionType];

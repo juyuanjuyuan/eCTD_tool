@@ -65,6 +65,7 @@ let ControlledVocabularyService = ControlledVocabularyService_1 = class Controll
     }
     async onModuleInit() {
         await this.seedControlledVocabularies();
+        await this.seedStfVocabularies();
     }
     async seedControlledVocabularies() {
         const existingCount = await this.prisma.controlledVocabulary.count();
@@ -150,6 +151,90 @@ let ControlledVocabularyService = ControlledVocabularyService_1 = class Controll
     parseDate(dateStr) {
         const parts = dateStr.split('-');
         return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    }
+    async seedStfVocabularies() {
+        const existingCount = await this.prisma.controlledVocabulary.count({
+            where: { vocabularyName: { startsWith: 'stf-' } },
+        });
+        if (existingCount > 0) {
+            this.logger.log('STF CV already seeded');
+            return;
+        }
+        const filePath = path.resolve(process.cwd(), '../reference/eCTD技术规范V1.1附件包/附件2-6：STF标签值文件/valid-values.xml');
+        if (!fs.existsSync(filePath)) {
+            this.logger.warn(`STF valid-values.xml not found at ${filePath}`);
+            return;
+        }
+        const { categories, fileTags, version, validFrom } = this.parseStfValidValuesFile(filePath);
+        let categoryRowCount = 0;
+        for (const category of categories) {
+            const vocabularyName = `stf-category-${category.name}`;
+            for (const entry of category.values) {
+                await this.prisma.controlledVocabulary.create({
+                    data: {
+                        vocabularyName,
+                        code: entry.value,
+                        version,
+                        validFrom,
+                        descriptionZh: entry.value,
+                        descriptionEn: `[${entry.realm}] ${entry.value}`,
+                    },
+                });
+                categoryRowCount++;
+            }
+        }
+        let fileTagRowCount = 0;
+        for (const moduleKey of ['m4', 'm5']) {
+            const vocabularyName = `stf-file-tag-${moduleKey}`;
+            for (const entry of fileTags) {
+                await this.prisma.controlledVocabulary.create({
+                    data: {
+                        vocabularyName,
+                        code: entry.value,
+                        version,
+                        validFrom,
+                        descriptionZh: entry.value,
+                        descriptionEn: `[${entry.realm}] ${entry.value}`,
+                    },
+                });
+                fileTagRowCount++;
+            }
+        }
+        this.logger.log(`STF CV seeded: ${categories.length} categories (${categoryRowCount} values), ${fileTagRowCount} file-tag rows (mirrored m4+m5)`);
+    }
+    parseStfValidValuesFile(filePath) {
+        const xml = fs.readFileSync(filePath, 'utf-8');
+        const parsed = this.xmlParser.parse(xml);
+        const root = parsed['ectd:study-values'];
+        if (!root) {
+            throw new Error('Invalid STF valid-values.xml: missing <ectd:study-values> root');
+        }
+        const normaliseEntries = (raw) => {
+            if (!raw)
+                return [];
+            const entries = Array.isArray(raw) ? raw : [raw];
+            return entries.map((e) => ({
+                value: String(e['@_value']),
+                realm: String(e['@_realm'] || 'ich'),
+            }));
+        };
+        const rawCategories = Array.isArray(root.category)
+            ? root.category
+            : root.category
+                ? [root.category]
+                : [];
+        const categories = rawCategories.map((cat) => ({
+            name: String(cat['@_name']),
+            values: normaliseEntries(cat['valid-value']),
+        }));
+        const fileTagBlock = root['file-tag'];
+        const fileTags = normaliseEntries(fileTagBlock?.['valid-value']);
+        return {
+            categories,
+            fileTags,
+            version: '6.0',
+            validFrom: new Date('2023-11-01'),
+        };
     }
     async getApplicationTypes() {
         const cacheKey = 'cv:application-types';
@@ -256,6 +341,69 @@ let ControlledVocabularyService = ControlledVocabularyService_1 = class Controll
             orderBy: { validFrom: 'desc' },
         });
         return cv?.version || '1.0';
+    }
+    decodeStfDescription(descriptionEn, fallbackValue) {
+        const match = /^\[([^\]]+)\]\s*(.*)$/.exec(descriptionEn || '');
+        if (match) {
+            return { realm: match[1], value: match[2] || fallbackValue };
+        }
+        return { realm: 'ich', value: fallbackValue };
+    }
+    async getStfCategories() {
+        const cacheKey = 'cv:stf-categories';
+        const cached = await this.cache.get(cacheKey);
+        if (cached)
+            return cached;
+        const rows = await this.prisma.controlledVocabulary.findMany({
+            where: { vocabularyName: { startsWith: 'stf-category-' } },
+            orderBy: [{ vocabularyName: 'asc' }, { code: 'asc' }],
+        });
+        const grouped = new Map();
+        for (const row of rows) {
+            const name = row.vocabularyName.replace(/^stf-category-/, '');
+            const decoded = this.decodeStfDescription(row.descriptionEn, row.code);
+            if (!grouped.has(name))
+                grouped.set(name, []);
+            grouped.get(name).push({ value: row.code, realm: decoded.realm });
+        }
+        const result = Array.from(grouped.entries()).map(([name, values]) => ({
+            name,
+            values,
+        }));
+        await this.cache.set(cacheKey, result, 86400);
+        return result;
+    }
+    async getStfFileTags(module) {
+        const cacheKey = `cv:stf-file-tags:${module}`;
+        const cached = await this.cache.get(cacheKey);
+        if (cached)
+            return cached;
+        const rows = await this.prisma.controlledVocabulary.findMany({
+            where: { vocabularyName: `stf-file-tag-${module}` },
+            orderBy: { code: 'asc' },
+        });
+        const result = rows.map((row) => {
+            const decoded = this.decodeStfDescription(row.descriptionEn, row.code);
+            return { value: row.code, realm: decoded.realm };
+        });
+        await this.cache.set(cacheKey, result, 86400);
+        return result;
+    }
+    async getStfCategoryValues(categoryName) {
+        const cacheKey = `cv:stf-category-values:${categoryName}`;
+        const cached = await this.cache.get(cacheKey);
+        if (cached)
+            return cached;
+        const rows = await this.prisma.controlledVocabulary.findMany({
+            where: { vocabularyName: `stf-category-${categoryName}` },
+            orderBy: { code: 'asc' },
+        });
+        const result = rows.map((row) => {
+            const decoded = this.decodeStfDescription(row.descriptionEn, row.code);
+            return { value: row.code, realm: decoded.realm };
+        });
+        await this.cache.set(cacheKey, result, 86400);
+        return result;
     }
 };
 exports.ControlledVocabularyService = ControlledVocabularyService;

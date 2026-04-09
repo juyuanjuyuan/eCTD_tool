@@ -168,7 +168,7 @@ describe('DocumentService', () => {
 
       prisma.sequenceNode.findUnique.mockResolvedValue(mockNode);
       prisma.document.findUnique.mockResolvedValue(null);
-      prisma.document.create.mockImplementation(({ data }) => Promise.resolve({ ...data, id: 'doc-new' }));
+      prisma.document.create.mockImplementation(({ data }: { data: any }) => Promise.resolve({ ...data, id: 'doc-new' }));
       prisma.sequenceNode.update.mockResolvedValue({});
 
       await service.saveDocument('node-1', chineseDto);

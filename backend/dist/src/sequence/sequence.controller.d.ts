@@ -4,11 +4,12 @@ export declare class SequenceController {
     private readonly sequenceService;
     constructor(sequenceService: SequenceService);
     create(raId: string, dto: CreateSequenceDto): Promise<{
-        description: string;
         id: string;
+        description: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
+        applicationId: string;
         regulatoryActivityId: string;
         sequenceNumber: string;
         sequenceTypeCode: string;
@@ -18,11 +19,12 @@ export declare class SequenceController {
         contactEmail: string;
     }>;
     findAll(raId: string): Promise<{
-        description: string;
         id: string;
+        description: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
+        applicationId: string;
         regulatoryActivityId: string;
         sequenceNumber: string;
         sequenceTypeCode: string;
@@ -53,11 +55,12 @@ export declare class SequenceController {
             relatedSequence: string;
         };
     } & {
-        description: string;
         id: string;
+        description: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
+        applicationId: string;
         regulatoryActivityId: string;
         sequenceNumber: string;
         sequenceTypeCode: string;
@@ -67,11 +70,12 @@ export declare class SequenceController {
         contactEmail: string;
     }>;
     update(id: string, dto: UpdateSequenceDto): Promise<{
-        description: string;
         id: string;
+        description: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
+        applicationId: string;
         regulatoryActivityId: string;
         sequenceNumber: string;
         sequenceTypeCode: string;
@@ -81,11 +85,12 @@ export declare class SequenceController {
         contactEmail: string;
     }>;
     remove(id: string): Promise<{
-        description: string;
         id: string;
+        description: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
+        applicationId: string;
         regulatoryActivityId: string;
         sequenceNumber: string;
         sequenceTypeCode: string;

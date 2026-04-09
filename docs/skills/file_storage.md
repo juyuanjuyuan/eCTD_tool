@@ -144,7 +144,7 @@ export class FileController {
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file', {
-    limits: { fileSize: 200 * 1024 * 1024 }, // 200MB
+    limits: { fileSize: 500 * 1024 * 1024 }, // 500MB (ICH eCTD Submission Formats v1.2 §2.3)
     fileFilter: (req, file, cb) => {
       const allowedTypes = ['.pdf', '.xml', '.xpt', '.txt', '.xsl'];
       const ext = file.originalname.toLowerCase().slice(file.originalname.lastIndexOf('.'));

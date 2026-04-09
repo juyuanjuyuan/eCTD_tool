@@ -302,4 +302,220 @@ describe('ControlledVocabularyService', () => {
       expect(prisma.cvDependency.create).not.toHaveBeenCalled();
     });
   });
+
+  // ==================== STF Vocabulary ====================
+
+  describe('seedStfVocabularies', () => {
+    it('should skip seeding when STF rows already exist', async () => {
+      prisma.controlledVocabulary.count.mockResolvedValue(50);
+
+      await service.seedStfVocabularies();
+
+      expect(prisma.controlledVocabulary.count).toHaveBeenCalledWith({
+        where: { vocabularyName: { startsWith: 'stf-' } },
+      });
+      expect(prisma.controlledVocabulary.create).not.toHaveBeenCalled();
+    });
+
+    it('should parse valid-values.xml and insert category + file-tag rows', async () => {
+      prisma.controlledVocabulary.count.mockResolvedValue(0);
+      prisma.controlledVocabulary.create.mockResolvedValue({});
+
+      await service.seedStfVocabularies();
+
+      const createCalls = prisma.controlledVocabulary.create.mock.calls as any[];
+      expect(createCalls.length).toBeGreaterThan(0);
+
+      const vocabNames = new Set(
+        createCalls.map((c: any) => c[0].data.vocabularyName),
+      );
+
+      // 4 categories from valid-values.xml: species, route-of-admin,
+      // duration, type-of-control
+      expect(vocabNames.has('stf-category-species')).toBe(true);
+      expect(vocabNames.has('stf-category-route-of-admin')).toBe(true);
+      expect(vocabNames.has('stf-category-duration')).toBe(true);
+      expect(vocabNames.has('stf-category-type-of-control')).toBe(true);
+
+      // file-tags mirrored under both m4 and m5
+      expect(vocabNames.has('stf-file-tag-m4')).toBe(true);
+      expect(vocabNames.has('stf-file-tag-m5')).toBe(true);
+
+      const speciesRows = createCalls.filter(
+        (c: any) => c[0].data.vocabularyName === 'stf-category-species',
+      );
+      // species has 9 ich values in v6 valid-values.xml
+      expect(speciesRows.length).toBe(9);
+      expect(speciesRows[0][0].data.code).toBeTruthy();
+      expect(speciesRows[0][0].data.version).toBe('6.0');
+      expect(speciesRows[0][0].data.descriptionEn).toMatch(/^\[ich\] /);
+
+      const m4Rows = createCalls.filter(
+        (c: any) => c[0].data.vocabularyName === 'stf-file-tag-m4',
+      );
+      const m5Rows = createCalls.filter(
+        (c: any) => c[0].data.vocabularyName === 'stf-file-tag-m5',
+      );
+      // file-tag block in valid-values.xml has 97 entries
+      expect(m4Rows.length).toBe(97);
+      expect(m5Rows.length).toBe(97);
+    });
+
+    it('should encode realm into descriptionEn prefix', async () => {
+      prisma.controlledVocabulary.count.mockResolvedValue(0);
+      prisma.controlledVocabulary.create.mockResolvedValue({});
+
+      await service.seedStfVocabularies();
+
+      const createCalls = prisma.controlledVocabulary.create.mock.calls as any[];
+      const durationRow = createCalls.find(
+        (c: any) =>
+          c[0].data.vocabularyName === 'stf-category-duration' &&
+          c[0].data.code === 'short',
+      );
+      expect(durationRow).toBeDefined();
+      expect(durationRow[0].data.descriptionEn).toBe('[us] short');
+      expect(durationRow[0].data.descriptionZh).toBe('short');
+    });
+  });
+
+  describe('getStfCategories', () => {
+    it('should group rows by category name with decoded realm', async () => {
+      prisma.controlledVocabulary.findMany.mockResolvedValue([
+        {
+          vocabularyName: 'stf-category-species',
+          code: 'mouse',
+          descriptionZh: 'mouse',
+          descriptionEn: '[ich] mouse',
+        },
+        {
+          vocabularyName: 'stf-category-species',
+          code: 'rat',
+          descriptionZh: 'rat',
+          descriptionEn: '[ich] rat',
+        },
+        {
+          vocabularyName: 'stf-category-duration',
+          code: 'short',
+          descriptionZh: 'short',
+          descriptionEn: '[us] short',
+        },
+      ]);
+
+      const result = await service.getStfCategories();
+
+      expect(result).toEqual([
+        {
+          name: 'species',
+          values: [
+            { value: 'mouse', realm: 'ich' },
+            { value: 'rat', realm: 'ich' },
+          ],
+        },
+        {
+          name: 'duration',
+          values: [{ value: 'short', realm: 'us' }],
+        },
+      ]);
+      expect(prisma.controlledVocabulary.findMany).toHaveBeenCalledWith({
+        where: { vocabularyName: { startsWith: 'stf-category-' } },
+        orderBy: [{ vocabularyName: 'asc' }, { code: 'asc' }],
+      });
+    });
+
+    it('should return cached value if available', async () => {
+      const cached = [{ name: 'species', values: [] }];
+      cache.get.mockResolvedValue(cached);
+
+      const result = await service.getStfCategories();
+
+      expect(result).toEqual(cached);
+      expect(prisma.controlledVocabulary.findMany).not.toHaveBeenCalled();
+    });
+
+    it('should cache result under cv:stf-categories key', async () => {
+      prisma.controlledVocabulary.findMany.mockResolvedValue([]);
+
+      await service.getStfCategories();
+
+      expect(cache.set).toHaveBeenCalledWith('cv:stf-categories', [], 86400);
+    });
+  });
+
+  describe('getStfFileTags', () => {
+    it('should return ICH file-tags for m4 with decoded realm', async () => {
+      prisma.controlledVocabulary.findMany.mockResolvedValue([
+        {
+          vocabularyName: 'stf-file-tag-m4',
+          code: 'study-report-body',
+          descriptionZh: 'study-report-body',
+          descriptionEn: '[ich] study-report-body',
+        },
+        {
+          vocabularyName: 'stf-file-tag-m4',
+          code: 'protocol-or-amendment',
+          descriptionZh: 'protocol-or-amendment',
+          descriptionEn: '[ich] protocol-or-amendment',
+        },
+      ]);
+
+      const result = await service.getStfFileTags('m4');
+
+      expect(result).toEqual([
+        { value: 'study-report-body', realm: 'ich' },
+        { value: 'protocol-or-amendment', realm: 'ich' },
+      ]);
+      expect(prisma.controlledVocabulary.findMany).toHaveBeenCalledWith({
+        where: { vocabularyName: 'stf-file-tag-m4' },
+        orderBy: { code: 'asc' },
+      });
+    });
+
+    it('should query m5 with different cache key', async () => {
+      prisma.controlledVocabulary.findMany.mockResolvedValue([]);
+
+      await service.getStfFileTags('m5');
+
+      expect(cache.get).toHaveBeenCalledWith('cv:stf-file-tags:m5');
+      expect(prisma.controlledVocabulary.findMany).toHaveBeenCalledWith({
+        where: { vocabularyName: 'stf-file-tag-m5' },
+        orderBy: { code: 'asc' },
+      });
+    });
+  });
+
+  describe('getStfCategoryValues', () => {
+    it('should return values for a single category', async () => {
+      prisma.controlledVocabulary.findMany.mockResolvedValue([
+        {
+          vocabularyName: 'stf-category-species',
+          code: 'rat',
+          descriptionZh: 'rat',
+          descriptionEn: '[ich] rat',
+        },
+        {
+          vocabularyName: 'stf-category-species',
+          code: 'mouse',
+          descriptionZh: 'mouse',
+          descriptionEn: '[ich] mouse',
+        },
+      ]);
+
+      const result = await service.getStfCategoryValues('species');
+
+      expect(result).toEqual([
+        { value: 'rat', realm: 'ich' },
+        { value: 'mouse', realm: 'ich' },
+      ]);
+      expect(prisma.controlledVocabulary.findMany).toHaveBeenCalledWith({
+        where: { vocabularyName: 'stf-category-species' },
+        orderBy: { code: 'asc' },
+      });
+      expect(cache.set).toHaveBeenCalledWith(
+        'cv:stf-category-values:species',
+        expect.any(Array),
+        86400,
+      );
+    });
+  });
 });

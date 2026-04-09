@@ -39,7 +39,8 @@ describe('EditLockController', () => {
 
   it('should query lock', async () => {
     const result = await controller.queryLock('node-1');
-    expect(result.userId).toBe('user-1');
+    expect(result).not.toBeNull();
+    expect(result!.userId).toBe('user-1');
   });
 
   it('should force unlock', async () => {

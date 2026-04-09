@@ -23,6 +23,7 @@ const EXTENSION_NODE_DEFS = {
     '3.2.R.5': { titleZh: '3.2.R.5可比性方案', titleEn: 'Comparability Schemes' },
     '3.2.R.6': { titleZh: '3.2.R.6其他', titleEn: 'Other' },
 };
+const EXTENSION_NODE_ALLOWED_PRODUCT_TYPE = 'cnprt2';
 const SUBSTANCE_SECTIONS = new Set(['2.3.S', '3.2.S']);
 const PRODUCT_SECTIONS = new Set(['2.3.P', '3.2.P']);
 const INDICATION_SECTIONS = new Set(['2.7.3']);
@@ -392,8 +393,9 @@ let CtdTemplateService = class CtdTemplateService {
         });
         if (!sequence)
             throw new common_1.NotFoundException(`序列 ${sequenceId} 不存在`);
-        if (sequence.regulatoryActivity.application.productTypeCode !== 'cnprt2') {
-            throw new common_1.ForbiddenException('扩展节点仅适用于生物制品(cnprt2)申请');
+        if (sequence.regulatoryActivity.application.productTypeCode !==
+            EXTENSION_NODE_ALLOWED_PRODUCT_TYPE) {
+            throw new common_1.ForbiddenException(`扩展节点仅适用于生物制品(${EXTENSION_NODE_ALLOWED_PRODUCT_TYPE})申请`);
         }
         const extDef = EXTENSION_NODE_DEFS[dto.extensionType];
         if (!extDef) {

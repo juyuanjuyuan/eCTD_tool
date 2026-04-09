@@ -2,7 +2,6 @@ import {
   Controller,
   Post,
   Get,
-  Put,
   Param,
   Body,
   Res,
@@ -12,13 +11,15 @@ import type { Response } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CnRegionalXmlService } from './services/cn-regional-xml.service';
 import { IndexXmlService } from './services/index-xml.service';
-import { StfService } from './services/stf.service';
 import { LifecycleService } from './services/lifecycle.service';
 import { ValidatorService } from './services/validator.service';
 import { PackageAssemblerService } from './services/package-assembler.service';
 import { Md5Service } from './services/md5.service';
-import { SaveStfDto, ValidateOperationDto } from './dto';
+import { ValidateOperationDto } from './dto';
 import { LeafOperation } from '@prisma/client';
+
+// NOTE: Plan 12 — STF endpoints removed from EctdController. They live on
+// StudyController under `backend/src/study/` (added in P3).
 
 @Controller('api/v1')
 @UseGuards(JwtAuthGuard)
@@ -26,7 +27,6 @@ export class EctdController {
   constructor(
     private cnRegionalXml: CnRegionalXmlService,
     private indexXml: IndexXmlService,
-    private stfService: StfService,
     private lifecycle: LifecycleService,
     private validator: ValidatorService,
     private packageAssembler: PackageAssemblerService,
@@ -45,28 +45,6 @@ export class EctdController {
   async previewIndexXml(@Param('seqId') seqId: string) {
     const xml = await this.indexXml.generateIndexXml(seqId);
     return { xml };
-  }
-
-  // ==================== STF Management ====================
-
-  @Get('nodes/:nodeId/stf')
-  async getStf(@Param('nodeId') nodeId: string) {
-    return this.stfService.getStf(nodeId);
-  }
-
-  @Put('nodes/:nodeId/stf')
-  async saveStf(@Param('nodeId') nodeId: string, @Body() dto: SaveStfDto) {
-    return this.stfService.saveStf(nodeId, dto);
-  }
-
-  @Get('stf/categories')
-  getStfCategories() {
-    return this.stfService.getCategories();
-  }
-
-  @Get('stf/file-tags')
-  getStfFileTags() {
-    return this.stfService.getFileTags();
   }
 
   // ==================== Lifecycle Operations ====================

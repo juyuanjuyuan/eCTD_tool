@@ -168,7 +168,8 @@ describe('AuthService', () => {
 
       const result = await service.getProfile('user-1');
 
-      expect(result.name).toBe('张三');
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe('张三');
     });
   });
 });

@@ -22,6 +22,7 @@ const ctd_template_module_1 = require("./ctd-template/ctd-template.module");
 const document_module_1 = require("./document/document.module");
 const export_module_1 = require("./export/export.module");
 const ectd_module_1 = require("./ectd/ectd.module");
+const study_module_1 = require("./study/study.module");
 const file_module_1 = require("./file/file.module");
 const edit_lock_module_1 = require("./edit-lock/edit-lock.module");
 const approval_module_1 = require("./approval/approval.module");
@@ -59,6 +60,7 @@ exports.AppModule = AppModule = __decorate([
             document_module_1.DocumentModule,
             export_module_1.ExportModule,
             ectd_module_1.EctdModule,
+            study_module_1.StudyModule,
             file_module_1.FileModule,
             edit_lock_module_1.EditLockModule,
             approval_module_1.ApprovalModule,

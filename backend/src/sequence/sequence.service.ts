@@ -21,7 +21,7 @@ export class SequenceService {
       where: { id: regulatoryActivityId },
       include: {
         application: {
-          select: { applicationTypeCode: true },
+          select: { id: true, applicationTypeCode: true },
         },
       },
     });
@@ -47,9 +47,12 @@ export class SequenceService {
       dto.sequenceTypeCode,
     );
 
-    // Generate sequence number: auto-increment within RA, no gaps allowed
+    // Generate sequence number: global, auto-increment at APPLICATION level
+    // (not per-RA). This matches ICH eCTD: sequence numbers must be unique
+    // and continuous across an entire application envelope.
+    const applicationId = ra.application.id;
     const lastSeq = await this.prisma.sequence.findFirst({
-      where: { regulatoryActivityId },
+      where: { regulatoryActivity: { applicationId } },
       orderBy: { sequenceNumber: 'desc' },
     });
 
@@ -68,6 +71,7 @@ export class SequenceService {
 
     return this.prisma.sequence.create({
       data: {
+        applicationId,
         regulatoryActivityId,
         sequenceNumber,
         sequenceTypeCode: dto.sequenceTypeCode,
@@ -115,13 +119,32 @@ export class SequenceService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      // Find existing RA of this type, or create a new one
+      // Generate sequence number globally within the APPLICATION.
+      // Under method C, sequence numbers are unique and continuous across all
+      // regulatory activities belonging to the application.
+      const lastAppSequence = await tx.sequence.findFirst({
+        where: { regulatoryActivity: { applicationId } },
+        orderBy: { sequenceNumber: 'desc' },
+      });
+      const nextNum = lastAppSequence
+        ? parseInt(lastAppSequence.sequenceNumber) + 1
+        : 0;
+      const sequenceNumber = nextNum.toString().padStart(4, '0');
+
+      if (sequenceNumber === '0000' && dto.sequenceTypeCode !== 'cnsqt1') {
+        throw new BadRequestException('首个序列的序列类型必须为 cnsqt1（首次提交）');
+      }
+
+      // Find existing RA of this type, or create a new one.
+      // If the RA is new, its related-sequence is the number the new sequence
+      // itself is about to receive.
       let ra = await tx.regulatoryActivity.findFirst({
         where: {
           applicationId,
           regulatoryActivityTypeCode: dto.regulatoryActivityTypeCode,
         },
       });
+      const isNewRa = !ra;
 
       if (!ra) {
         const ratVersion = await this.cvService.getCvVersion(
@@ -129,32 +152,14 @@ export class SequenceService {
           dto.regulatoryActivityTypeCode,
         );
 
-        const lastSequence = await tx.sequence.findFirst({
-          where: { regulatoryActivity: { applicationId } },
-          orderBy: { sequenceNumber: 'desc' },
-        });
-        const relatedSequence = lastSequence ? lastSequence.sequenceNumber : '0000';
-
         ra = await tx.regulatoryActivity.create({
           data: {
             applicationId,
             regulatoryActivityTypeCode: dto.regulatoryActivityTypeCode,
             regulatoryActivityTypeVersion: ratVersion,
-            relatedSequence,
+            relatedSequence: sequenceNumber,
           },
         });
-      }
-
-      // Generate sequence number within this RA
-      const lastSeq = await tx.sequence.findFirst({
-        where: { regulatoryActivityId: ra.id },
-        orderBy: { sequenceNumber: 'desc' },
-      });
-      const nextNum = lastSeq ? parseInt(lastSeq.sequenceNumber) + 1 : 0;
-      const sequenceNumber = nextNum.toString().padStart(4, '0');
-
-      if (sequenceNumber === '0000' && dto.sequenceTypeCode !== 'cnsqt1') {
-        throw new BadRequestException('首个序列的序列类型必须为 cnsqt1（首次提交）');
       }
 
       const sqtVersion = await this.cvService.getCvVersion(
@@ -164,6 +169,7 @@ export class SequenceService {
 
       const sequence = await tx.sequence.create({
         data: {
+          applicationId,
           regulatoryActivityId: ra.id,
           sequenceNumber,
           sequenceTypeCode: dto.sequenceTypeCode,
@@ -178,7 +184,7 @@ export class SequenceService {
       return {
         ...sequence,
         regulatoryActivity: ra,
-        isNewRa: !lastSeq || !ra.id, // indicate if RA was newly created
+        isNewRa,
       };
     });
   }
@@ -231,10 +237,12 @@ export class SequenceService {
       throw new ForbiddenException('仅草稿状态的序列可以删除');
     }
 
-    // Check no sequence after this one exists (prevent gap)
+    // Check no sequence after this one exists (prevent gap).
+    // Scope: the whole application, since sequence numbers are now
+    // globally continuous across RAs within an application.
     const laterSeq = await this.prisma.sequence.findFirst({
       where: {
-        regulatoryActivityId: seq.regulatoryActivityId,
+        regulatoryActivity: { applicationId: seq.regulatoryActivity.application.id },
         sequenceNumber: { gt: seq.sequenceNumber },
       },
     });

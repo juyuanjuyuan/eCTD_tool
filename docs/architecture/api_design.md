@@ -71,6 +71,9 @@
 | GET | `/regulatory-activity-types?appType=cnapt2` | 按申请类型过滤的注册行为类型列表 | ALL |
 | GET | `/sequence-types?appType=cnapt2&ratType=cnrat1` | 按申请类型+注册行为类型过滤的序列类型列表 | ALL |
 | GET | `/stf-valid-values` | STF 合法标签值（species/route/duration/control/file-tag） | ALL |
+| GET | `/stf/categories` | STF 全部 category 分组返回（name + values[{value,realm}]），来自 valid-values.xml v6.0 ✅ (Plan 12) | ALL |
+| GET | `/stf/categories/:name` | 单个 STF category 的取值列表（如 `species` / `route-of-admin` / `duration` / `type-of-control`）✅ (Plan 12) | ALL |
+| GET | `/stf/file-tags?module=m4\|m5` | 按模块返回 ICH STF file-tag 列表（m4/m5 内容相同，源自共享 file-tag 块）✅ (Plan 12) | ALL |
 
 ## 8. CTD 目录结构 `/api/v1/sequences/:seqId`
 
@@ -126,19 +129,43 @@
 |------|------|------|------|
 | POST | `/upload-image` | 上传编辑器图片到 MinIO（PNG/JPG/GIF/SVG，≤10MB） | EDITOR+ |
 
-## 12. STF 管理 `/api/v1/nodes/:nodeId/stf` ✅ (WP-05 已实现)
+## 12. 研究与 STF 管理（Plan 12 v2 — 2026-04-09） ✅
+
+> **v1 → v2 接口变更**：旧的 v1 路由 `~~GET/PUT /api/v1/nodes/:nodeId/stf~~`（单研究 upsert）、`~~GET /api/v1/stf/categories~~`、`~~GET /api/v1/stf/file-tags~~` 已全部删除。v1 `EctdController` 的 `getStf/saveStf/getStfCategories/getStfFileTags` 方法与 `SaveStfDto` 一并移除。前端从 `studyApi` + `cvApi.getStfCategories` / `cvApi.getStfFileTags` 获取 STF 数据。
+>
+> CV 相关 STF 参考数据端点已迁移至 §7 `/api/v1/cv/stf/*`。
+
+### 12.1 研究 CRUD `/api/v1/studies`
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| GET | `/` | 获取 STF 数据 | 成员 |
-| PUT | `/` | 保存/更新 STF 数据（study-id, title, categories, file-tags） | EDITOR+ |
+| GET | `/sequences/:seqId/studies` | 按序列列出所有 Study（跨节点） | 成员 |
+| GET | `/sequence-nodes/:nodeId/studies` | 列出某 sequence_node 下的全部 Study（一个节点可挂多份） | 成员 |
+| GET | `/studies/:id` | 获取单个 Study 详情（含 categories + documents + 缓存 XML） | 成员 |
+| POST | `/sequence-nodes/:nodeId/studies` | 创建 Study（校验 category/file-tag 合法性，自动重算 stfXmlContent + stfChecksum） | EDITOR+ |
+| PATCH | `/studies/:id` | 更新 Study（元数据 + categories + documents 级联，事务内重算 XML） | EDITOR+ |
+| DELETE | `/studies/:id` | 删除 Study（级联删除 categories/documents） | EDITOR+ |
+| POST | `/studies/:id/regenerate-xml` | 手动重新生成 stfXmlContent + stfChecksum（前端"重新生成 STF"按钮） | EDITOR+ |
 
-## 12b. STF 参考数据 `/api/v1/stf` ✅ (WP-05 已实现)
+### 12.2 STF XML 导入 `/api/v1/sequence-nodes/:nodeId/studies`
+
+用于从 ERIS 等竞品迁移项目或接收外部产出的 STF。所有接口在事务内执行，任何一步失败整体回滚；返回 `{ studyId, created, warnings[] }`。
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| GET | `/categories` | 获取 STF category 名称和合法值（从 valid-values.xml） | 已登录 |
-| GET | `/file-tags` | 获取 STF file-tag 合法值列表（145+ 标签） | 已登录 |
+| POST | `/studies/import-xml` | 粘贴 XML 模式。Body: `{ xmlString, onConflict?: 'reject'\|'overwrite'\|'merge' }`。document.href 按 basename 匹配 node 下既存 FileAttachment，找不到软降级为 warning | EDITOR+ |
+| POST | `/studies/import-bundle` | JSON Base64 上传模式。Body: `{ xmlString, attachedFiles: [{originalName, base64, md5?}], onConflict? }`。Buffer MD5 与 XML 声明不一致 → warning + 使用实际 MD5；写 MinIO 创建新 FileAttachment 行 | EDITOR+ |
+| POST | `/studies/import-bundle-multipart` | multipart 上传模式。字段: `xml` (单文件) + `files` (最多 50 文件, 512MB/file)。用 `FileFieldsInterceptor` 真正的 multipart 传输 | EDITOR+ |
+
+**冲突策略** (`onConflict`)：
+- `reject`（默认）— 同 `(sequenceNodeId, studyId)` 已存在 → 抛 `ConflictException`
+- `overwrite` — 删旧 Study（级联 children）+ 新建新 id
+- `merge` — 保留旧 Study.id + createdAt，deleteMany children 后重插 categories/documents
+
+**warning 类型**（非致命，导入继续）：
+- 未知 `modifiedFromHref` — 跨 application/sequence 找不到前序 Study，lifecycle 链断裂
+- 未命中的 FileAttachment — basename 匹配失败，该 document 条目被丢弃
+- MD5 不一致 — bundle 上传时 buffer 实际 MD5 与 XML 声明 checksum 不一致，使用实际 MD5
 
 ## 13. 文档导出 `/api/v1/sequences/:seqId/export` ✅ (WP-04 已实现)
 

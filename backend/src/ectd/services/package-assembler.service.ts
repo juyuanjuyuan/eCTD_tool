@@ -9,49 +9,22 @@ import * as path from 'path';
 import archiver from 'archiver';
 import { PassThrough, Writable } from 'stream';
 
-// Module folder mapping based on ctdSectionNumber
-const MODULE_FOLDER_MAP: Record<number, string> = {
-  1: 'm1',
-  2: 'm2',
-  3: 'm3',
-  4: 'm4',
-  5: 'm5',
-};
-
-// eCTD directory structure for module subfolders
-const MODULE_SUBFOLDERS: Record<string, string> = {
-  // Module 1 (cn)
-  '1.0': 'm1/cn/00',
-  '1.1': 'm1/cn/01',
-  '1.2': 'm1/cn/02',
-  '1.3': 'm1/cn/03',
-  '1.4': 'm1/cn/04',
-  '1.5': 'm1/cn/05',
-  '1.6': 'm1/cn/06',
-  '1.7': 'm1/cn/07',
-  '1.8': 'm1/cn/08',
-  '1.9': 'm1/cn/09',
-  '1.10': 'm1/cn/10',
-  '1.11': 'm1/cn/11',
-  '1.12': 'm1/cn/12',
-  // Module 2
-  '2.2': 'm2/22-intro',
-  '2.3': 'm2/23-qos',
-  '2.4': 'm2/24-nonclin-over',
-  '2.5': 'm2/25-clin-over',
-  '2.6': 'm2/26-nonclin-sum',
-  '2.7': 'm2/27-clin-sum',
-  // Module 3
-  '3.2': 'm3/32-body-data',
-  '3.3': 'm3/33-lit-ref',
-  // Module 4
-  '4.2': 'm4/42-stud-rep',
-  '4.3': 'm4/43-lit-ref',
-  // Module 5
-  '5.2': 'm5/52-tab-list',
-  '5.3': 'm5/53-clin-stud-rep',
-  '5.4': 'm5/54-lit-ref',
-};
+/**
+ * Plan 12 helper: derive an STF file's eCTD-relative path from any anchor PDF
+ * inside that STF (since v2 STF files live in the same directory as their
+ * referenced PDFs — locked decision 2). Mirrors the same helper in
+ * IndexXmlService.
+ */
+function deriveStfPath(anchorEctdPath: string, studyId: string): string {
+  const idx = anchorEctdPath.lastIndexOf('/');
+  const dir = idx >= 0 ? anchorEctdPath.substring(0, idx) : '';
+  const slug = studyId
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const fileName = `study-${slug}.xml`;
+  return dir ? `${dir}/${fileName}` : fileName;
+}
 
 @Injectable()
 export class PackageAssemblerService {
@@ -87,7 +60,18 @@ export class PackageAssemblerService {
           include: {
             templateNode: { select: { module: true } },
             fileAttachments: true,
-            studyTaggingFile: true,
+            studies: {
+              orderBy: { studyId: 'asc' },
+              include: {
+                documents: {
+                  orderBy: { sortOrder: 'asc' },
+                  take: 1,
+                  include: {
+                    fileAttachment: { select: { ectdRelativePath: true } },
+                  },
+                },
+              },
+            },
           },
           orderBy: { sortOrder: 'asc' },
         },
@@ -104,7 +88,7 @@ export class PackageAssemblerService {
     const cnRegionalContent = await this.cnRegionalXml.generateCnRegionalXml(sequenceId);
     const indexContent = await this.indexXml.generateIndexXml(sequenceId);
 
-    // Step 4: Generate index-md5.txt (backbone files + content files)
+    // Step 4: Generate index-md5.txt (backbone files + content files + STF files)
     const md5Entries: Array<{ fileName: string; content?: string; md5?: string }> = [
       { fileName: 'index.xml', content: indexContent },
       { fileName: 'm1/cn/cn-regional.xml', content: cnRegionalContent },
@@ -117,6 +101,16 @@ export class PackageAssemblerService {
         if (file.ectdRelativePath && file.md5Checksum) {
           md5Entries.push({ fileName: file.ectdRelativePath, md5: file.md5Checksum });
         }
+      }
+      // Plan 12: STF XML files participate in index-md5.txt with the cached
+      // study.stfChecksum computed by StudyService at save time.
+      for (const study of (node.studies || [])) {
+        const anchor = study.documents[0]?.fileAttachment?.ectdRelativePath;
+        if (!anchor || !study.stfChecksum) continue;
+        md5Entries.push({
+          fileName: deriveStfPath(anchor, study.studyId),
+          md5: study.stfChecksum,
+        });
       }
     }
     const indexMd5Content = this.md5Service.generateIndexMd5(md5Entries);
@@ -157,7 +151,18 @@ export class PackageAssemblerService {
           include: {
             templateNode: { select: { module: true } },
             fileAttachments: true,
-            studyTaggingFile: true,
+            studies: {
+              orderBy: { studyId: 'asc' },
+              include: {
+                documents: {
+                  orderBy: { sortOrder: 'asc' },
+                  take: 1,
+                  include: {
+                    fileAttachment: { select: { ectdRelativePath: true } },
+                  },
+                },
+              },
+            },
           },
           orderBy: { sortOrder: 'asc' },
         },
@@ -184,6 +189,15 @@ export class PackageAssemblerService {
           md5Entries.push({ fileName: file.ectdRelativePath, md5: file.md5Checksum });
         }
       }
+      // Plan 12: STF XML files participate in index-md5.txt
+      for (const study of (node.studies || [])) {
+        const anchor = study.documents[0]?.fileAttachment?.ectdRelativePath;
+        if (!anchor || !study.stfChecksum) continue;
+        md5Entries.push({
+          fileName: deriveStfPath(anchor, study.studyId),
+          md5: study.stfChecksum,
+        });
+      }
     }
     const indexMd5Content = this.md5Service.generateIndexMd5(md5Entries);
 
@@ -204,7 +218,6 @@ export class PackageAssemblerService {
     for (const node of sequence.sequenceNodes) {
       if (!node.isLeaf || !node.operation || node.operation === 'DELETE') continue;
       const files = node.fileAttachments || [];
-      if (files.length === 0) continue;
 
       for (const file of files) {
         if (file.isReference && file.referenceFileId) continue;
@@ -225,9 +238,14 @@ export class PackageAssemblerService {
         }
       }
 
-      if (node.studyTaggingFile?.stfXmlContent) {
-        const stfPath = this.getStfPath(node, basePath);
-        if (stfPath) archive.append(node.studyTaggingFile.stfXmlContent, { name: stfPath });
+      // Plan 12: emit one STF XML file per Study attached to this node. The
+      // file is written next to its referenced PDFs (locked decision 2). The
+      // XML content is the cached study.stfXmlContent computed at save time.
+      for (const study of (node.studies || [])) {
+        const anchor = study.documents[0]?.fileAttachment?.ectdRelativePath;
+        if (!anchor || !study.stfXmlContent) continue;
+        const stfRelPath = deriveStfPath(anchor, study.studyId);
+        archive.append(study.stfXmlContent, { name: `${basePath}/${stfRelPath}` });
       }
     }
 
@@ -278,13 +296,14 @@ export class PackageAssemblerService {
       this.addUtilFiles(archive, basePath);
 
       // Add content files from sequence nodes
-      // Empty section handling: only include nodes that have actual file attachments
+      // Empty section handling: skip nodes that have neither file attachments
+      // nor STF studies
       for (const node of sequence.sequenceNodes) {
         if (!node.isLeaf || !node.operation || node.operation === 'DELETE') continue;
 
-        // Skip empty leaf nodes (no files attached = empty section)
         const files = node.fileAttachments || [];
-        if (files.length === 0) continue;
+        const studies = node.studies || [];
+        if (files.length === 0 && studies.length === 0) continue;
 
         for (const file of files) {
           // The ectdRelativePath is relative to the sequence folder
@@ -318,14 +337,14 @@ export class PackageAssemblerService {
           }
         }
 
-        // Add STF files if present
-        if (node.studyTaggingFile?.stfXmlContent) {
-          const stfPath = this.getStfPath(node, basePath);
-          if (stfPath) {
-            archive.append(node.studyTaggingFile.stfXmlContent, {
-              name: stfPath,
-            });
-          }
+        // Plan 12: emit STF XML files alongside their PDFs.
+        for (const study of studies) {
+          const anchor = study.documents[0]?.fileAttachment?.ectdRelativePath;
+          if (!anchor || !study.stfXmlContent) continue;
+          const stfRelPath = deriveStfPath(anchor, study.studyId);
+          archive.append(study.stfXmlContent, {
+            name: `${basePath}/${stfRelPath}`,
+          });
         }
       }
 
@@ -390,23 +409,12 @@ export class PackageAssemblerService {
     }
   }
 
-  /**
-   * Determine the STF file path within the eCTD package
-   */
-  private getStfPath(node: any, basePath: string): string | null {
-    const sectionNum = node.ctdSectionNumber;
-    if (!sectionNum) return null;
-
-    const normalizedSection = sectionNum.replace(/\./g, '-');
-    const moduleNum = parseInt(sectionNum.split('.')[0]);
-    const moduleFolder = MODULE_FOLDER_MAP[moduleNum];
-    if (!moduleFolder) return null;
-
-    const prefix = sectionNum.split('.').slice(0, 2).join('.');
-    const subFolder = MODULE_SUBFOLDERS[prefix] || moduleFolder;
-
-    return `${basePath}/${subFolder}/stf-${normalizedSection}.xml`;
-  }
+  // NOTE(Plan 12): the v1 `getStfPath` (which produced
+  // `<basePath>/<subFolder>/stf-<section>.xml`) was removed. Per locked
+  // decision 2, v2 STF files live in the same directory as their PDFs and
+  // are named `study-<normalized-id>.xml`. The new resolver lives in
+  // study-tagging-file.service and is consumed by the package assembler in
+  // P3 task #8.
 
   /**
    * Preview the directory structure that would be generated.
@@ -423,7 +431,21 @@ export class PackageAssemblerService {
           include: {
             templateNode: { select: { module: true } },
             fileAttachments: { select: { ectdRelativePath: true, isReference: true } },
-            studyTaggingFile: { select: { id: true } },
+            studies: {
+              orderBy: { studyId: 'asc' },
+              select: {
+                id: true,
+                studyId: true,
+                operation: true,
+                documents: {
+                  orderBy: { sortOrder: 'asc' },
+                  take: 1,
+                  select: {
+                    fileAttachment: { select: { ectdRelativePath: true } },
+                  },
+                },
+              },
+            },
           },
           orderBy: { sortOrder: 'asc' },
         },
@@ -459,15 +481,18 @@ export class PackageAssemblerService {
       if (!node.isLeaf || !node.operation || node.operation === 'DELETE') continue;
 
       const files = node.fileAttachments || [];
-      if (files.length === 0) continue; // Empty section — exclude
+      const studies = node.studies || [];
+      if (files.length === 0 && studies.length === 0) continue;
 
       for (const file of files) {
         if (file.isReference) continue; // References point to prior sequence files
         paths.push(`${basePath}/${file.ectdRelativePath}`);
       }
-      if (node.studyTaggingFile) {
-        const stfPath = this.getStfPath(node, basePath);
-        if (stfPath) paths.push(stfPath);
+      // Plan 12: include STF preview paths for each study
+      for (const study of studies) {
+        const anchor = study.documents[0]?.fileAttachment?.ectdRelativePath;
+        if (!anchor) continue;
+        paths.push(`${basePath}/${deriveStfPath(anchor, study.studyId)}`);
       }
     }
 

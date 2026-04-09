@@ -11,7 +11,7 @@
 | 项目列表 | `/projects` | 项目（药品）列表 CRUD，每行末尾有蓝色「进入项目」按钮 | EDITOR+ |
 | 项目详情 ✅ | `/projects/:id` | 项目下的申请、序列管理 + 协作 Tab（进度总览、工作量分布）+ 成员管理增强；申请表格每行末尾有蓝色「进入申请」按钮 | EDITOR+ |
 | 申请管理 | `/projects/:id/applications` | 申请编号、类型管理 | EDITOR+ |
-| 序列管理 | `/projects/:id/applications/:appId/sequences` | 序列号、注册行为管理 | EDITOR+ |
+| 序列管理 | `/projects/:id/applications/:appId/sequences` | 序列号、注册行为管理；按注册行为折叠分组展示，**序列号在申请维度全局唯一连续递增**（方案 C, 2026-04-08 — 后端 sequence.applicationId + UNIQUE(application_id, sequence_number) 强约束，前端直接读 sequence.sequenceNumber 不再做投影），分组标题显示「起始序列 + 序列数」 | EDITOR+ |
 | **文档编辑** ✅ | `/sequences/:seqId` | **核心页面** — 三栏布局: CTD 目录树(含颜色标识图例) + 文件管理区 + 右侧面板(属性/完整性/验证/eCTD工具)；含 CTD 目录初始化引导 | EDITOR+ |
 | 导出中心 | `/export/:sequenceId` | Word/PDF 导出、eCTD 包生成 | EDITOR+ |
 | 验证报告 | `/validation/:sequenceId` | eCTD 验证结果查看 | VIEWER+ |
@@ -107,7 +107,7 @@
 - 拖拽上传区域（Upload.Dragger，含红色提示「请将文件改成英文名称」以引导符合 eCTD 命名规范）
 - 上传进度条（Progress）
 - 文件扩展名前端校验（.pdf/.xml/.xpt/.txt/.xsl）
-- 文件大小前端校验（200MB/4GB）
+- 文件大小前端校验（500MB/4GB，2026-04-08 从 200MB 上调对齐 ICH 上限）
 - 文件列表（List，含文件图标、合规状态 Badge、引用标签）
 - 文件操作: 预览（PDF）、下载（presigned URL）、删除（确认弹窗）
 - PDF 合规状态图标: 绿色通过/黄色警告/红色错误
@@ -152,6 +152,64 @@
 - 基于 react-pdf 或 PDF.js
 - 支持在线预览已上传的 PDF
 - 书签导航
+
+### 2.10 研究元数据面板 (`StudyMetadataPanel`) ✅ (Plan 12, 2026-04-09)
+
+位置：`frontend/src/components/StudyMetadataPanel.tsx`
+
+作为 `PropertiesPanel` 的「研究 (STF)」Tab 嵌入，仅在 `isStfSection(ctdSectionNumber)` 为真的 STF 必需叶节点（M4 4.2.x / M5 5.3.1-5.3.5）显示。v1 的单研究 upsert 面板已废弃，改为**多研究列表 + 编辑器 Modal** 布局以支持"一个 CTD 章节挂 N 份研究"。
+
+**布局结构**:
+
+```
+┌────────────────────────────────────────────────────────┐
+│ 研究 (STF) Tab                                           │
+├────────────────────────────────────────────────────────┤
+│  [+新建研究] [从 STF XML 导入]                            │
+│                                                        │
+│  ┌─────────────────────────────────────────────────┐  │
+│  │ TOX-2024-001  重复给药毒性 — 大鼠 13 周           │  │
+│  │ species:rat  route:oral  duration:subchronic     │  │
+│  │ 3 文件 | NEW | [编辑] [删除] [重新生成 XML]        │  │
+│  └─────────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────────┐  │
+│  │ TOX-2024-002  重复给药毒性 — Beagle 犬 13 周      │  │
+│  │ ...                                              │  │
+│  └─────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────┘
+```
+
+**编辑器 Modal** 按 Plan 12 §4.1 决策 4 折中方案分两区：
+
+- **基础区（默认展开）** — 读取当前节点 `ctd_template_node.default_stf_categories` 字段，根据预设维度渲染若干必填 Select：
+  - 研究编号（studyId 文本框）
+  - 研究标题（title 文本框）
+  - 按 `defaultStfCategories` 的 `name` 生成 Select（如 4.2.3.2 自动渲染 species/route-of-admin/duration/type-of-control 四个 Select），`required: true` 的维度做前端必填校验
+  - 每个 Select 的 options 调用 `cvApi.getStfCategoryValues('species' | 'route-of-admin' | ...)` 拉取
+- **高级区（折叠，Collapse 组件）** — 「添加更多维度」按钮展开一个动态 form array，让高级用户为特殊研究追加 `defaultStfCategories` 之外的维度
+- **文档区** — 集成现有 FileAttachment 选择器，每份附件绑定一个 file-tag（options 调用 `cvApi.getStfFileTags(module)`，module 由 `ctdSectionNumber` 自动判断 m4 / m5）
+- **重新生成 XML 按钮** — 调用 `studyApi.regenerateXml(id)` 手动触发 stfXmlContent + stfChecksum 重算
+
+**API 集成**：`studyApi.listByNode / create / update / delete / regenerateXml`
+
+### 2.11 STF 导入 Modal (`StudyImportModal`) ✅ (Plan 12, 2026-04-09)
+
+位置：`frontend/src/components/StudyImportModal.tsx`
+
+从 `StudyMetadataPanel` 顶部「从 STF XML 导入」按钮触发，对应 Plan 12 §4.3 设计。
+
+**Tab 布局**:
+
+- **粘贴 XML Tab** — 大文本框粘贴 STF XML 内容 → 调 `studyApi.importXml(nodeId, { xmlString, onConflict })`
+- **上传 bundle Tab** — Antd `Upload.Dragger` 上传 1 份 STF XML + N 份 PDF 附件 → 调 `studyApi.importBundleMultipart(nodeId, formData)`
+
+**通用控件**:
+
+- **冲突模式 Select**：`reject`（默认，保守）/ `overwrite`（删旧建新）/ `merge`（保留 id 替换 children）
+- **warning 列表展示**：后端返回的 `warnings[]` 用 `Alert` 或 `List` 渲染（如"前序 Study 未找到，lifecycle 链断裂"、"附件 MD5 不一致，使用实际值"、"附件 xyz.pdf 未命中任何 FileAttachment，已跳过"）
+- 成功后 `toast` 提示 + 关闭 Modal + 触发父组件刷新 Study 列表
+
+**API 集成**：`studyApi.importXml / importBundle / importBundleMultipart`
 
 ## 3. 状态管理
 
@@ -207,6 +265,30 @@ const api = axios.create({
 // 请求拦截器: 自动附加 JWT Token
 // 响应拦截器: 统一错误处理、Token 刷新
 ```
+
+### 4.1 服务模块清单
+
+| 文件 | 职责 |
+|------|------|
+| `services/api.ts` | 基础 axios 实例 + 拦截器 |
+| `services/auth.ts` | 登录、注册、刷新 token |
+| `services/project.ts` | 项目 CRUD + 成员管理 |
+| `services/application.ts` | 申请 + 注册行为 + 序列 |
+| `services/ctdTemplate.ts` | CTD 模板树查询 |
+| `services/document.ts` | 文档内容 CRUD + 版本历史 |
+| `services/file.ts` | 文件上传下载 + 引用管理 |
+| `services/ectd.ts` | XML 骨架预览 + eCTD 包导出 + 验证（**Plan 12 v2 已删除 v1 STF 端点 `getStf/saveStf/getStfCategories/getStfFileTags`**，前端现用 `studyApi` + `cvApi.getStfCategories`） |
+| `services/study.ts` ✅ (Plan 12) | **新增** — Study CRUD + STF XML 导入 REST client。方法: `listBySequence(seqId)` / `listByNode(nodeId)` / `getById(id)` / `create(nodeId, dto)` / `update(id, dto)` / `delete(id)` / `regenerateXml(id)` / `importXml(nodeId, body)` / `importBundle(nodeId, body)` / `importBundleMultipart(nodeId, formData)` |
+| `services/cv.ts` | 受控词汇查询。**Plan 12 新增** STF 方法: `getStfCategories()` / `getStfCategoryValues(name)` / `getStfFileTags(module: 'm4' \| 'm5')` |
+| `services/export.ts` | Word/PDF 导出 |
+| `services/validation.ts` | 验证执行 + 报告查询 |
+| `services/editLock.ts` | 编辑锁获取/释放/心跳 |
+| `services/approval.ts` | 审批提交/通过/驳回 |
+| `services/comment.ts` | 评论 CRUD |
+| `services/notification.ts` | 通知列表 + 已读 |
+| `services/assignment.ts` | 章节指派 |
+| `services/dashboard.ts` | 工作台聚合查询 |
+| `services/collaboration.ts` | WebSocket 连接 + presence HTTP fallback |
 
 ## 5. 自动保存
 

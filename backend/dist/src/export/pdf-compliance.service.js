@@ -10,7 +10,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PDFComplianceService = void 0;
 const common_1 = require("@nestjs/common");
 const pdf_lib_1 = require("pdf-lib");
-const MAX_FILE_SIZE_MB = 200;
+const MAX_FILE_SIZE_MB = 500;
 let PDFComplianceService = PDFComplianceService_1 = class PDFComplianceService {
     logger = new common_1.Logger(PDFComplianceService_1.name);
     async checkCompliance(pdfBuffer) {
@@ -130,13 +130,21 @@ let PDFComplianceService = PDFComplianceService_1 = class PDFComplianceService {
                 message: `PDF 文件大小 ${fileSizeMB.toFixed(1)}MB 超过 ${MAX_FILE_SIZE_MB}MB 限制`,
             });
         }
-        const unembeddedFonts = this.safeCheck(() => this.checkFontEmbedding(pdfDoc), [], '6.W2', '字体嵌入检查', warnings);
-        if (unembeddedFonts.length > 0) {
+        const fontReport = this.safeCheck(() => this.checkFontCompliance(pdfDoc), { unembedded: [], invalidSubtype: [] }, '6.25', '字体嵌入检查', warnings);
+        for (const fontName of fontReport.unembedded) {
+            errors.push({
+                ruleId: '6.25',
+                severity: 'error',
+                message: `字体 ${fontName} 未嵌入，违反 eCTD Submission Format v1.2`,
+                detail: 'PDF 所有字体必须嵌入 (FontFile/FontFile2/FontFile3)，且只允许 TrueType/OpenType/Type1',
+            });
+        }
+        for (const { name, subtype } of fontReport.invalidSubtype) {
             warnings.push({
-                ruleId: '6.W2',
+                ruleId: '6.26',
                 severity: 'warning',
-                message: `${unembeddedFonts.length} 个字体未嵌入`,
-                detail: `未嵌入字体: ${unembeddedFonts.join(', ')}`,
+                message: `字体 ${name} 的类型 ${subtype} 不是 TrueType/OpenType/Type1`,
+                detail: 'eCTD Submission Format v1.2 要求字体类型仅限 TrueType、OpenType 或 Type1',
             });
         }
         return {
@@ -305,9 +313,52 @@ let PDFComplianceService = PDFComplianceService_1 = class PDFComplianceService {
             return true;
         return false;
     }
-    checkFontEmbedding(pdfDoc) {
+    checkFontCompliance(pdfDoc) {
         const unembedded = [];
+        const invalidSubtype = [];
+        const visited = new Set();
+        const standard14 = new Set([
+            'Courier', 'Courier-Bold', 'Courier-BoldOblique', 'Courier-Oblique',
+            'Helvetica', 'Helvetica-Bold', 'Helvetica-BoldOblique', 'Helvetica-Oblique',
+            'Times-Roman', 'Times-Bold', 'Times-BoldItalic', 'Times-Italic',
+            'Symbol', 'ZapfDingbats',
+        ]);
+        const validTopSubtypes = new Set(['/Type1', '/TrueType', '/Type0']);
+        const validCidSubtypes = new Set(['/CIDFontType0', '/CIDFontType2']);
+        const cleanName = (raw) => raw.replace(/^\//, '').replace(/^[A-Z]{6}\+/, '');
+        const inspectFont = (fontObj, alreadyReported) => {
+            if (!(fontObj instanceof pdf_lib_1.PDFDict))
+                return;
+            const baseFontNode = fontObj.lookup(pdf_lib_1.PDFName.of('BaseFont'));
+            const rawName = baseFontNode ? baseFontNode.toString() : 'Unknown';
+            const name = cleanName(rawName);
+            const subtypeNode = fontObj.lookup(pdf_lib_1.PDFName.of('Subtype'));
+            const subtype = subtypeNode ? subtypeNode.toString() : '';
+            if (subtype === '/Type0') {
+                const descendants = fontObj.lookup(pdf_lib_1.PDFName.of('DescendantFonts'));
+                if (descendants instanceof pdf_lib_1.PDFArray && descendants.size() > 0) {
+                    const descRaw = descendants.lookup(0);
+                    const descFont = descRaw instanceof pdf_lib_1.PDFRef ? pdfDoc.context.lookup(descRaw) : descRaw;
+                    if (descFont instanceof pdf_lib_1.PDFDict) {
+                        const descSubNode = descFont.lookup(pdf_lib_1.PDFName.of('Subtype'));
+                        const descSub = descSubNode ? descSubNode.toString() : '';
+                        if (!validCidSubtypes.has(descSub) && !alreadyReported.has(`sub:${name}`)) {
+                            invalidSubtype.push({ name, subtype: `${subtype} → ${descSub || 'missing'}` });
+                            alreadyReported.add(`sub:${name}`);
+                        }
+                        this.checkFontFile(descFont, name, unembedded, standard14, alreadyReported);
+                    }
+                }
+                return;
+            }
+            if (subtype && !validTopSubtypes.has(subtype) && !alreadyReported.has(`sub:${name}`)) {
+                invalidSubtype.push({ name, subtype });
+                alreadyReported.add(`sub:${name}`);
+            }
+            this.checkFontFile(fontObj, name, unembedded, standard14, alreadyReported);
+        };
         const pages = pdfDoc.getPages();
+        const reported = new Set();
         for (const page of pages) {
             const resources = page.node.lookup(pdf_lib_1.PDFName.of('Resources'));
             if (!(resources instanceof pdf_lib_1.PDFDict))
@@ -315,33 +366,38 @@ let PDFComplianceService = PDFComplianceService_1 = class PDFComplianceService {
             const fonts = resources.lookup(pdf_lib_1.PDFName.of('Font'));
             if (!(fonts instanceof pdf_lib_1.PDFDict))
                 continue;
-            const fontEntries = fonts.entries();
-            for (const [, fontRef] of fontEntries) {
-                const font = pdfDoc.context.lookup(fontRef);
-                if (!(font instanceof pdf_lib_1.PDFDict))
+            for (const [, fontRef] of fonts.entries()) {
+                const refKey = fontRef instanceof pdf_lib_1.PDFRef ? fontRef.toString() : Math.random().toString();
+                if (visited.has(refKey))
                     continue;
-                const baseFont = font.lookup(pdf_lib_1.PDFName.of('BaseFont'));
-                const fontDesc = font.lookup(pdf_lib_1.PDFName.of('FontDescriptor'));
-                if (fontDesc instanceof pdf_lib_1.PDFDict) {
-                    const fontFile = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile'));
-                    const fontFile2 = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile2'));
-                    const fontFile3 = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile3'));
-                    if (!fontFile && !fontFile2 && !fontFile3) {
-                        const name = baseFont ? baseFont.toString().replace('/', '') : 'Unknown';
-                        const standard14 = [
-                            'Courier', 'Courier-Bold', 'Courier-BoldOblique', 'Courier-Oblique',
-                            'Helvetica', 'Helvetica-Bold', 'Helvetica-BoldOblique', 'Helvetica-Oblique',
-                            'Times-Roman', 'Times-Bold', 'Times-BoldItalic', 'Times-Italic',
-                            'Symbol', 'ZapfDingbats',
-                        ];
-                        if (!standard14.includes(name) && !unembedded.includes(name)) {
-                            unembedded.push(name);
-                        }
-                    }
-                }
+                visited.add(refKey);
+                const fontObj = fontRef instanceof pdf_lib_1.PDFRef ? pdfDoc.context.lookup(fontRef) : fontRef;
+                inspectFont(fontObj, reported);
             }
         }
-        return unembedded;
+        return { unembedded, invalidSubtype };
+    }
+    checkFontFile(fontDict, name, unembedded, standard14, alreadyReported) {
+        const reportKey = `emb:${name}`;
+        if (alreadyReported.has(reportKey))
+            return;
+        const fontDesc = fontDict.lookup(pdf_lib_1.PDFName.of('FontDescriptor'));
+        if (!(fontDesc instanceof pdf_lib_1.PDFDict)) {
+            if (!standard14.has(name)) {
+                unembedded.push(name);
+                alreadyReported.add(reportKey);
+            }
+            return;
+        }
+        const fontFile = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile'));
+        const fontFile2 = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile2'));
+        const fontFile3 = fontDesc.lookup(pdf_lib_1.PDFName.of('FontFile3'));
+        if (!fontFile && !fontFile2 && !fontFile3) {
+            if (!standard14.has(name)) {
+                unembedded.push(name);
+                alreadyReported.add(reportKey);
+            }
+        }
     }
 };
 exports.PDFComplianceService = PDFComplianceService;

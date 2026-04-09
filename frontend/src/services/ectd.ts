@@ -10,11 +10,8 @@ export const ectdApi = {
   previewIndexXml: (seqId: string) =>
     api.get(`/sequences/${seqId}/xml/index`),
 
-  // STF
-  getStf: (nodeId: string) => api.get(`/nodes/${nodeId}/stf`),
-  saveStf: (nodeId: string, data: any) => api.put(`/nodes/${nodeId}/stf`, data),
-  getStfCategories: () => api.get('/stf/categories'),
-  getStfFileTags: () => api.get('/stf/file-tags'),
+  // STF v1 endpoints removed in Plan 12. Use studyApi from `services/study.ts`
+  // and cvApi.getStfCategories / cvApi.getStfFileTags from `services/cv.ts`.
 
   // Lifecycle
   validateOperation: (seqId: string, nodeId: string, operation: string) =>

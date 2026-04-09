@@ -1,10 +1,12 @@
 import { EctdController } from './ectd.controller';
 
+// NOTE: Plan 12 — STF endpoint tests removed from this spec. v2 STF endpoints
+// live on StudyController and are covered in study.controller.spec.ts (P3).
+
 describe('EctdController', () => {
   let controller: EctdController;
   let cnRegionalXml: Record<string, any>;
   let indexXml: Record<string, any>;
-  let stfService: Record<string, any>;
   let lifecycle: Record<string, any>;
   let validator: Record<string, any>;
   let packageAssembler: Record<string, any>;
@@ -13,15 +15,9 @@ describe('EctdController', () => {
   beforeEach(() => {
     cnRegionalXml = { generateCnRegionalXml: jest.fn().mockResolvedValue('<cn-regional/>') };
     indexXml = { generateIndexXml: jest.fn().mockResolvedValue('<ectd/>') };
-    stfService = {
-      getStf: jest.fn().mockResolvedValue({ category: 'efficacy' }),
-      saveStf: jest.fn().mockResolvedValue({ id: 'stf-1' }),
-      getCategories: jest.fn().mockReturnValue([{ code: 'efficacy' }]),
-      getFileTags: jest.fn().mockReturnValue([{ code: 'study-report' }]),
-    };
     lifecycle = {
       validateOperation: jest.fn().mockResolvedValue({ isValid: true }),
-      checkParallelConflicts: jest.fn().mockResolvedValue({ conflicts: [] }),
+      checkParallelConflicts: jest.fn().mockResolvedValue([]),
       generateWithdrawOperations: jest.fn().mockResolvedValue([]),
     };
     validator = {
@@ -49,7 +45,6 @@ describe('EctdController', () => {
     controller = new EctdController(
       cnRegionalXml as any,
       indexXml as any,
-      stfService as any,
       lifecycle as any,
       validator as any,
       packageAssembler as any,
@@ -67,25 +62,7 @@ describe('EctdController', () => {
     expect(result.xml).toBe('<ectd/>');
   });
 
-  it('should get STF', async () => {
-    const result = await controller.getStf('node-1');
-    expect(result.category).toBe('efficacy');
-  });
-
-  it('should save STF', async () => {
-    const result = await controller.saveStf('node-1', { category: 'efficacy', fileTag: 'study-report' } as any);
-    expect(result.id).toBe('stf-1');
-  });
-
-  it('should get STF categories', () => {
-    const result = controller.getStfCategories();
-    expect(result).toHaveLength(1);
-  });
-
-  it('should get STF file tags', () => {
-    const result = controller.getStfFileTags();
-    expect(result).toHaveLength(1);
-  });
+  // STF endpoint tests removed in Plan 12 — see study.controller.spec.ts (P3).
 
   it('should validate operation', async () => {
     const result = await controller.validateOperation('seq-1', 'node-1', { operation: 'new' } as any);
@@ -94,7 +71,7 @@ describe('EctdController', () => {
 
   it('should check parallel conflicts', async () => {
     const result = await controller.checkParallelConflicts('seq-1');
-    expect(result.conflicts).toEqual([]);
+    expect(result).toEqual([]);
   });
 
   it('should preview withdraw', async () => {
@@ -109,12 +86,14 @@ describe('EctdController', () => {
 
   it('should get latest report', async () => {
     const result = await controller.getLatestReport('seq-1');
-    expect(result.id).toBe('report-1');
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe('report-1');
   });
 
   it('should get report by id', async () => {
     const result = await controller.getReport('report-1');
-    expect(result.id).toBe('report-1');
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe('report-1');
   });
 
   it('should preview package structure', async () => {

@@ -85,6 +85,47 @@ describe('ApplicationService', () => {
       const year = new Date().getFullYear().toString();
       expect(result.applicationNumber).toContain(year);
     });
+
+    // -------- NMPA V1.1 applicationNumber format validation --------
+
+    it('should accept a caller-supplied valid applicationNumber (NMPA V1.1)', async () => {
+      mockPrisma.project.findUnique.mockResolvedValue({ id: 'proj1' });
+      mockPrisma.application.findUnique.mockResolvedValue(null);
+      mockPrisma.application.create.mockImplementation(({ data }) => Promise.resolve(data));
+
+      const result = await service.create('proj1', {
+        ...dto,
+        applicationNumber: 'l202412345',
+      } as any);
+      expect(result.applicationNumber).toBe('l202412345');
+    });
+
+    it('should reject caller-supplied applicationNumber with invalid prefix', async () => {
+      mockPrisma.project.findUnique.mockResolvedValue({ id: 'proj1' });
+      mockPrisma.application.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.create('proj1', { ...dto, applicationNumber: 'z202412345' } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject caller-supplied applicationNumber with wrong length', async () => {
+      mockPrisma.project.findUnique.mockResolvedValue({ id: 'proj1' });
+      mockPrisma.application.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.create('proj1', { ...dto, applicationNumber: 'x20241234' } as any), // 9 chars
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should always auto-generate applicationNumber matching NMPA V1.1 regex', async () => {
+      mockPrisma.project.findUnique.mockResolvedValue({ id: 'proj1' });
+      mockPrisma.application.findUnique.mockResolvedValue(null);
+      mockPrisma.application.create.mockImplementation(({ data }) => Promise.resolve(data));
+
+      const result = await service.create('proj1', dto);
+      expect(result.applicationNumber).toMatch(/^[xyls]\d{4}\d{5}$/);
+    });
   });
 
   describe('findAllByProject', () => {

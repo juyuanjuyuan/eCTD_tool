@@ -13,9 +13,9 @@ export declare class CtdTemplateService {
     }>;
     getSequenceNodeTree(sequenceId: string): Promise<any[]>;
     updateSequenceNode(sequenceId: string, nodeId: string, dto: UpdateSequenceNodeDto): Promise<{
+        ctdSectionNumber: string;
         id: string;
         elementName: string;
-        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;
@@ -38,9 +38,9 @@ export declare class CtdTemplateService {
         rejectionReason: string | null;
     }>;
     updateBackboneAttributes(sequenceId: string, nodeId: string, dto: UpdateBackboneAttributesDto): Promise<{
+        ctdSectionNumber: string;
         id: string;
         elementName: string;
-        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;
@@ -64,9 +64,9 @@ export declare class CtdTemplateService {
     }>;
     private getDescendantIds;
     createExtensionNode(sequenceId: string, parentNodeId: string, dto: CreateExtensionNodeDto): Promise<{
+        ctdSectionNumber: string;
         id: string;
         elementName: string;
-        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;
@@ -89,9 +89,9 @@ export declare class CtdTemplateService {
         rejectionReason: string | null;
     }>;
     deleteExtensionNode(sequenceId: string, nodeId: string): Promise<{
+        ctdSectionNumber: string;
         id: string;
         elementName: string;
-        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;

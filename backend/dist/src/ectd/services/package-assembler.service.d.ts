@@ -23,6 +23,5 @@ export declare class PackageAssemblerService {
     }>;
     private buildZip;
     private addUtilFiles;
-    private getStfPath;
     previewStructure(sequenceId: string): Promise<string[]>;
 }

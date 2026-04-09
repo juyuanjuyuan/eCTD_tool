@@ -81,7 +81,8 @@ function buildLeaf(overrides: any = {}) {
       },
     }],
     document: null,
-    studyTaggingFile: null,
+    // Plan 12: v2 STF model. Default to no studies.
+    studies: [],
     ...overrides,
   };
 }
@@ -246,10 +247,20 @@ describe('Integration: Complete Workflow', () => {
         buildLeaf({
           ctdSectionNumber: '4.2.1',
           templateNode: { module: 4, requiresStf: true, elementName: 'pharmacology', allowsExtension: false, ctdSectionNumber: '4.2.1', titleZh: '药理学' },
-          studyTaggingFile: {
-            studyTitle: '药理学研究',
-            studyId: 'PHARM-001',
-          },
+          // Plan 12: v2 STF — one Study with categories + documents
+          studies: [
+            {
+              id: 'study-1',
+              studyId: 'PHARM-001',
+              title: '药理学研究',
+              operation: 'NEW',
+              modifiedFromId: null,
+              stfXmlContent: '<x/>',
+              stfChecksum: 'd41d8cd98f00b204e9800998ecf8427e',
+              categories: [{ name: 'species', value: 'rat', infoType: 'ich' }],
+              documents: [{ fileTag: 'study-report-body', fileTagInfoType: 'ich' }],
+            },
+          ],
           fileAttachments: [{
             id: 'f-stf', fileSize: 2048, fileType: 'pdf',
             originalName: 'study-report.pdf', storedName: 'study-report.pdf',

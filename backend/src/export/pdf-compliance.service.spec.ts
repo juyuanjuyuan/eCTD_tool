@@ -1,5 +1,12 @@
 import { PDFComplianceService } from './pdf-compliance.service';
-import { PDFDocument, PDFName, PDFDict, PDFArray, PDFString } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFName,
+  PDFDict,
+  PDFArray,
+  PDFString,
+  PDFRawStream,
+} from 'pdf-lib';
 
 describe('PDFComplianceService', () => {
   let service: PDFComplianceService;
@@ -169,6 +176,115 @@ describe('PDFComplianceService', () => {
 
       const sizeWarning = result.warnings.find(w => w.ruleId === '6.W1');
       expect(sizeWarning).toBeUndefined();
+    });
+  });
+
+  describe('checkCompliance - 6.25 Font Embedding', () => {
+    /**
+     * Builds a PDF where page 0 references a custom font we inject at the
+     * PDFContext level. `embedded` controls whether a FontFile2 stream is
+     * attached to the FontDescriptor.
+     */
+    async function createPdfWithCustomFont(embedded: boolean): Promise<Buffer> {
+      const pdfDoc = await PDFDocument.create();
+      const page = pdfDoc.addPage();
+      const ctx = pdfDoc.context;
+
+      // FontDescriptor dict (optionally with FontFile2 stream)
+      const fontDescEntries: [PDFName, any][] = [
+        [PDFName.of('Type'), PDFName.of('FontDescriptor')],
+        [PDFName.of('FontName'), PDFName.of('CustomSans')],
+        [PDFName.of('Flags'), ctx.obj(32)],
+        [PDFName.of('FontBBox'), ctx.obj([0, 0, 1000, 1000])],
+        [PDFName.of('ItalicAngle'), ctx.obj(0)],
+        [PDFName.of('Ascent'), ctx.obj(800)],
+        [PDFName.of('Descent'), ctx.obj(-200)],
+        [PDFName.of('CapHeight'), ctx.obj(700)],
+        [PDFName.of('StemV'), ctx.obj(80)],
+      ];
+      if (embedded) {
+        // Minimal dummy TTF stream (content doesn't need to parse, we only
+        // check its *presence* as a FontFile2 reference)
+        const fakeTtf = Buffer.from('FAKE_TRUETYPE_FONT_BYTES');
+        const streamDict = ctx.obj({ Length1: fakeTtf.length });
+        const stream = PDFRawStream.of(streamDict, fakeTtf);
+        const streamRef = ctx.register(stream);
+        fontDescEntries.push([PDFName.of('FontFile2'), streamRef]);
+      }
+      const fontDescDict = PDFDict.fromMapWithContext(new Map(fontDescEntries), ctx);
+      const fontDescRef = ctx.register(fontDescDict);
+
+      // Font dict (TrueType subtype)
+      const fontDict = PDFDict.fromMapWithContext(
+        new Map<PDFName, any>([
+          [PDFName.of('Type'), PDFName.of('Font')],
+          [PDFName.of('Subtype'), PDFName.of('TrueType')],
+          [PDFName.of('BaseFont'), PDFName.of('CustomSans')],
+          [PDFName.of('FontDescriptor'), fontDescRef],
+        ]),
+        ctx,
+      );
+      const fontRef = ctx.register(fontDict);
+
+      // Attach /Resources/Font/F1 to the page
+      const fontResources = PDFDict.fromMapWithContext(
+        new Map([[PDFName.of('F1'), fontRef]]),
+        ctx,
+      );
+      const resources = PDFDict.fromMapWithContext(
+        new Map([[PDFName.of('Font'), fontResources]]),
+        ctx,
+      );
+      page.node.set(PDFName.of('Resources'), resources);
+
+      const bytes = await pdfDoc.save();
+      return Buffer.from(bytes);
+    }
+
+    it('should pass when the font is embedded (FontFile2 present)', async () => {
+      const buffer = await createPdfWithCustomFont(true);
+
+      const result = await service.checkCompliance(buffer);
+
+      const fontError = result.errors.find((e) => e.ruleId === '6.25');
+      expect(fontError).toBeUndefined();
+    });
+
+    it('should emit ERROR 6.25 when the font is not embedded', async () => {
+      const buffer = await createPdfWithCustomFont(false);
+
+      const result = await service.checkCompliance(buffer);
+
+      const fontError = result.errors.find((e) => e.ruleId === '6.25');
+      expect(fontError).toBeDefined();
+      expect(fontError!.severity).toBe('error');
+      expect(fontError!.message).toContain('CustomSans');
+      expect(fontError!.message).toContain('未嵌入');
+      // safeCheck must not have degraded the rule to a SKIP warning
+      const skipWarning = result.warnings.find((w) => w.ruleId === '6.25-SKIP');
+      expect(skipWarning).toBeUndefined();
+    });
+
+    it('should degrade to a SKIP warning when font parsing throws (safeCheck)', async () => {
+      const buffer = await createPdfWithCustomFont(true);
+      // Force the internal font walk to throw to exercise the safeCheck path.
+      const spy = jest
+        .spyOn(service as any, 'checkFontCompliance')
+        .mockImplementation(() => {
+          throw new Error('synthetic font table corruption');
+        });
+
+      const result = await service.checkCompliance(buffer);
+
+      const skipWarning = result.warnings.find((w) => w.ruleId === '6.25-SKIP');
+      expect(skipWarning).toBeDefined();
+      expect(skipWarning!.severity).toBe('warning');
+      expect(skipWarning!.detail).toContain('synthetic font table corruption');
+      // Must not have emitted a phantom 6.25 error
+      const fontError = result.errors.find((e) => e.ruleId === '6.25');
+      expect(fontError).toBeUndefined();
+
+      spy.mockRestore();
     });
   });
 

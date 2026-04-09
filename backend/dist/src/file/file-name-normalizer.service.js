@@ -9,9 +9,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.FileNameNormalizerService = exports.ALLOWED_EXTENSIONS = void 0;
 const common_1 = require("@nestjs/common");
 exports.ALLOWED_EXTENSIONS = new Set(['.pdf', '.xml', '.xpt', '.txt', '.xsl']);
-const MAX_PATH_LENGTH = 180;
+const MAX_PATH_LENGTH = 230;
 const MAX_NAME_LENGTH = 64;
-const MAX_FILE_SIZE = 200 * 1024 * 1024;
+const MAX_FILE_SIZE = 500 * 1024 * 1024;
 const MAX_XPT_FILE_SIZE = 4 * 1024 * 1024 * 1024;
 const M1_FOLDER_MAP = {
     '1.0': 'm1/cn/00',
@@ -72,7 +72,7 @@ let FileNameNormalizerService = class FileNameNormalizerService {
     validateFileSize(size, filename) {
         const ext = this.getExtension(filename);
         const maxSize = ext === '.xpt' ? MAX_XPT_FILE_SIZE : MAX_FILE_SIZE;
-        const maxLabel = ext === '.xpt' ? '4GB' : '200MB';
+        const maxLabel = ext === '.xpt' ? '4GB' : '500MB';
         if (size > maxSize) {
             throw new common_1.BadRequestException(`文件大小 ${(size / (1024 * 1024)).toFixed(1)}MB 超过 ${maxLabel} 限制`);
         }

@@ -9,33 +9,8 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ValidateOperationDto = exports.SaveStfDto = void 0;
+exports.ValidateOperationDto = void 0;
 const class_validator_1 = require("class-validator");
-class SaveStfDto {
-    studyTitle;
-    studyId;
-    categories;
-    fileTags;
-}
-exports.SaveStfDto = SaveStfDto;
-__decorate([
-    (0, class_validator_1.IsString)(),
-    __metadata("design:type", String)
-], SaveStfDto.prototype, "studyTitle", void 0);
-__decorate([
-    (0, class_validator_1.IsString)(),
-    __metadata("design:type", String)
-], SaveStfDto.prototype, "studyId", void 0);
-__decorate([
-    (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsObject)(),
-    __metadata("design:type", Object)
-], SaveStfDto.prototype, "categories", void 0);
-__decorate([
-    (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsArray)(),
-    __metadata("design:type", Array)
-], SaveStfDto.prototype, "fileTags", void 0);
 class ValidateOperationDto {
     operation;
 }

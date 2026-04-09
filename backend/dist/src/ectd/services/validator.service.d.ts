@@ -41,44 +41,44 @@ export declare class ValidatorService {
     private validatePdf;
     getReport(reportId: string): Promise<({
         items: {
-            description: string;
             id: string;
-            severity: import("@prisma/client").$Enums.ValidationSeverity;
-            detail: string | null;
-            reportId: string;
             ruleCode: string;
+            severity: import("@prisma/client").$Enums.ValidationSeverity;
+            reportId: string;
             ruleCategory: string;
+            description: string;
+            detail: string | null;
             filePath: string | null;
             suggestion: string | null;
         }[];
     } & {
         id: string;
-        createdAt: Date;
         sequenceId: string;
         totalErrors: number;
         totalWarnings: number;
         totalInfos: number;
         isPassed: boolean;
+        createdAt: Date;
     }) | null>;
     getLatestReport(sequenceId: string): Promise<({
         items: {
-            description: string;
             id: string;
-            severity: import("@prisma/client").$Enums.ValidationSeverity;
-            detail: string | null;
-            reportId: string;
             ruleCode: string;
+            severity: import("@prisma/client").$Enums.ValidationSeverity;
+            reportId: string;
             ruleCategory: string;
+            description: string;
+            detail: string | null;
             filePath: string | null;
             suggestion: string | null;
         }[];
     } & {
         id: string;
-        createdAt: Date;
         sequenceId: string;
         totalErrors: number;
         totalWarnings: number;
         totalInfos: number;
         isPassed: boolean;
+        createdAt: Date;
     }) | null>;
 }

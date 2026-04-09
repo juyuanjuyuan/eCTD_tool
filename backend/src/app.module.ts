@@ -13,6 +13,7 @@ import { CtdTemplateModule } from './ctd-template/ctd-template.module';
 import { DocumentModule } from './document/document.module';
 import { ExportModule } from './export/export.module';
 import { EctdModule } from './ectd/ectd.module';
+import { StudyModule } from './study/study.module';
 import { FileModule } from './file/file.module';
 import { EditLockModule } from './edit-lock/edit-lock.module';
 import { ApprovalModule } from './approval/approval.module';
@@ -47,6 +48,7 @@ import { HealthModule } from './health/health.module';
     DocumentModule,
     ExportModule,
     EctdModule,
+    StudyModule,
     FileModule,
     EditLockModule,
     ApprovalModule,

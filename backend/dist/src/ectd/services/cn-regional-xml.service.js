@@ -38,7 +38,11 @@ let CnRegionalXmlService = CnRegionalXmlService_1 = class CnRegionalXmlService {
         }
         const app = sequence.regulatoryActivity.application;
         const ra = sequence.regulatoryActivity;
-        const priorLeafIdMap = await this.buildPriorLeafIdMap(sequence);
+        const priorLeafIdMap = await this.buildPriorLeafIdMap({
+            id: sequence.id,
+            sequenceNumber: sequence.sequenceNumber,
+            applicationId: app.id,
+        });
         const module1Nodes = await this.loadModule1Nodes(sequenceId);
         const xml = this.buildXml(sequence, app, ra, module1Nodes, priorLeafIdMap);
         return xml;
@@ -49,7 +53,7 @@ let CnRegionalXmlService = CnRegionalXmlService_1 = class CnRegionalXmlService {
             return map;
         const priorSequences = await this.prisma.sequence.findMany({
             where: {
-                regulatoryActivityId: sequence.regulatoryActivityId,
+                regulatoryActivity: { applicationId: sequence.applicationId },
                 sequenceNumber: { lt: sequence.sequenceNumber },
             },
             orderBy: { sequenceNumber: 'desc' },
@@ -70,7 +74,6 @@ let CnRegionalXmlService = CnRegionalXmlService_1 = class CnRegionalXmlService {
                     map.set(node.templateNodeId, this.md5Service.generateDeterministicLeafId(priorSeq.id, node.id));
                 }
             }
-            break;
         }
         return map;
     }
@@ -194,6 +197,7 @@ let CnRegionalXmlService = CnRegionalXmlService_1 = class CnRegionalXmlService {
                 ? file.ectdRelativePath.substring('m1/cn/'.length)
                 : file.ectdRelativePath;
             parts.push(`xlink:href="${this.escapeXml(href)}"`);
+            parts.push(`xlink:type="simple"`);
             parts.push(`checksum="${file.md5Checksum}"`);
             parts.push(`checksum-type="MD5"`);
         }

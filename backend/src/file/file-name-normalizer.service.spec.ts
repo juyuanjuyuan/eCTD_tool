@@ -102,12 +102,12 @@ describe('FileNameNormalizerService', () => {
   // ==================== validateFileSize ====================
 
   describe('validateFileSize', () => {
-    it('should accept normal files under 200MB', () => {
-      expect(() => service.validateFileSize(100 * 1024 * 1024, 'report.pdf')).not.toThrow();
+    it('should accept normal files under 500MB', () => {
+      expect(() => service.validateFileSize(400 * 1024 * 1024, 'report.pdf')).not.toThrow();
     });
 
-    it('should reject normal files over 200MB', () => {
-      expect(() => service.validateFileSize(201 * 1024 * 1024, 'report.pdf')).toThrow(BadRequestException);
+    it('should reject normal files over 500MB', () => {
+      expect(() => service.validateFileSize(501 * 1024 * 1024, 'report.pdf')).toThrow(BadRequestException);
     });
 
     it('should accept XPT files under 4GB', () => {
@@ -119,8 +119,8 @@ describe('FileNameNormalizerService', () => {
       expect(() => service.validateFileSize(overFourGB, 'data.xpt')).toThrow(BadRequestException);
     });
 
-    it('should accept files at exactly 200MB boundary', () => {
-      expect(() => service.validateFileSize(200 * 1024 * 1024, 'report.pdf')).not.toThrow();
+    it('should accept files at exactly 500MB boundary', () => {
+      expect(() => service.validateFileSize(500 * 1024 * 1024, 'report.pdf')).not.toThrow();
     });
   });
 
@@ -152,9 +152,18 @@ describe('FileNameNormalizerService', () => {
         .toBe('m5/53-clin-stud-rep/clinical-study.pdf');
     });
 
-    it('should throw on paths exceeding 180 characters', () => {
+    it('should throw when any path segment exceeds 64 characters', () => {
+      // A long single filename (> 64 chars) is always rejected regardless of the
+      // total-path-length cap (ICH eCTD v3.2.2 §2.4: 230 chars path, 64 chars segment).
       const longName = 'a'.repeat(170) + '.pdf';
       expect(() => service.buildEctdRelativePath('1.2', longName)).toThrow(BadRequestException);
+    });
+
+    it('should accept a compliant 230-char eCTD path (ICH eCTD v3.2.2)', () => {
+      // A normal compliant name (under 64 chars) should build a path under the
+      // 230-char upper bound without error.
+      const name = 'report-' + 'a'.repeat(50) + '.pdf'; // 61 chars
+      expect(() => service.buildEctdRelativePath('3.2', name)).not.toThrow();
     });
 
     it('should handle sub-section numbers for module 1', () => {

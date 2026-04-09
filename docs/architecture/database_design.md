@@ -83,7 +83,7 @@ User (1) ──< (N) Notification
 | application_id | UUID | FK→application |
 | regulatory_activity_type_code | VARCHAR(10) | 注册行为类型代码（cnrat1-cnrat9），同一活动内不可变 |
 | regulatory_activity_type_version | VARCHAR(10) | 受控词汇版本号 |
-| related_sequence | CHAR(4) | 相关序列号（首次为 0000），同一活动内不可变 |
+| related_sequence | CHAR(4) | 相关序列号 = 该 RA 的起始序列号（申请维度，首个 RA 为 0000，后续 RA 为前一 RA 最后序列号+1），同一活动内不可变 |
 | created_at | TIMESTAMP | 创建时间 |
 
 #### `sequence` — 序列表（信封序列级别属性）
@@ -91,8 +91,9 @@ User (1) ──< (N) Notification
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | UUID | 主键 |
+| application_id | UUID | FK→application（**冗余字段，方案 C 引入**，用于支持申请维度的序列号唯一约束） |
 | regulatory_activity_id | UUID | FK→regulatory_activity |
-| sequence_number | CHAR(4) | 序列号（0000-9999），同一活动内自动递增 |
+| sequence_number | CHAR(4) | 序列号（0000-9999），**在 application_id 维度全局唯一连续递增**（不再是 RA 内部递增；ICH eCTD v3.2.2 + NMPA V1.1 要求） |
 | sequence_type_code | VARCHAR(10) | 序列类型代码（cnsqt1/cnsqt2/cnsqt3/cnsqt4） |
 | sequence_type_version | VARCHAR(10) | 受控词汇版本号 |
 | description | VARCHAR(500) | 序列描述 |
@@ -267,22 +268,81 @@ User (1) ──< (N) Notification
 | compliance_details | JSONB | 详细合规检查结果 |
 | analyzed_at | TIMESTAMP | 分析时间 |
 
-### 2.7 STF（研究标签文件）✅ (WP-05 已实现)
+### 2.7 STF（研究标签文件）✅ (Plan 12 v2 — 2026-04-09)
 
-#### `study_tagging_file` — STF 表（模块四五的研究标签）
+> **v2 设计变更说明**：2026-04-09 Plan 12 执行时废弃了 v1 的 `study_tagging_file` 单表设计（`sequenceNodeId @unique` 的 1:1 约束直接禁止"一个 CTD 章节挂多份研究"的合规场景），重建为 `study` / `study_category` / `study_document` 三张新表，一个 `sequence_node` 可挂 N 份 `study`，每份 study 可挂 N 个 category 维度与 N 份 PDF 文档。迁移脚本 `backend/prisma/migrations/20260408120000_stf_v2_schema` 以 `DROP TABLE study_tagging_file CASCADE` 丢弃 v1 数据（已与用户确认开发环境零生产数据），不写 INSERT 数据迁移。
+
+**~~`study_tagging_file`~~** — ~~v1 STF 表，已于 2026-04-09 Plan 12 P1 随同 v1 `StfService` 一并删除~~
+
+#### `study` — 研究表（每个 sequence_node 可承载多份研究）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | UUID | 主键 |
-| sequence_node_id | UUID | FK→sequence_node |
-| study_title | VARCHAR(500) | 研究标题 |
-| study_id | VARCHAR(100) | 研究编号 |
-| categories | JSONB | 分类属性（species/route-of-admin/duration/type-of-control） |
-| file_tags | JSONB | 文件标签列表（file-tag name 值，取自 valid-values.xml） |
-| stf_xml_content | TEXT | 生成的 STF XML 内容 |
-| operation | ENUM | new/replace/append/delete |
+| sequence_id | UUID | FK→sequence（冗余字段，便于按 sequence 聚合查询，Cascade Delete） |
+| sequence_node_id | UUID | FK→sequence_node（Cascade Delete） |
+| ctd_section_number | VARCHAR(20) | CTD 章节号（冗余缓存，避免每次 join template，如 `4.2.3.2`） |
+| study_id | VARCHAR(100) | 用户录入的研究编号（如 `TOX-2024-001`） |
+| title | VARCHAR(500) | 研究标题 |
+| operation | ENUM(LeafOperation) | 生命周期操作: NEW/REPLACE/APPEND/DELETE（STF 是唯一推荐使用 append 的文件类型） |
+| modified_from_id | UUID? | 前序 Study FK→study（REPLACE/APPEND/DELETE 必填，application-scoped 向前查找同 `templateNodeId+studyId` 的前序 Study；SetNull on delete） |
+| stf_file_path | VARCHAR(500)? | STF XML 文件在 eCTD 包中的相对路径（供 index.xml 的 STF leaf 引用，如 `m4/42-stud-rep/421-pharmacol-stud/study-tox-2024-001.xml`） |
+| stf_checksum | CHAR(32)? | STF XML 文件 MD5（`index-md5.txt` 写入此值） |
+| stf_xml_content | TEXT? | 缓存的 STF XML 内容（每次 save 由 `StudyService` 在事务内调用 `StudyTaggingFileService.generateStfXml()` 重新生成，包导出时直接读取落盘） |
 | created_at | TIMESTAMP | 创建时间 |
 | updated_at | TIMESTAMP | 更新时间 |
+
+- `@@unique([sequence_node_id, study_id])` — 同一叶节点下 `studyId` 唯一
+- `@@index([sequence_id])` / `@@index([sequence_node_id])` / `@@index([modified_from_id])`
+- `modifiedFrom` 自引用关系命名为 `StudyLifecycle`
+
+#### `study_category` — 研究的 ICH STF 分类维度（多对一）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID | 主键 |
+| study_id | UUID | FK→study（Cascade Delete） |
+| name | VARCHAR(60) | ICH STF 维度名，取自 CV 表 `stf-category-*`（如 `species` / `route-of-admin` / `duration` / `type-of-control`） |
+| value | VARCHAR(100) | 维度取值，取自 CV 表对应 category 的合法值（如 `rat` / `oral` / `chronic` / `placebo-control`） |
+| info_type | VARCHAR(10) | realm 标识（`ich`/`us`/`jp`/`eu`/`ca`/`cn`），默认 `ich` |
+| sort_order | INT | 展示排序（默认 0） |
+
+- `@@unique([study_id, name])` — 一个 study 的同一维度只能有一个值
+- `@@index([study_id])`
+
+#### `study_document` — 研究关联的 PDF 文档（多对一）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID | 主键 |
+| study_id | UUID | FK→study（Cascade Delete） |
+| file_attachment_id | UUID | FK→file_attachment（Cascade Delete，实际 PDF 文件） |
+| file_tag | VARCHAR(60) | 文件标签，取自 CV 表 `stf-file-tag-m4` / `stf-file-tag-m5`（如 `study-report-body` / `protocol` / `sample-case-report-form`） |
+| file_tag_info_type | VARCHAR(10) | realm 标识，默认 `ich` |
+| sort_order | INT | 在 STF `<document-group>` 中的排序 |
+
+- `@@index([study_id])` / `@@index([file_attachment_id])`
+
+#### `ctd_template_node.default_stf_categories` — 章节预设维度（Plan 12 决策 4）
+
+2026-04-09 为 `ctd_template_node` 表新增字段 `default_stf_categories JSONB?`，存储该 CTD 章节的 ICH STF 默认维度清单，前端 `StudyMetadataPanel` 基础区根据此字段渲染"默认维度 Select 列表"。示例值：
+
+```json
+[
+  { "name": "species", "required": true },
+  { "name": "route-of-admin", "required": true },
+  { "name": "duration", "required": true },
+  { "name": "type-of-control", "required": true }
+]
+```
+
+种子数据由 `backend/prisma/seeds/stf-default-categories.ts` 的 `STF_DEFAULTS` 表定义 ~30 个 M4/M5 叶章节的预设值（4.2.1.x→species+route-of-admin；4.2.2.x→+duration；4.2.3.x→全 4 维；M5 5.3.1/3/4/5→route-of-admin/type-of-control 等），`applyStfDefaultCategories()` 幂等注入 seed-ctd 流程。按"宁缺勿滥"原则，无明确 ICH 维度的章节留 `null`，由用户通过"高级区"自行添加。
+
+#### `controlled_vocabulary.code` 列宽调整（Plan 12 P1 跟进 migration）
+
+原 `code` 列为 `VARCHAR(10)`，足以容纳 NMPA 代码 `cnapt1..cnsqt4`，但 ICH STF v6.0 的 file-tag 值如 `inter-laboratory-standardisation-methods-quality-assurance` 可达 58 字符。`20260408120100_widen_cv_code_for_stf` 将列宽放宽至 `VARCHAR(80)` 带 22 字符头部空间。
+
+STF 相关 CV 行约定 `descriptionEn = "[<realm>] <value>"` 编码 realm（如 `[ich] mouse`、`[us] short`），`descriptionZh` 存裸值作展示回退，`ControlledVocabularyService.getStfCategoryValues()` 等查询方法用正则 `^\[(\w+)\] (.*)$` 反解 realm。
 
 ### 2.8 验证 ✅ (WP-05 已实现)
 
@@ -388,6 +448,7 @@ User (1) ──< (N) Notification
 CREATE INDEX idx_application_project ON application(project_id);
 CREATE INDEX idx_reg_activity_application ON regulatory_activity(application_id);
 CREATE INDEX idx_sequence_reg_activity ON sequence(regulatory_activity_id);
+CREATE INDEX idx_sequence_application ON sequence(application_id);  -- 方案 C 引入
 CREATE INDEX idx_sequence_node_sequence ON sequence_node(sequence_id);
 CREATE INDEX idx_document_node ON document(sequence_node_id);
 CREATE INDEX idx_file_node ON file_attachment(sequence_node_id);
@@ -395,7 +456,15 @@ CREATE INDEX idx_project_member ON project_member(project_id, user_id);
 CREATE INDEX idx_cv_vocabulary ON controlled_vocabulary(vocabulary_name, code);
 CREATE INDEX idx_cv_dep ON cv_dependency(application_type_code, regulatory_activity_type_code);
 CREATE INDEX idx_completeness_rule ON ctd_completeness_rule(application_type_code, regulatory_activity_type_code);
-CREATE INDEX idx_stf_node ON study_tagging_file(sequence_node_id);
+-- Plan 12 v2: study / study_category / study_document 三表索引
+CREATE INDEX idx_study_sequence ON study(sequence_id);
+CREATE INDEX idx_study_node ON study(sequence_node_id);
+CREATE INDEX idx_study_modified_from ON study(modified_from_id);
+CREATE UNIQUE INDEX idx_study_node_study ON study(sequence_node_id, study_id);
+CREATE INDEX idx_study_category ON study_category(study_id);
+CREATE UNIQUE INDEX idx_study_category_name ON study_category(study_id, name);
+CREATE INDEX idx_study_document ON study_document(study_id);
+CREATE INDEX idx_study_document_file ON study_document(file_attachment_id);
 CREATE INDEX idx_comment_node ON comment(sequence_node_id);
 CREATE INDEX idx_activity_log ON activity_log(resource, resource_id);
 CREATE INDEX idx_invitation_project ON project_invitation(project_id);
@@ -407,7 +476,7 @@ CREATE INDEX idx_notification_project ON notification(project_id);
 
 -- 唯一约束
 CREATE UNIQUE INDEX idx_user_email ON "user"(email);
-CREATE UNIQUE INDEX idx_seq_number ON sequence(regulatory_activity_id, sequence_number);
+CREATE UNIQUE INDEX idx_seq_number ON sequence(application_id, sequence_number);  -- 方案 C: 序列号在 application 维度全局唯一（原为 regulatory_activity_id 维度）
 CREATE UNIQUE INDEX idx_app_number ON application(application_number);
 CREATE UNIQUE INDEX idx_document_node_unique ON document(sequence_node_id);
 CREATE UNIQUE INDEX idx_pdf_analysis_unique ON file_pdf_analysis(file_attachment_id);
