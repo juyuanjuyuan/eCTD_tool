@@ -78,6 +78,17 @@ Base64(payload) + "." + Base64(RSA-SHA256 签名) → 激活码字符串（约 5
 - [x] M4 首版已落地：新增 `scripts/build-mac.sh`，可生成可分发测试包（`tar.gz`）；本机安装 `create-dmg` 时可继续生成 `.dmg`。并补充 `runtime/get-machine-id.js` 与首次启动自动 `docker load images/*.tar.gz`。
 - [ ] M2 启动器开发（Swift/Platypus）进行中（当前先用 `Start.command` 作为可用启动入口）。
 
+#### 1.0.1 P0 未修阻塞项（下次发版前必须清零）
+
+> 2026-04-24 首次冷安装测试（用户自测 Juyuans-Mac-mini / Apple Silicon）中发现，以下问题导致首包无法开箱即用，需在下次构建前逐一修复并在 §1.9 检查表中复验通过。
+
+- [x] **P0-1 Redis `--requirepass` YAML 折叠解析 bug**（已在 `docker-compose.desktop.yml` 修复，用 `sh -c` 条件分支代替折叠字符串；需 §1.9 Step B3 复验）
+- [ ] **P0-2 Prisma migration 未自动执行**：backend 容器 CMD 直接 `node dist/src/main.js`，未在启动前 `npx prisma migrate deploy`，首次启动必炸 `P2021: table does not exist`。修复方向：在 `backend/Dockerfile` 加 `entrypoint.sh` 包装层（`migrate deploy` → `node dist/src/main.js`），或在 `Start.command` 首次启动自动执行一次 `docker compose run --rm backend npx prisma migrate deploy`
+- [ ] **P0-3 种子数据未自动执行**：`seed.ts`（3 个默认用户）与 `seed-ctd.ts`（CTD 目录模板 + completeness 规则）均需首次启动时跑一次；目前 CV 运行时种子由 `ControlledVocabularyService.onModuleInit` 负责但依赖 P0-2 先建表，且 CTD 模板 / 用户依赖手工 `node dist/prisma/seed-ctd.js` + `seed.js`。修复方向：entrypoint.sh 首次启动检测标记文件（如 `DATA_DIR/.seeded`）不存在时执行 `seed.js` + `seed-ctd.js` 再写标记
+- [ ] **P0-4 `/reference` 目录未随包分发**：`docker-compose.desktop.yml` 将 `${DATA_DIR}/reference:/reference:ro` 挂载为只读，但 `Start.command` 从未把 `reference/` 目录（含 DTD/XSL/CV XML 附件包）从安装包复制到 `DATA_DIR/reference`；CV 运行时种子、验证服务、导出服务都依赖 `/reference/...`。修复方向：`build-mac.sh` 将 `reference/eCTD技术规范V1.1附件包/` 与必要的受控词汇 XML 一起打入包；`Start.command` 首次启动 `cp -R "$BASE_DIR/reference" "$DATA_DIR/"`（或软链）
+- [ ] **P0-5 镜像仅 `linux/amd64`，Apple Silicon Mac 上依赖 Rosetta 模拟**：性能损失 + 偶发 healthcheck 超时。修复方向：`build-mac.sh` 用 `docker buildx` 同时产出 `linux/amd64` + `linux/arm64` 镜像并 `docker save` 多 manifest 归档；第三方镜像（postgres/redis/minio）也要 `docker pull --platform` 分别拉两个架构
+- [ ] **P0-6 Backend 无法通过 REDIS_PASSWORD 鉴权（NOAUTH）**：在 `.env` 设置非空 REDIS_PASSWORD 后，redis 启动正常，但 backend 连 redis 报 `NOAUTH Authentication required`（backend 侧降级为 caching disabled 不阻塞，但意味着密码未正确传入 backend 或 backend 未读取）。修复方向：排查 Start.command `source "$ENV_FILE"` 后变量是否被 export，以及 compose 中 backend `environment.REDIS_PASSWORD: ${REDIS_PASSWORD:-}` 与 `.env` 文件的优先级
+
 ### 1.1 目标产物
 
 单个 `.dmg` 文件：`eCTDTool-Installer-v1.0.0.dmg`，挂载后包含：
@@ -163,6 +174,70 @@ scripts/build-mac.sh --version 0.1.0 --out-dir /tmp/ectd-release --skip-docker
 产物示例：
 - `/tmp/ectd-release/eCTDTool-mac-v0.1.0.tar.gz`
 - 包内包含 `Start.command`（启动入口）、`docker-compose.desktop.yml`、`.env.template`、`runtime/verify-license.js`
+
+### 1.9 发布前冷安装验证检查表（每次发版必跑）
+
+> **定位**：此检查表是打包 → 分发前的 **Release Gate**。任一条 `[ ]` 未打勾，`build-mac.sh` 产出的包**不得**交付客户。检查表按「源码侧 → 打包侧 → 冷装测试侧 → 客户侧」四段串联，前一段全通过才进下一段。
+>
+> **"冷装测试"的严格定义**：在一台**从未跑过这个项目 Docker 的 Mac**（或把 Docker Desktop 的数据全部清掉 → 重建）上走完整流程。不能在构建机、开发机、或已经跑过某版的机器上测 —— 那些机器有缓存镜像、已建表的卷、本地 node_modules，会掩盖真实新客户首装问题。
+
+#### A. 源码侧（打包前在 git 仓库上检查）
+
+- [ ] **A1** `docker-compose.desktop.yml` 里不留 `version: "3.8"` 顶层属性（compose v2 已废弃）
+- [ ] **A2** `docker-compose.desktop.yml` 的 redis/postgres/minio 命令**不含折叠字符串 + 环境变量混用**（见 P0-1 bug 教训；要么全写成 YAML 数组形式，要么用 `sh -c` 条件分支）
+- [ ] **A3** `backend/Dockerfile` 的 `ENTRYPOINT`（或 `CMD` 包装脚本）**自动执行 `prisma migrate deploy`** 再 `exec node dist/src/main.js`；首次启动 seed 由 entrypoint 检测标记文件触发一次
+- [ ] **A4** `backend/prisma/schema.prisma` 的 `binaryTargets` 至少包含 `["native", "debian-openssl-3.0.x"]`（对应 `node:20-slim` 基镜像；换基镜像需同步更新）
+- [ ] **A5** `scripts/build-mac.sh` 校验过 5 个必需镜像均已在本机存在（`docker image inspect` 逐一预检，缺一报错不往下走，避免 `reference does not exist` 打包残缺）
+- [ ] **A6** `scripts/build-mac.sh` 把 `reference/eCTD技术规范V1.1附件包/`（含 DTD/XSL/受控词汇 XML）打入产物包（`COPY reference` 到 `$WORK_DIR/reference/`）
+- [ ] **A7** `Start.command` 首次启动流程已覆盖：① `docker load images/*.tar.gz` ② `cp -R reference → DATA_DIR/reference` ③ 首次执行 seed 并写 `.seeded` 标记 ④ 端口占用自适应（`lsof -i :18080` 占用时递增）
+- [ ] **A8** `docs/update_log.md` 最新一条记录与实际代码变更对齐（无"口头改了但 log 没记"的情况）
+
+#### B. 打包侧（在构建机上跑 `build-mac.sh` 前后）
+
+- [ ] **B1** 构建机能同时产出 `linux/amd64` + `linux/arm64` 双架构的 `ectd-backend` / `ectd-frontend` 镜像（`docker buildx build --platform linux/amd64,linux/arm64`）；第三方镜像分别 `docker pull --platform` 两次保存。或按客户 Mac 架构出两份独立包（`-mac-intel.tar.gz` / `-mac-arm64.tar.gz`）
+- [ ] **B2** `docker save` 产物解压后能 `docker load` 成功（抽一个 tar.gz 在另一台机器 `docker load < xxx.tar.gz` 测试）
+- [ ] **B3** 构建机上**本地起一次完整 stack**（`docker compose -f docker-compose.desktop.yml up -d`）跑通 redis healthcheck —— 防止 P0-1 类 YAML/shell bug 再次到客户那里才发现
+- [ ] **B4** 包尺寸在预期区间（单包 `tar.gz` ≤ 1.5 GB；若超过说明某层镜像意外膨胀，需要追溯）
+- [ ] **B5** 包的 SHA256 写入 `eCTDTool-mac-v{VERSION}.tar.gz.sha256` 同目录产出（客户下载后可 `shasum -a 256 -c` 核对）
+- [ ] **B6** 签发一张**测试激活码**（机器码用 `deadbeef00000000` 占位）并尝试用 `tools/runtime/verify-license.js` + `LICENSE_MACHINE_ID_OVERRIDE=deadbeef00000000` 校验通过，确认私钥/公钥对齐、签发链路完整
+
+#### C. 冷装测试侧（在一台"干净" Mac 上，**每次发版**必跑一次）
+
+> 推荐维护 1 台 Apple Silicon + 1 台 Intel 共 2 台冷装机，每次把 Docker Desktop 的 "Settings → Troubleshoot → Clean / Purge data" 执行一次后开测。
+
+**步骤 C1–C10 必须按顺序跑通，任一步骤失败则打回源码侧修复：**
+
+- [ ] **C1 解压**：`tar -xzf eCTDTool-mac-v{VERSION}.tar.gz` 成功，目录结构符合预期（`images/` + `runtime/` + `Start.command` + `.env.template` + `docker-compose.desktop.yml` + `public.pem` + `reference/`）
+- [ ] **C2 Gatekeeper 绕过**：执行 `xattr -dr com.apple.quarantine ./eCTDTool-mac-v{VERSION}/` 后，双击 `Start.command` 不再弹"无法验证开发者"（长期解应走 Developer ID 签名 + 公证，M5 任务）
+- [ ] **C3 机器码采集**：`node runtime/get-machine-id.js` 输出 16 位 hex（Node 缺失时要 fail fast 并提示安装 Node.js LTS —— 如计划去 Node 依赖，则改为纯 shell 版后再来走此项）
+- [ ] **C4 激活码校验**：把测试激活码写入 `~/Library/Application Support/eCTDTool/license/license.txt`，`Start.command` 的 license 校验通过
+- [ ] **C5 镜像加载**：首次双击 `Start.command` 后 `docker images` 能看到全部 5 个镜像 tag；`.images_loaded` 标记文件已写入
+- [ ] **C6 栈启动**：`docker compose ps` 5 个服务在 90 秒内全部 `(healthy)`，无 `Restarting` 状态
+- [ ] **C7 Migration + Seed 幂等**：首次启动自动建表 + 种用户/CTD 模板/CV 成功；再次启动（`docker compose down && docker compose up -d`）不报唯一约束冲突、不覆盖用户自改数据
+- [ ] **C8 登录页可达**：浏览器打开 `http://localhost:18080`，能看到登录页（不是白屏/502）；用 `admin@ectd.com` / `admin123` 登录成功
+- [ ] **C9 业务主链路**：登录后能 ① 新建项目 ② 新建申请 + 序列 ③ 打开 CTD 目录左树至少看到模块 1-5 中 20+ 个叶节点 ④ 在某一叶节点上传一份 PDF ⑤ 触发验证不崩 ⑥ 导出 ZIP 包成功（`/sequences/:id/export/ectd-package`）
+- [ ] **C10 重启幂等**：`docker compose down && bash Start.command` 再次启动，所有数据保留（用户、上传文件、项目）；启动时间 < 30 秒（首次除外）
+
+#### D. 客户侧（分发前）
+
+- [ ] **D1** 客户 Mac 基线确认：macOS 12+、8GB+ 内存、50GB+ 可用空间、已装 Docker Desktop 最新稳定版（且已启动过一次，接受完许可）
+- [ ] **D2** 把"客户使用指南 PDF"（含解压 → 采集机器码 → 激活码安装 → 启动 → Gatekeeper 绕过 → 端口占用处理 → 日志位置 → 停止命令）**一并发给客户**，不要只发 `.tar.gz`
+- [ ] **D3** 客户机器码收到后，签发的激活码在 `expiresAt` 字段前至少留 1 个月冗余（避免客户收到时已快过期）
+- [ ] **D4** 建立激活码台账：`客户名 + 机器码 + 签发日期 + 到期日 + 私钥版本`（Excel 或 Airtable 皆可；丢失无法追溯换机续期）
+
+#### E. 已知坑对照表（持续累加）
+
+> 每次冷装测试或客户现场踩到的坑，记录到此表，并在源码侧加对应修复 / 检查项，避免同样的坑踩两次。
+
+| # | 首次发现 | 现象 | 根因 | 修复所在项 |
+|---|---|---|---|---|
+| 1 | 2026-04-24 首次冷装 | `Error response from daemon: reference does not exist` | `ectd-backend:latest` / `ectd-frontend:latest` 从未被 build（prod compose 没有 image tag） | A5 / B1 |
+| 2 | 2026-04-24 首次冷装 | redis 启动即 crash，`requirepass "--appendonly" "yes" wrong number of arguments` | 空 REDIS_PASSWORD + YAML 折叠字符串把下一个 flag 吞成密码值 | A2 / B3 |
+| 3 | 2026-04-24 首次冷装 | `P2021: table public.controlled_vocabulary does not exist` backend 无限重启 | 首次启动未执行 `prisma migrate deploy`，DB 为空 | A3 / C7 |
+| 4 | 2026-04-24 首次冷装 | 登录后无 CTD 目录 / CV 错误 | 未跑 `seed-ctd.js` 和 `seed.js` | A3 / C9 |
+| 5 | 2026-04-24 首次冷装 | 双击 Start.command 弹 "apple could not verify...free of malware" 且只给 "Move to Trash / Done" 两选项 | macOS Sonoma+ Gatekeeper 收紧，未签名 `.command` 需要 `xattr -dr com.apple.quarantine` 或系统设置里"仍要打开" | C2（长期：M5 签名 + 公证） |
+| 6 | 2026-04-24 首次冷装 | `The requested image's platform (linux/amd64) does not match... (linux/arm64/v8)` 警告持续 | 镜像只有 amd64，Apple Silicon 走 Rosetta 模拟 | B1（multi-arch build） |
+| 7 | 2026-04-24 首次冷装 | backend log: `Redis connection error: NOAUTH Authentication required` | REDIS_PASSWORD 传入 backend 异常（可能是 `source` 不 export 或 compose .env 优先级） | P0-6 |
 
 ---
 

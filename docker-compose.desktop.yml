@@ -21,15 +21,23 @@ services:
     image: redis:7-alpine
     container_name: ectd-desktop-redis
     restart: unless-stopped
-    command: >
-      redis-server
-      --requirepass ${REDIS_PASSWORD:-}
-      --appendonly yes
-      --appendfsync everysec
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes --appendfsync everysec
+        else
+          exec redis-server --appendonly yes --appendfsync everysec
+        fi
     volumes:
       - ${DATA_DIR:?DATA_DIR is required}/redis:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD:-}', 'ping']
+      test:
+        - CMD-SHELL
+        - if [ -n "$$REDIS_PASSWORD" ]; then redis-cli -a "$$REDIS_PASSWORD" ping; else redis-cli ping; fi
       interval: 20s
       timeout: 5s
       retries: 5
