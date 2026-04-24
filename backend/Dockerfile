@@ -60,9 +60,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./
 
-# Copy reference files needed at runtime (CV XMLs, DTDs, etc.)
-# These are accessed by services via process.cwd()/../reference/
-COPY --from=builder /app/../reference /reference 2>/dev/null || true
+# Reference files (CV XMLs, DTDs, XSLs, etc.) live outside the build context
+# (sibling ../reference/). They are bind-mounted into /reference at runtime by
+# docker-compose; services read them via process.cwd()/../reference/ → /reference.
 
 # Set ownership
 RUN chown -R ectd:ectd /app
