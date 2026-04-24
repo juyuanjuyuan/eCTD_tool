@@ -246,3 +246,61 @@ curl http://localhost/api/health
 | 文件上传超时 | 检查 Nginx client_max_body_size 和 proxy 超时配置 |
 | PDF 导出失败 | 确认 Puppeteer 依赖已安装（中文字体、Chromium） |
 | 编辑锁无法释放 | MANAGER 可使用强制解锁功能 |
+
+## 9. Cloud 平台默认分支设置（重要）
+
+若云端部署日志出现：
+
+```bash
+git fetch origin --depth=100 master
+```
+
+说明平台仍在使用 `master` 作为仓库默认分支。请在平台项目设置中将 **Base Branch / Default Branch** 改为 `main`，然后重新触发部署，确保拉取命令变为：
+
+```bash
+git fetch origin --depth=100 main
+```
+
+> 说明：该项属于云平台侧配置，不是应用容器内部命令。
+
+## 10. Mac 测试包打包与激活（方案 B）
+
+### 10.1 生成密钥对（仅你方内部）
+
+```bash
+./tools/keygen.sh tools/keys
+```
+
+### 10.2 构建可下载测试包
+
+```bash
+# CI/无 Docker 环境可先用 --skip-docker 产出结构包
+./scripts/build-mac.sh --version 0.1.0 --out-dir /tmp/ectd-release --skip-docker --public-key tools/keys/public.pem
+```
+
+输出示例：`/tmp/ectd-release/eCTDTool-mac-v0.1.0.tar.gz`
+
+下载示例（从构建机拉到本地 Mac）：
+
+```bash
+scp <构建机用户>@<构建机IP>:/tmp/ectd-release/eCTDTool-mac-v0.1.0.tar.gz .
+```
+
+### 10.3 签发激活码
+
+```bash
+node tools/issue-license/issue-license.js \
+  --customer \"某药企\" \
+  --machineId \"a1b2c3d4e5f6a7b8\" \
+  --days 365 \
+  --privateKey tools/keys/private.pem \
+  --out /tmp/license.txt
+```
+
+### 10.4 客户侧放置激活码并启动
+
+1. 解压测试包（会看到 `Start.command` / `.env.template` / `docker-compose.desktop.yml`）。
+2. 在客户 Mac 执行机器码采集：`node runtime/get-machine-id.js`，把结果发给你。
+3. 你方签发激活码后，将激活码文本保存到：`~/Library/Application Support/eCTDTool/license/license.txt`。
+4. 复制 `.env.template` 为 `.env`，按需修改端口和密钥。
+5. 双击 `Start.command` 启动（启动前会校验激活码签名、机器码、到期日；首次启动会尝试从 `images/*.tar.gz` 自动 `docker load`）。

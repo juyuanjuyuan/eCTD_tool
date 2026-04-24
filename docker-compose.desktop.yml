@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ectd-desktop-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ectd}
+      POSTGRES_USER: ${POSTGRES_USER:-ectd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ectd_desktop_password}
+    volumes:
+      - ${DATA_DIR:?DATA_DIR is required}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-ectd}']
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ectd-desktop-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-}
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - ${DATA_DIR:?DATA_DIR is required}/redis:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD:-}', 'ping']
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: ectd-desktop-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-ectd_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-ectd_minio_password}
+      MINIO_BROWSER: 'off'
+    volumes:
+      - ${DATA_DIR:?DATA_DIR is required}/minio:/data
+    command: server /data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: ${BACKEND_IMAGE:-ectd-backend:latest}
+    container_name: ectd-desktop-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ectd}:${POSTGRES_PASSWORD:-ectd_desktop_password}@postgres:5432/${POSTGRES_DB:-ectd}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-replace_me_jwt_secret}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-replace_me_refresh_secret}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-ectd_minio}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-ectd_minio_password}
+      MINIO_BUCKET: ${MINIO_BUCKET:-ectd-files}
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - '${BACKEND_PORT:-13000}:3000'
+    volumes:
+      - ${DATA_DIR:?DATA_DIR is required}/reference:/reference:ro
+      - ${DATA_DIR:?DATA_DIR is required}/logs/backend:/app/logs
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3000/api/health']
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ectd-frontend:latest}
+    container_name: ectd-desktop-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - '${APP_PORT:-18080}:80'

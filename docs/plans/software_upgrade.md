@@ -70,6 +70,14 @@ Base64(payload) + "." + Base64(RSA-SHA256 签名) → 激活码字符串（约 5
 
 ## 1. Mac 版执行计划（macOS 12+，Intel & Apple Silicon）
 
+### 1.0 当前执行进度（2026-04-24）
+
+- [x] M1 已启动并完成首版产物：新增仓库级 `docker-compose.desktop.yml`，用于桌面单机版（默认端口前端 `18080`、后端 `13000`，并关闭 MinIO 控制台公开访问）。
+- [x] 云端分支策略已调整要求：将平台自动拉取目标从 `master` 统一切换为 `main`（对应平台 Base Branch / Default Branch 配置项）。
+- [x] C8/C9 首版已落地：新增 `tools/keygen.sh` 与 `tools/issue-license/issue-license.js`，可生成 RSA 密钥对并签发激活码。
+- [x] M4 首版已落地：新增 `scripts/build-mac.sh`，可生成可分发测试包（`tar.gz`）；本机安装 `create-dmg` 时可继续生成 `.dmg`。并补充 `runtime/get-machine-id.js` 与首次启动自动 `docker load images/*.tar.gz`。
+- [ ] M2 启动器开发（Swift/Platypus）进行中（当前先用 `Start.command` 作为可用启动入口）。
+
 ### 1.1 目标产物
 
 单个 `.dmg` 文件：`eCTDTool-Installer-v1.0.0.dmg`，挂载后包含：
@@ -129,6 +137,32 @@ fingerprint=$(echo -n "${cpu_id}${board_serial}${primary_mac}" | shasum -a 256 |
 | M7 | 编写 Mac 版《安装说明.pdf》（含截图） | 0.5d |
 
 **Mac 版独立工时**：约 5.5 天（不含开发者账号审核等待）。
+
+### 1.7 Cloud 平台分支设置修正（master → main）
+
+若某云平台构建日志出现如下命令形态：
+
+```bash
+git fetch origin --depth=100 master
+```
+
+则说明该平台项目的默认分支仍配置为 `master`。需在平台项目设置中执行：
+
+1. 打开仓库连接设置（Git Provider / Repository Settings）；
+2. 将 **Base Branch** 或 **Default Branch** 从 `master` 改为 `main`；
+3. 触发一次重新部署，确认拉取命令更新为 `git fetch origin --depth=100 main`。
+
+### 1.8 可下载测试包（当前交付形态）
+
+当前仓库已支持先产出可下载测试包（非最终签名版 `.dmg`）：
+
+```bash
+scripts/build-mac.sh --version 0.1.0 --out-dir /tmp/ectd-release --skip-docker
+```
+
+产物示例：
+- `/tmp/ectd-release/eCTDTool-mac-v0.1.0.tar.gz`
+- 包内包含 `Start.command`（启动入口）、`docker-compose.desktop.yml`、`.env.template`、`runtime/verify-license.js`
 
 ---
 
