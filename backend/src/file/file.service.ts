@@ -190,10 +190,11 @@ export class FileService {
     // 4. Normalize filename
     const normalizedName = this.normalizer.normalizeFileName(originalName);
 
-    // 5. Build eCTD relative path
+    // 5. Build eCTD relative path (Plan 13: 多实例节点按 instanceIndex 划分子目录)
     const ectdRelativePath = this.normalizer.buildEctdRelativePath(
       node.ctdSectionNumber,
       normalizedName,
+      node.instanceIndex ?? 0,
     );
 
     // 6. Build MinIO storage path
@@ -313,10 +314,11 @@ export class FileService {
     // 4. Normalize filename
     const normalizedName = this.normalizer.normalizeFileName(file.originalname);
 
-    // 5. Build eCTD relative path
+    // 5. Build eCTD relative path (Plan 13: 多实例节点按 instanceIndex 划分子目录)
     const ectdRelativePath = this.normalizer.buildEctdRelativePath(
       node.ctdSectionNumber,
       normalizedName,
+      node.instanceIndex ?? 0,
     );
 
     // 6. Build MinIO storage path
@@ -407,6 +409,69 @@ export class FileService {
     });
     if (!file) throw new NotFoundException('文件不存在');
     return this.serializeAttachment(file);
+  }
+
+  /**
+   * Update the user-facing eCTD export filename for a file. Updates
+   * ectdRelativePath (used for xlink:href and ZIP path) but leaves storagePath
+   * untouched so MinIO downloads keep working.
+   *
+   * Passing null/empty clears the override and falls back to storedName.
+   */
+  async updateExportName(nodeId: string, fileId: string, exportName: string | null | undefined) {
+    const file = await this.prisma.fileAttachment.findFirst({
+      where: { id: fileId, sequenceNodeId: nodeId },
+      include: { sequenceNode: { select: { ctdSectionNumber: true } } },
+    });
+    if (!file) throw new NotFoundException('文件不存在');
+    if (file.isReference) {
+      throw new BadRequestException('引用前序序列的文件不允许修改导出名');
+    }
+
+    const trimmed = typeof exportName === 'string' ? exportName.trim() : '';
+    const nextExportName = trimmed === '' ? null : trimmed;
+
+    const ext = file.fileType;
+
+    if (nextExportName !== null) {
+      if (!/^[a-z0-9\-_]+$/.test(nextExportName)) {
+        throw new BadRequestException('导出名仅允许小写字母、数字、连字符(-)和下划线(_)');
+      }
+      if (nextExportName.length + ext.length > 64) {
+        throw new BadRequestException(`导出名加扩展名总长度不能超过 64 字符`);
+      }
+    }
+
+    const newEffective = nextExportName ? `${nextExportName}${ext}` : file.storedName;
+
+    // Uniqueness within the same CTD folder (same node, since one node = one folder)
+    const siblings = await this.prisma.fileAttachment.findMany({
+      where: { sequenceNodeId: nodeId, id: { not: fileId } },
+      select: { exportName: true, storedName: true, fileType: true },
+    });
+    const collision = siblings.find((s) => {
+      const siblingEffective = s.exportName ? `${s.exportName}${s.fileType}` : s.storedName;
+      return siblingEffective === newEffective;
+    });
+    if (collision) {
+      throw new BadRequestException(`同章节内已有文件使用文件名 "${newEffective}"`);
+    }
+
+    const newRelativePath = this.normalizer.buildEctdRelativePath(
+      file.sequenceNode.ctdSectionNumber,
+      newEffective,
+      (file.sequenceNode as { instanceIndex?: number }).instanceIndex ?? 0,
+    );
+
+    const updated = await this.prisma.fileAttachment.update({
+      where: { id: fileId },
+      data: {
+        exportName: nextExportName,
+        ectdRelativePath: newRelativePath,
+      },
+      include: { pdfAnalysis: true },
+    });
+    return this.serializeAttachment(updated);
   }
 
   /**

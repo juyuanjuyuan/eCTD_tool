@@ -85,6 +85,9 @@
 | PATCH | `/nodes/:nodeId/attributes` | 更新骨架属性（substance/manufacturer/indication 等） | EDITOR+ | ✅ |
 | POST | `/nodes/:parentNodeId/extensions` | 创建扩展节点（仅 3.2.R 章节，仅生物制品） | EDITOR+ | ✅ |
 | DELETE | `/nodes/:nodeId/extension` | 删除扩展节点 | EDITOR+ | ✅ |
+| GET | `/template-nodes/:templateNodeId/instances` | **Plan 13 (2026-04-23)**: 列出可重复节点在该序列下的全部实例（3.2.S 原料药 / 3.2.P 制剂 / 2.7.3 适应症等） | 成员 | ✅ |
+| POST | `/template-nodes/:templateNodeId/instances` | **Plan 13**: 添加一个新实例（body: `{substance?,manufacturer?,productName?,dosageForm?,indication?}`；服务端按 `instance_key_fields` 校验 + 深拷贝模板子树 + 分配新 `instance_index`） | EDITOR+ | ✅ |
+| DELETE | `/instances/:instanceRootNodeId` | **Plan 13**: 删除实例（首次序列物理删除整个子树；非首次级联给所有叶子节点标记 operation=DELETE；保留最后一个实例） | EDITOR+ | ✅ |
 | GET | `/completeness` | 获取内容完整性检查结果（必填章节完成情况、模块统计） | 成员 | ✅ |
 | GET | `/preview-required` | 初始化前预览必填章节清单（按申请类型+注册行为类型） | 成员 | ✅ |
 | GET | `/nodes/:id` | 获取节点详情（含骨架属性） | 成员 | 待开发 |
@@ -120,6 +123,7 @@
 | GET | `/:id/download` | 下载文件（返回 presigned URL） | 成员 |
 | GET | `/:id/preview` | 预览文件（返回 presigned URL，inline） | 成员 |
 | DELETE | `/:id` | 删除文件（检查引用关系，同步删除 MinIO） | EDITOR+ |
+| PATCH | `/:id/export-name` | 设置 eCTD 导出文件名（仅 basename，`{ exportName: string \| null }`；留空恢复原上传文件名；引用文件不可改） | EDITOR+ |
 | POST | `/reference` | 创建文件引用（同一申请跨序列复用，验证前序存在性） | EDITOR+ |
 | GET | `/referenceable` | 列出可引用的前序序列文件 | 成员 |
 

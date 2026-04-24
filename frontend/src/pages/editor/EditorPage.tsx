@@ -12,6 +12,7 @@ import {
   Typography,
   Divider,
   Tabs,
+  Modal,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -35,12 +36,14 @@ import { useEditorStore } from '../../stores/useEditorStore';
 import CTDTree from '../../components/CTDTree';
 import FilePanel from '../../components/FilePanel';
 import ExportModal from '../../components/ExportModal';
+import AddInstanceModal from '../../components/AddInstanceModal';
 import CompletenessPanel from '../../components/CompletenessPanel';
 import ValidationPanel from '../../components/ValidationPanel';
 import XmlPreviewPanel from '../../components/XmlPreviewPanel';
 import EctdPackagePanel from '../../components/EctdPackagePanel';
 import PropertiesPanel from './PropertiesPanel';
 import type { SequenceNode, CompletenessResult, ExtensionOption } from '../../types';
+import './EditorPage.css';
 
 const { Sider, Content } = Layout;
 const { Text } = Typography;
@@ -215,6 +218,44 @@ const EditorPage: React.FC = () => {
     } catch (err: any) {
       message.error(err.message);
     }
+  };
+
+  // Plan 13 (2026-04-23): 多实例节点 - 弹窗接线
+  const [addInstanceModal, setAddInstanceModal] = useState<{
+    open: boolean;
+    template: { id: string; titleZh: string; instanceKeyFields: string[] | null } | null;
+  }>({ open: false, template: null });
+
+  const handleRequestAddInstance = (node: SequenceNode) => {
+    if (!node.templateNode?.isRepeatable) return;
+    setAddInstanceModal({
+      open: true,
+      template: {
+        id: node.templateNode.id,
+        titleZh: node.title,
+        instanceKeyFields: node.templateNode.instanceKeyFields ?? null,
+      },
+    });
+  };
+
+  const handleRequestRemoveInstance = (node: SequenceNode) => {
+    if (!seqId) return;
+    Modal.confirm({
+      title: '删除实例',
+      content: `确认删除 "${node.instanceLabel ?? node.title}" 实例? 首次序列将物理删除整个子树; 非首次序列将级联标记为 DELETE 操作.`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await ctdApi.removeInstance(seqId, node.id);
+          message.success('实例已删除');
+          await refreshNodes();
+        } catch (err: any) {
+          message.error(err?.response?.data?.message || err.message);
+        }
+      },
+    });
   };
 
   const refreshNodes = useCallback(async () => {
@@ -527,11 +568,10 @@ const EditorPage: React.FC = () => {
           collapsedWidth={0}
           collapsed={leftCollapsed}
           theme="light"
+          className="editor-sider"
           style={{
             borderRight: '1px solid #e8e8e8',
             overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
           }}
         >
           <div style={{
@@ -564,6 +604,8 @@ const EditorPage: React.FC = () => {
                 extensionOptions={extensionOptions}
                 isbiological={isBiological}
                 selectedNodeId={selectedNode?.id}
+                onRequestAddInstance={handleRequestAddInstance}
+                onRequestRemoveInstance={handleRequestRemoveInstance}
               />
             )}
           </div>
@@ -665,11 +707,10 @@ const EditorPage: React.FC = () => {
           collapsedWidth={0}
           collapsed={rightCollapsed}
           theme="light"
+          className="editor-sider"
           style={{
             borderLeft: '1px solid #e8e8e8',
             overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
           }}
         >
           <div style={{
@@ -714,6 +755,23 @@ const EditorPage: React.FC = () => {
           node={selectedNode}
         />
       )}
+
+      {/* Plan 13: 多实例节点 - 添加实例弹窗 */}
+      <AddInstanceModal
+        open={addInstanceModal.open}
+        seqId={seqId!}
+        template={
+          addInstanceModal.template
+            ? ({
+                id: addInstanceModal.template.id,
+                titleZh: addInstanceModal.template.titleZh,
+                instanceKeyFields: addInstanceModal.template.instanceKeyFields,
+              } as any)
+            : null
+        }
+        onClose={() => setAddInstanceModal({ open: false, template: null })}
+        onAdded={refreshNodes}
+      />
     </Layout>
   );
 };

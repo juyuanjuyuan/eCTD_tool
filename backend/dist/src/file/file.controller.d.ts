@@ -1,5 +1,5 @@
 import { FileService } from './file.service';
-import { CreateFileReferenceDto } from './dto';
+import { CreateFileReferenceDto, UpdateExportNameDto } from './dto';
 export declare class FileController {
     private fileService;
     constructor(fileService: FileService);
@@ -8,6 +8,7 @@ export declare class FileController {
     uploadChunk(nodeId: string, chunk: Express.Multer.File, uploadId: string, chunkIndex: string, totalChunks: string, fileName: string, req: any): Promise<any>;
     listFiles(nodeId: string): Promise<any[]>;
     getFile(nodeId: string, id: string): Promise<any>;
+    updateExportName(nodeId: string, id: string, dto: UpdateExportNameDto): Promise<any>;
     deleteFile(nodeId: string, id: string): Promise<{
         success: boolean;
     }>;

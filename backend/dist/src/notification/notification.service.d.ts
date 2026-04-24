@@ -15,11 +15,11 @@ export declare class NotificationService {
     create(params: CreateNotificationParams): Promise<{
         id: string;
         createdAt: Date;
-        type: import("@prisma/client").$Enums.NotificationType;
         userId: string;
         resourceId: string | null;
         title: string;
         projectId: string | null;
+        type: import("@prisma/client").$Enums.NotificationType;
         content: string;
         resourceType: string | null;
         isRead: boolean;
@@ -35,11 +35,11 @@ export declare class NotificationService {
         items: {
             id: string;
             createdAt: Date;
-            type: import("@prisma/client").$Enums.NotificationType;
             userId: string;
             resourceId: string | null;
             title: string;
             projectId: string | null;
+            type: import("@prisma/client").$Enums.NotificationType;
             content: string;
             resourceType: string | null;
             isRead: boolean;
@@ -52,11 +52,11 @@ export declare class NotificationService {
     markAsRead(notificationId: string, userId: string): Promise<{
         id: string;
         createdAt: Date;
-        type: import("@prisma/client").$Enums.NotificationType;
         userId: string;
         resourceId: string | null;
         title: string;
         projectId: string | null;
+        type: import("@prisma/client").$Enums.NotificationType;
         content: string;
         resourceType: string | null;
         isRead: boolean;

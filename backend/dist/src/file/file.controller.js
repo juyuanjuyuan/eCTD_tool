@@ -51,6 +51,9 @@ let FileController = class FileController {
     async getFile(nodeId, id) {
         return this.fileService.getFile(nodeId, id);
     }
+    async updateExportName(nodeId, id, dto) {
+        return this.fileService.updateExportName(nodeId, id, dto.exportName ?? null);
+    }
     async deleteFile(nodeId, id) {
         return this.fileService.deleteFile(nodeId, id);
     }
@@ -128,6 +131,15 @@ __decorate([
     __metadata("design:paramtypes", [String, String]),
     __metadata("design:returntype", Promise)
 ], FileController.prototype, "getFile", null);
+__decorate([
+    (0, common_1.Patch)('nodes/:nodeId/files/:id/export-name'),
+    __param(0, (0, common_1.Param)('nodeId')),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, dto_1.UpdateExportNameDto]),
+    __metadata("design:returntype", Promise)
+], FileController.prototype, "updateExportName", null);
 __decorate([
     (0, common_1.Delete)('nodes/:nodeId/files/:id'),
     __param(0, (0, common_1.Param)('nodeId')),

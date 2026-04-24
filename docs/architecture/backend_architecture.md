@@ -200,6 +200,27 @@ cn-regional.xml 的 cn-envelope 包含 3 个层级共 12 个必填属性:
 **骨架属性更新规则:**
 更新 2.3.S/3.2.S 的 substance/manufacturer 时，必须删除旧章节全部内容并以 new 操作重建新章节。
 
+**多实例节点 (Plan 13 — 2026-04-23)**:
+
+对照 ICH DTD `ich-ectd-3-2.dtd` 中标注 `*`（可重复）的 5 个 element，支持同一序列下承载多个原料药 / 多个制剂 / 多个适应症等场景。模板节点通过 `is_repeatable=true` 标记，`instance_key_fields` 声明区分实例所需的骨架属性字段。SequenceNode 通过 `instance_index` 区分同一模板节点下的多个实例（root 实例及其整个后代子树共享同一 `instance_index`）。
+
+| Template elementName | ctd_section | instance_key_fields (DTD 必需属性) |
+|---|---|---|
+| `m2-3-s-drug-substance` | 2.3.S | `substance` + `manufacturer` (REQUIRED) |
+| `m2-3-p-drug-product` | 2.3.P | `productName` / `dosageForm` / `manufacturer` (IMPLIED) |
+| `m2-7-3-summary-of-clinical-efficacy` | 2.7.3 | `indication` (REQUIRED) |
+| `m3-2-s-drug-substance` | 3.2.S | `substance` + `manufacturer` (REQUIRED) |
+| `m3-2-p-drug-product` | 3.2.P | `productName` / `dosageForm` / `manufacturer` (IMPLIED) |
+
+**API**:
+- `GET /sequences/:seqId/template-nodes/:templateNodeId/instances` — 列出某可重复节点的全部实例
+- `POST /sequences/:seqId/template-nodes/:templateNodeId/instances` — 添加新实例（深拷贝整个模板子树为新 SequenceNode，共享 `instance_index`）
+- `DELETE /sequences/:seqId/instances/:instanceRootNodeId` — 删除实例（首次序列物理删除；非首次级联给叶子标记 operation=DELETE）
+
+**文件路径隔离**：`FileNameNormalizer.buildEctdRelativePath(ctdSectionNumber, normalizedFileName, instanceIndex)` 对 `instance_index > 0` 的实例在 folder 最后一段追加 `-N` 后缀（如 `m3/32-body-of-data/32s-drug-sub-1/spec.pdf`），`instance_index = 0` 保持历史路径不变以向后兼容。
+
+**XML 输出**：由于同一父节点下现在可以有多个同 elementName 的子 SequenceNode，`IndexXmlService.buildElement` 自然按 children 迭代输出多个 element，每个携带各自的 substance/manufacturer/product-name/dosageform/indication 属性。
+
 ### 4.6 STF 服务（Plan 12 v2 — 2026-04-09）
 
 > **v1 → v2 重构说明**：2026-04-09 废弃 v1 的 `backend/src/ectd/services/stf.service.ts`（228 行单表 1:1 upsert 设计）与 `schema.prisma` 的 `StudyTaggingFile` model，重建为 v2 多研究模型：`study` / `study_category` / `study_document` 三张新表 + 纯 XML service + CRUD service + import service 三层分离。
@@ -346,7 +367,7 @@ m4/42-stud-rep/421-pharmacol-stud/
 | 1-基础识别 | 3 | 文件数量/大小统计（信息级别） |
 | 2-文件/文件夹 | 10 | 空文件夹、文件大小≤500MB（XPT≤4GB，ICH eCTD Submission Formats v1.2 §2.3）、命名规范、util文件夹完整性 |
 | 3-ICH 骨架文件 | 36 | index.xml DTD 验证、叶元素属性、生命周期、MD5 一致性 |
-| 4-区域性管理信息 | 31 | cn-regional.xml Schema 验证、信封元素、**内容完整性 (4.3.x)** |
+| 4-区域性管理信息 | 31 | cn-regional.xml Schema 验证、信封元素、**内容完整性 (4.3.x)**（2026-04-24 增补 4.3.12–4.3.21 共 9 条规则覆盖补充申请 cnrat2 / 备案 cnrat3 / 报告 cnrat4 / 再注册 cnrat8 场景，来源 `reference/现行申报资料要求与eCTD目录元素、CTD目录层级对应表.xlsx`） |
 | 5-研究标签文件(STF) | 20 | STF DTD 验证、category/file-tag 合法性 |
 | 6-PDF 分析 | 26 | PDF 版本、书签(>5页)、无加密/JS/外部链接（**V1.1 八项升级为错误**） |
 

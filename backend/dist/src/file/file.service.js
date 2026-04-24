@@ -158,7 +158,7 @@ let FileService = FileService_1 = class FileService {
         const application = sequence.regulatoryActivity.application;
         const projectId = application.project.id;
         const normalizedName = this.normalizer.normalizeFileName(originalName);
-        const ectdRelativePath = this.normalizer.buildEctdRelativePath(node.ctdSectionNumber, normalizedName);
+        const ectdRelativePath = this.normalizer.buildEctdRelativePath(node.ctdSectionNumber, normalizedName, node.instanceIndex ?? 0);
         const storagePath = this.normalizer.buildStoragePath(projectId, application.applicationNumber, sequence.sequenceNumber, ectdRelativePath);
         const ext = originalName.substring(originalName.lastIndexOf('.')).toLowerCase();
         const contentType = CONTENT_TYPE_MAP[ext] || 'application/octet-stream';
@@ -238,7 +238,7 @@ let FileService = FileService_1 = class FileService {
         const application = sequence.regulatoryActivity.application;
         const projectId = application.project.id;
         const normalizedName = this.normalizer.normalizeFileName(file.originalname);
-        const ectdRelativePath = this.normalizer.buildEctdRelativePath(node.ctdSectionNumber, normalizedName);
+        const ectdRelativePath = this.normalizer.buildEctdRelativePath(node.ctdSectionNumber, normalizedName, node.instanceIndex ?? 0);
         const storagePath = this.normalizer.buildStoragePath(projectId, application.applicationNumber, sequence.sequenceNumber, ectdRelativePath);
         const ext = file.originalname.substring(file.originalname.lastIndexOf('.')).toLowerCase();
         const contentType = CONTENT_TYPE_MAP[ext] || 'application/octet-stream';
@@ -297,6 +297,50 @@ let FileService = FileService_1 = class FileService {
         if (!file)
             throw new common_1.NotFoundException('文件不存在');
         return this.serializeAttachment(file);
+    }
+    async updateExportName(nodeId, fileId, exportName) {
+        const file = await this.prisma.fileAttachment.findFirst({
+            where: { id: fileId, sequenceNodeId: nodeId },
+            include: { sequenceNode: { select: { ctdSectionNumber: true } } },
+        });
+        if (!file)
+            throw new common_1.NotFoundException('文件不存在');
+        if (file.isReference) {
+            throw new common_1.BadRequestException('引用前序序列的文件不允许修改导出名');
+        }
+        const trimmed = typeof exportName === 'string' ? exportName.trim() : '';
+        const nextExportName = trimmed === '' ? null : trimmed;
+        const ext = file.fileType;
+        if (nextExportName !== null) {
+            if (!/^[a-z0-9\-_]+$/.test(nextExportName)) {
+                throw new common_1.BadRequestException('导出名仅允许小写字母、数字、连字符(-)和下划线(_)');
+            }
+            if (nextExportName.length + ext.length > 64) {
+                throw new common_1.BadRequestException(`导出名加扩展名总长度不能超过 64 字符`);
+            }
+        }
+        const newEffective = nextExportName ? `${nextExportName}${ext}` : file.storedName;
+        const siblings = await this.prisma.fileAttachment.findMany({
+            where: { sequenceNodeId: nodeId, id: { not: fileId } },
+            select: { exportName: true, storedName: true, fileType: true },
+        });
+        const collision = siblings.find((s) => {
+            const siblingEffective = s.exportName ? `${s.exportName}${s.fileType}` : s.storedName;
+            return siblingEffective === newEffective;
+        });
+        if (collision) {
+            throw new common_1.BadRequestException(`同章节内已有文件使用文件名 "${newEffective}"`);
+        }
+        const newRelativePath = this.normalizer.buildEctdRelativePath(file.sequenceNode.ctdSectionNumber, newEffective, file.sequenceNode.instanceIndex ?? 0);
+        const updated = await this.prisma.fileAttachment.update({
+            where: { id: fileId },
+            data: {
+                exportName: nextExportName,
+                ectdRelativePath: newRelativePath,
+            },
+            include: { pdfAnalysis: true },
+        });
+        return this.serializeAttachment(updated);
     }
     async deleteFile(nodeId, fileId) {
         const file = await this.prisma.fileAttachment.findFirst({

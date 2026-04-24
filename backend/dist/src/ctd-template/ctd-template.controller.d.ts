@@ -1,5 +1,5 @@
 import { CtdTemplateService } from './ctd-template.service';
-import { UpdateSequenceNodeDto, UpdateBackboneAttributesDto, CreateExtensionNodeDto } from './dto';
+import { UpdateSequenceNodeDto, UpdateBackboneAttributesDto, CreateExtensionNodeDto, AddInstanceDto } from './dto';
 export declare class CtdTemplateController {
     private readonly ctdTemplateService;
     constructor(ctdTemplateService: CtdTemplateService);
@@ -31,14 +31,14 @@ export declare class CtdTemplateController {
     }>;
     getSequenceNodeTree(seqId: string): Promise<any[]>;
     updateSequenceNode(seqId: string, nodeId: string, dto: UpdateSequenceNodeDto): Promise<{
-        ctdSectionNumber: string;
         id: string;
+        parentId: string | null;
         elementName: string;
+        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
-        parentId: string | null;
-        templateNodeId: string;
         status: import("@prisma/client").$Enums.SequenceNodeStatus;
+        templateNodeId: string;
         sequenceId: string;
         title: string;
         operation: import("@prisma/client").$Enums.LeafOperation | null;
@@ -48,6 +48,8 @@ export declare class CtdTemplateController {
         productName: string | null;
         dosageForm: string | null;
         indication: string | null;
+        instanceIndex: number;
+        instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
         submittedBy: string | null;
         submittedAt: Date | null;
@@ -56,14 +58,14 @@ export declare class CtdTemplateController {
         rejectionReason: string | null;
     }>;
     updateBackboneAttributes(seqId: string, nodeId: string, dto: UpdateBackboneAttributesDto): Promise<{
-        ctdSectionNumber: string;
         id: string;
+        parentId: string | null;
         elementName: string;
+        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
-        parentId: string | null;
-        templateNodeId: string;
         status: import("@prisma/client").$Enums.SequenceNodeStatus;
+        templateNodeId: string;
         sequenceId: string;
         title: string;
         operation: import("@prisma/client").$Enums.LeafOperation | null;
@@ -73,6 +75,8 @@ export declare class CtdTemplateController {
         productName: string | null;
         dosageForm: string | null;
         indication: string | null;
+        instanceIndex: number;
+        instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
         submittedBy: string | null;
         submittedAt: Date | null;
@@ -81,14 +85,14 @@ export declare class CtdTemplateController {
         rejectionReason: string | null;
     }>;
     createExtensionNode(seqId: string, parentNodeId: string, dto: CreateExtensionNodeDto): Promise<{
-        ctdSectionNumber: string;
         id: string;
+        parentId: string | null;
         elementName: string;
+        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
-        parentId: string | null;
-        templateNodeId: string;
         status: import("@prisma/client").$Enums.SequenceNodeStatus;
+        templateNodeId: string;
         sequenceId: string;
         title: string;
         operation: import("@prisma/client").$Enums.LeafOperation | null;
@@ -98,6 +102,8 @@ export declare class CtdTemplateController {
         productName: string | null;
         dosageForm: string | null;
         indication: string | null;
+        instanceIndex: number;
+        instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
         submittedBy: string | null;
         submittedAt: Date | null;
@@ -106,14 +112,14 @@ export declare class CtdTemplateController {
         rejectionReason: string | null;
     }>;
     deleteExtensionNode(seqId: string, nodeId: string): Promise<{
-        ctdSectionNumber: string;
         id: string;
+        parentId: string | null;
         elementName: string;
+        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
-        parentId: string | null;
-        templateNodeId: string;
         status: import("@prisma/client").$Enums.SequenceNodeStatus;
+        templateNodeId: string;
         sequenceId: string;
         title: string;
         operation: import("@prisma/client").$Enums.LeafOperation | null;
@@ -123,12 +129,77 @@ export declare class CtdTemplateController {
         productName: string | null;
         dosageForm: string | null;
         indication: string | null;
+        instanceIndex: number;
+        instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
         submittedBy: string | null;
         submittedAt: Date | null;
         approvedBy: string | null;
         approvedAt: Date | null;
         rejectionReason: string | null;
+    }>;
+    listInstances(seqId: string, templateNodeId: string): Promise<{
+        id: string;
+        parentId: string | null;
+        elementName: string;
+        ctdSectionNumber: string;
+        isLeaf: boolean;
+        sortOrder: number;
+        status: import("@prisma/client").$Enums.SequenceNodeStatus;
+        templateNodeId: string;
+        sequenceId: string;
+        title: string;
+        operation: import("@prisma/client").$Enums.LeafOperation | null;
+        isRequired: boolean;
+        substance: string | null;
+        manufacturer: string | null;
+        productName: string | null;
+        dosageForm: string | null;
+        indication: string | null;
+        instanceIndex: number;
+        instanceLabel: string | null;
+        approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
+        submittedBy: string | null;
+        submittedAt: Date | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rejectionReason: string | null;
+    }[]>;
+    addInstance(seqId: string, templateNodeId: string, dto: AddInstanceDto): Promise<{
+        id: string;
+        parentId: string | null;
+        elementName: string;
+        ctdSectionNumber: string;
+        isLeaf: boolean;
+        sortOrder: number;
+        status: import("@prisma/client").$Enums.SequenceNodeStatus;
+        templateNodeId: string;
+        sequenceId: string;
+        title: string;
+        operation: import("@prisma/client").$Enums.LeafOperation | null;
+        isRequired: boolean;
+        substance: string | null;
+        manufacturer: string | null;
+        productName: string | null;
+        dosageForm: string | null;
+        indication: string | null;
+        instanceIndex: number;
+        instanceLabel: string | null;
+        approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
+        submittedBy: string | null;
+        submittedAt: Date | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rejectionReason: string | null;
+    } | null>;
+    removeInstance(seqId: string, instanceRootNodeId: string): Promise<{
+        message: string;
+        deletedCount: number;
+        markedCount?: undefined;
+    } | {
+        message: string;
+        markedCount: number;
+        deletedCount?: undefined;
     }>;
     checkCompleteness(seqId: string): Promise<{
         totalSections: number;

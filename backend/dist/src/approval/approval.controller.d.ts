@@ -21,6 +21,8 @@ export declare class ApprovalController {
         productName: string | null;
         dosageForm: string | null;
         indication: string | null;
+        instanceIndex: number;
+        instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
         submittedBy: string | null;
         submittedAt: Date | null;
@@ -46,6 +48,8 @@ export declare class ApprovalController {
         productName: string | null;
         dosageForm: string | null;
         indication: string | null;
+        instanceIndex: number;
+        instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
         submittedBy: string | null;
         submittedAt: Date | null;
@@ -71,6 +75,8 @@ export declare class ApprovalController {
         productName: string | null;
         dosageForm: string | null;
         indication: string | null;
+        instanceIndex: number;
+        instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
         submittedBy: string | null;
         submittedAt: Date | null;
@@ -96,6 +102,8 @@ export declare class ApprovalController {
         productName: string | null;
         dosageForm: string | null;
         indication: string | null;
+        instanceIndex: number;
+        instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
         submittedBy: string | null;
         submittedAt: Date | null;

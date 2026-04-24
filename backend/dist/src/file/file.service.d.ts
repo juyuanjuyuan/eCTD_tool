@@ -27,6 +27,7 @@ export declare class FileService {
     uploadFiles(nodeId: string, files: Express.Multer.File[], uploadedBy?: string): Promise<any[]>;
     listFiles(nodeId: string): Promise<any[]>;
     getFile(nodeId: string, fileId: string): Promise<any>;
+    updateExportName(nodeId: string, fileId: string, exportName: string | null | undefined): Promise<any>;
     deleteFile(nodeId: string, fileId: string): Promise<{
         success: boolean;
     }>;

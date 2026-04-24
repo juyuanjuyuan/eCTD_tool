@@ -1553,29 +1553,77 @@ export class ValidatorService {
     ra: any,
     items: ValidationItemInput[],
   ): Promise<void> {
-    const rules = await this.prisma.ctdCompletenessRule.findMany({
+    // Plan 13 (2026-04-23): 按 sequenceType + productType 精准筛选规则,
+    // 避免首次提交规则误报到 cnsqt2 回复/cnsqt3 撤回序列.
+    const candidateRules = await this.prisma.ctdCompletenessRule.findMany({
       where: {
         applicationTypeCode: app.applicationTypeCode,
         regulatoryActivityTypeCode: ra.regulatoryActivityTypeCode,
       },
       include: {
-        templateNode: { select: { elementName: true, ctdSectionNumber: true, titleZh: true } },
+        templateNode: { select: { elementName: true, ctdSectionNumber: true, titleZh: true, isLeaf: true } },
       },
     });
 
-    const nodeByTemplateId = new Map<string, any>();
+    const seqType = sequence.sequenceTypeCode as string | undefined;
+    const productType = app.productTypeCode as string | undefined;
+    const rules = candidateRules.filter((r) => {
+      // sequenceTypeCodes 为空数组视为适用所有; 默认 ['cnsqt1']
+      const seqTypes = r.sequenceTypeCodes ?? [];
+      if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType)) return false;
+      // productTypeCodes 为空数组视为适用所有
+      const productTypes = r.productTypeCodes ?? [];
+      if (productTypes.length > 0 && productType && !productTypes.includes(productType)) return false;
+      return true;
+    });
+
+    // Plan 13: 同一 templateNode 可能有多个 SequenceNode 实例 (多原料药),
+    // 必须汇总所有实例状态, 而非只取第一个.
+    const nodesByTemplateId = new Map<string, any[]>();
     for (const n of sequence.sequenceNodes) {
-      nodeByTemplateId.set(n.templateNodeId, n);
+      const arr = nodesByTemplateId.get(n.templateNodeId) ?? [];
+      arr.push(n);
+      nodesByTemplateId.set(n.templateNodeId, arr);
     }
 
+    // Plan 13: 辅助函数 - 判断 SECTION 容器是否"满足" (至少一个后代叶子非空)
+    // 用于 cn-1-11 (境内/境外/代理三选一) 等容器的 REQUIRED 判定
+    const allSeqNodes = sequence.sequenceNodes;
+    const isSectionSatisfied = (sectionNodes: any[]): boolean => {
+      for (const container of sectionNodes) {
+        // 收集 container 所有后代
+        const stack = [container.id];
+        while (stack.length) {
+          const pid = stack.pop()!;
+          for (const n of allSeqNodes) {
+            if (n.parentId === pid) {
+              if (n.isLeaf && n.status !== 'EMPTY') return true;
+              stack.push(n.id);
+            }
+          }
+        }
+      }
+      return false;
+    };
+
     for (const rule of rules) {
-      const seqNode = nodeByTemplateId.get(rule.templateNodeId);
+      const seqNodes = nodesByTemplateId.get(rule.templateNodeId) ?? [];
 
       if (rule.ruleType === 'REQUIRED') {
-        const hasContent =
-          seqNode &&
-          seqNode.status === 'COMPLETED' &&
-          (seqNode.fileAttachments?.length > 0 || seqNode.document);
+        let hasContent = false;
+        if (seqNodes.length === 0) {
+          hasContent = false;
+        } else if (rule.templateNode.isLeaf || seqNodes.some((n) => n.isLeaf)) {
+          // 叶节点 (或 template 未声明 isLeaf 但映射到叶实例): 任一实例 COMPLETED 且有内容即满足
+          hasContent = seqNodes.some(
+            (n) =>
+              n.status === 'COMPLETED' &&
+              ((n.fileAttachments?.length ?? 0) > 0 || n.document),
+          );
+        } else {
+          // SECTION 容器: 至少一个后代叶子非空
+          hasContent = isSectionSatisfied(seqNodes);
+        }
 
         if (!hasContent) {
           items.push({
@@ -1586,12 +1634,14 @@ export class ValidatorService {
                 ? ValidationSeverity.ERROR
                 : ValidationSeverity.WARNING,
             description: `必填章节缺失: ${rule.templateNode.ctdSectionNumber} ${rule.templateNode.titleZh}`,
-            detail: `申请类型 ${app.applicationTypeCode} + 注册行为 ${ra.regulatoryActivityTypeCode} 要求此章节`,
+            detail: `申请类型 ${app.applicationTypeCode} + 注册行为 ${ra.regulatoryActivityTypeCode}${seqType ? ` + 序列类型 ${seqType}` : ''} 要求此章节`,
             suggestion: '请完成此章节的内容编辑',
           });
         }
       } else if (rule.ruleType === 'FORBIDDEN') {
-        if (seqNode && seqNode.status !== 'EMPTY') {
+        // 任一实例非空即违规
+        const hasNonEmpty = seqNodes.some((n) => n.status !== 'EMPTY');
+        if (hasNonEmpty) {
           items.push({
             ruleCode: `4.3`,
             ruleCategory: '区域性管理信息',

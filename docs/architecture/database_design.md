@@ -147,6 +147,8 @@ User (1) ──< (N) Notification
 | requires_stf | BOOLEAN | 是否需要 STF（48个: 模块四 4.2.X 和模块五 5.3.1-5.3.5 叶节点） |
 | requires_e_seal | BOOLEAN | 是否需要电子签章（6个: cn-1-0, cn-1-2, cn-1-3-8, cn-1-10, cn-1-11, cn-1-12） |
 | allows_extension | BOOLEAN | 是否允许扩展子节点（仅 3.2.R） |
+| is_repeatable | BOOLEAN | **Plan 13 (2026-04-23)**: 是否支持多实例（对应 DTD `*` 可重复元素 5 个: m2-3-s-drug-substance / m2-3-p-drug-product / m2-7-3-summary-of-clinical-efficacy / m3-2-s-drug-substance / m3-2-p-drug-product） |
+| instance_key_fields | JSONB? | **Plan 13**: 多实例区分键字段清单，仅 `is_repeatable=true` 节点有值。如 `["substance","manufacturer"]` / `["productName","dosageForm","manufacturer"]` / `["indication"]` |
 | sort_order | INT | 排序序号 |
 
 数据来源: `element-property_CN.xml`（模块一71节点）+ `element-property_ICH.xml`（模块二至五158节点）
@@ -158,11 +160,13 @@ User (1) ──< (N) Notification
 | id | UUID | 主键 |
 | application_type_code | VARCHAR(10) | 申请类型代码 |
 | regulatory_activity_type_code | VARCHAR(10) | 注册行为类型代码 |
+| sequence_type_codes | TEXT[] | **Plan 13 (2026-04-23)**: 规则适用的序列类型清单，默认 `{cnsqt1}`（仅首次提交触发），避免对 cnsqt2 回复/cnsqt3 撤回序列误报 |
+| product_type_codes | TEXT[] | **Plan 13**: 规则适用的产品类型清单，默认 `{}`（适用所有）；IVD/MAH 变更等子场景可细化 |
 | template_node_id | UUID | FK→ctd_template_node |
-| rule_type | ENUM | REQUIRED(90条)/FORBIDDEN(40条) |
+| rule_type | ENUM | REQUIRED/FORBIDDEN |
 | severity | ENUM | ERROR/WARNING |
 
-已导入130条规则，覆盖验证标准 4.3.1-4.3.11
+已导入 4.3.1-4.3.11 + 4.3.12-4.3.21 共 20 条规则模板（展开后覆盖 NDA/ANDA/IND/原料药 × 首次申请/补充申请/备案/报告/再注册 五大场景）
 
 #### `sequence_node` — 序列目录节点（实例化的 CTD 树）✅ 已实现
 
@@ -185,6 +189,8 @@ User (1) ──< (N) Notification
 | product_name | VARCHAR(200) | 骨架属性: 产品名称（2.3.P/3.2.P 节点） |
 | dosage_form | VARCHAR(200) | 骨架属性: 剂型（2.3.P/3.2.P 节点） |
 | indication | VARCHAR(500) | 骨架属性: 适应症（2.7.3 节点） |
+| instance_index | INT | **Plan 13 (2026-04-23)**: 多实例序号，非可重复节点恒为 0；可重复节点（3.2.S 原料药等）及其整个后代子树共享同一值，用于区分同一申请下多个原料药/制剂/适应症 |
+| instance_label | VARCHAR(200)? | **Plan 13**: UI 展示用的实例标签，服务端按 `instance_key_fields` 拼接（如 "阿莫西林 - 石药集团"） |
 | approval_status | ApprovalStatus | 审批状态（默认 DRAFT） |
 | submitted_by | UUID? | 提交审批的用户 ID |
 | submitted_at | TIMESTAMP? | 提交审批时间 |
@@ -234,9 +240,10 @@ User (1) ──< (N) Notification
 | id | UUID | 主键 |
 | sequence_node_id | UUID | FK→sequence_node |
 | original_name | VARCHAR(255) | 原始文件名 |
-| stored_name | VARCHAR(255) | 存储文件名（eCTD 规范命名） |
-| storage_path | VARCHAR(500) | MinIO 存储路径 |
-| ectd_relative_path | VARCHAR(180) | eCTD 包中的相对路径（用于 xlink:href） |
+| stored_name | VARCHAR(255) | 存储文件名（eCTD 规范命名，上传时由 `normalizeFileName()` 生成） |
+| export_name | VARCHAR(64) | 用户自定义的 eCTD 导出 basename（不含扩展名与目录）。非空时覆盖 stored_name 用于 ectd_relative_path / xlink:href；为 null 回落到 stored_name。引用文件（is_reference=true）禁止设置。 |
+| storage_path | VARCHAR(500) | MinIO 存储路径（自定义导出名不影响 storage_path，保持存储稳定） |
+| ectd_relative_path | VARCHAR(180) | eCTD 包中的相对路径（用于 xlink:href）。当 export_name 非空时以 `export_name + file_type` 重算；ZIP 打包时也按此路径命名 |
 | file_type | VARCHAR(10) | 文件类型（pdf/xml/xpt/txt/xsl） |
 | file_size | BIGINT | 文件大小（字节） |
 | md5_checksum | CHAR(32) | MD5 校验值 |

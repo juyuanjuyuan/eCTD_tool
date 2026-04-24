@@ -9,33 +9,44 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpdateExportNameDto = exports.UploadFileQueryDto = exports.CreateFileReferenceDto = void 0;
+exports.AddInstanceDto = void 0;
 const class_validator_1 = require("class-validator");
-class CreateFileReferenceDto {
-    sourceFileId;
+class AddInstanceDto {
+    substance;
+    manufacturer;
+    productName;
+    dosageForm;
+    indication;
 }
-exports.CreateFileReferenceDto = CreateFileReferenceDto;
-__decorate([
-    (0, class_validator_1.IsUUID)(),
-    __metadata("design:type", String)
-], CreateFileReferenceDto.prototype, "sourceFileId", void 0);
-class UploadFileQueryDto {
-    xmlLang;
-}
-exports.UploadFileQueryDto = UploadFileQueryDto;
+exports.AddInstanceDto = AddInstanceDto;
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(200),
     __metadata("design:type", String)
-], UploadFileQueryDto.prototype, "xmlLang", void 0);
-class UpdateExportNameDto {
-    exportName;
-}
-exports.UpdateExportNameDto = UpdateExportNameDto;
+], AddInstanceDto.prototype, "substance", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
-    (0, class_validator_1.MaxLength)(64),
-    __metadata("design:type", Object)
-], UpdateExportNameDto.prototype, "exportName", void 0);
-//# sourceMappingURL=index.js.map
+    (0, class_validator_1.MaxLength)(200),
+    __metadata("design:type", String)
+], AddInstanceDto.prototype, "manufacturer", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(200),
+    __metadata("design:type", String)
+], AddInstanceDto.prototype, "productName", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(200),
+    __metadata("design:type", String)
+], AddInstanceDto.prototype, "dosageForm", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(500),
+    __metadata("design:type", String)
+], AddInstanceDto.prototype, "indication", void 0);
+//# sourceMappingURL=add-instance.dto.js.map

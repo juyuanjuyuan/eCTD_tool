@@ -139,6 +139,9 @@ export interface CtdTemplateNode {
   requiresStf: boolean;
   requiresESeal: boolean;
   allowsExtension: boolean;
+  // Plan 13 (2026-04-23): 多实例节点
+  isRepeatable?: boolean;
+  instanceKeyFields?: string[] | null;
   sortOrder: number;
   children?: CtdTemplateNode[];
   isRequired?: boolean;
@@ -166,6 +169,15 @@ export interface SequenceNode {
   productName?: string;
   dosageForm?: string;
   indication?: string;
+  // Plan 13 (2026-04-23): 多实例节点
+  instanceIndex?: number;
+  instanceLabel?: string | null;
+  // Plan 13: 后端 getSequenceNodeTree 响应时携带 template 元信息, 供前端判断是否 repeatable
+  templateNode?: {
+    id: string;
+    isRepeatable?: boolean;
+    instanceKeyFields?: string[] | null;
+  };
   submittedBy?: string | null;
   submittedAt?: string | null;
   approvedBy?: string | null;

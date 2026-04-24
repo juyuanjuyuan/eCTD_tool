@@ -67,6 +67,14 @@ function getFileIcon(fileType: string) {
   }
 }
 
+function stripExtension(name: string, ext: string): string {
+  if (ext && name.toLowerCase().endsWith(ext.toLowerCase())) {
+    return name.substring(0, name.length - ext.length);
+  }
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.substring(0, dot) : name;
+}
+
 interface FilePanelProps {
   nodeId: string;
   isLeaf: boolean;
@@ -180,6 +188,20 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
     }
   };
 
+  const handleExportNameSave = async (file: FileAttachment, nextBase: string) => {
+    const trimmed = nextBase.trim();
+    const currentBase = file.exportName ?? stripExtension(file.storedName, file.fileType);
+    if (trimmed === currentBase) return;
+    try {
+      // Empty string clears the override and falls back to the original stored name.
+      await fileApi.updateExportName(nodeId, file.id, trimmed === '' ? null : trimmed);
+      message.success(trimmed === '' ? '已恢复为上传时的文件名' : '导出名已更新');
+      loadFiles();
+    } catch (err: any) {
+      message.error(err.message || '保存失败');
+    }
+  };
+
   const beforeUpload = (file: File) => {
     const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
@@ -225,6 +247,46 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
           </div>
         </Space>
       ),
+    },
+    {
+      title: (
+        <Tooltip title="eCTD 导出时使用的文件名（仅 a-z 0-9 - _），留空则使用上传时的文件名">
+          <span>导出名</span>
+        </Tooltip>
+      ),
+      key: 'exportName',
+      width: 220,
+      render: (_, file) => {
+        if (file.isReference) {
+          return <Text type="secondary" style={{ fontSize: 12 }}>引用文件不可改名</Text>;
+        }
+        const currentBase = file.exportName ?? stripExtension(file.storedName, file.fileType);
+        const isCustom = !!file.exportName;
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+            <Text
+              editable={{
+                tooltip: '点击编辑导出名',
+                onChange: (value) => handleExportNameSave(file, value),
+                maxLength: 64 - file.fileType.length,
+              }}
+              style={{
+                fontSize: 12,
+                fontFamily: 'monospace',
+                color: isCustom ? '#262626' : '#8c8c8c',
+                margin: 0,
+                flex: 1,
+                minWidth: 0,
+              }}
+            >
+              {currentBase}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace', flexShrink: 0 }}>
+              {file.fileType}
+            </Text>
+          </div>
+        );
+      },
     },
     {
       title: '合规',

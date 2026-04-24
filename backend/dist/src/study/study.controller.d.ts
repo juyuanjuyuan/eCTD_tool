@@ -22,6 +22,7 @@ export declare class StudyController {
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
+                exportName: string | null;
                 storagePath: string;
                 ectdRelativePath: string;
                 fileType: string;
@@ -71,6 +72,7 @@ export declare class StudyController {
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
+                exportName: string | null;
                 storagePath: string;
                 ectdRelativePath: string;
                 fileType: string;
@@ -125,6 +127,7 @@ export declare class StudyController {
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
+                exportName: string | null;
                 storagePath: string;
                 ectdRelativePath: string;
                 fileType: string;
@@ -174,6 +177,7 @@ export declare class StudyController {
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
+                exportName: string | null;
                 storagePath: string;
                 ectdRelativePath: string;
                 fileType: string;
@@ -223,6 +227,7 @@ export declare class StudyController {
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
+                exportName: string | null;
                 storagePath: string;
                 ectdRelativePath: string;
                 fileType: string;
@@ -276,6 +281,7 @@ export declare class StudyController {
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
+                exportName: string | null;
                 storagePath: string;
                 ectdRelativePath: string;
                 fileType: string;

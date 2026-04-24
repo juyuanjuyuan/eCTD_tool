@@ -6,6 +6,7 @@ export interface FileAttachment {
   sequenceNodeId: string;
   originalName: string;
   storedName: string;
+  exportName: string | null;
   storagePath: string;
   ectdRelativePath: string;
   fileType: string;
@@ -148,6 +149,10 @@ export const fileApi = {
   /** Delete a file */
   delete: (nodeId: string, fileId: string): Promise<void> =>
     api.delete(`/nodes/${nodeId}/files/${fileId}`) as any,
+
+  /** Update the eCTD export filename (basename, no extension). Pass null/empty to clear. */
+  updateExportName: (nodeId: string, fileId: string, exportName: string | null): Promise<FileAttachment> =>
+    api.patch(`/nodes/${nodeId}/files/${fileId}/export-name`, { exportName }) as any,
 
   /** Get download URL */
   download: (nodeId: string, fileId: string): Promise<{ url: string; originalName: string }> =>

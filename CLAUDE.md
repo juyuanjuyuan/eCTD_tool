@@ -125,6 +125,7 @@ Prisma Schema → Migration → DTO/Entity → Service → Controller → 前端
 - **XML 骨架文件**: `index.xml`（ICH 骨架，模块二至五，DTD: ich-ectd-3-2.dtd）+ `cn-regional.xml`（区域骨架，模块一，Schema: cn-regional-1-0.xsd）+ `index-md5.txt`
 - **STF 要求**: 模块四 4.2.X 和模块五 5.3.1.X-5.3.5.X 的所有文件必须使用 STF (ich-stf-v2-2.dtd)，category 和 file-tag 值从 valid-values.xml 获取
 - **扩展节点**: 仅对生物制品(cnprt2)的 3.2.R 章节允许，包含 3.2.R.1-3.2.R.6 六种类型
+- **多实例节点 (Plan 13, 2026-04-23)**: DTD `ich-ectd-3-2.dtd` 中 `*` 可重复元素 5 个支持一个申请承载多个原料药/制剂/适应症 — `m2-3-s-drug-substance`、`m2-3-p-drug-product`、`m2-7-3-summary-of-clinical-efficacy`、`m3-2-s-drug-substance`、`m3-2-p-drug-product`；`CtdTemplateNode.isRepeatable=true` + `instanceKeyFields` (如 `["substance","manufacturer"]`) 标记；`SequenceNode.instanceIndex` 区分同模板下多个实例；通过 `POST /sequences/:seqId/template-nodes/:templateNodeId/instances` 添加；文件路径按 instanceIndex 划分子目录 (如 `32s-drug-sub-1/`) 避免多实例文件冲突
 - **文件命名规则**: 仅允许小写字母 a-z、数字 0-9、连字符 -、下划线 _；路径≤180字符、单名≤64字符；路径仅使用正斜杠 /
 - **PDF 要求**: 版本 1.4-1.7 或 PDF/A；>5页必须有书签（V1.1 升级为错误）；书签放大率 Inherit Zoom；不允许加密、JavaScript、外部链接、附件、音视频（V1.1 均升级为错误）；中文字体宋体/黑体，正文≥小四号字
 - **电子签章**: 6 类章节必须签章: cn-1-0 说明函, cn-1-2 申请表, cn-1-3-8, cn-1-10, cn-1-11, cn-1-12

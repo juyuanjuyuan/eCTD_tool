@@ -1219,25 +1219,63 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
         }
     }
     async validateCompleteness(sequence, app, ra, items) {
-        const rules = await this.prisma.ctdCompletenessRule.findMany({
+        const candidateRules = await this.prisma.ctdCompletenessRule.findMany({
             where: {
                 applicationTypeCode: app.applicationTypeCode,
                 regulatoryActivityTypeCode: ra.regulatoryActivityTypeCode,
             },
             include: {
-                templateNode: { select: { elementName: true, ctdSectionNumber: true, titleZh: true } },
+                templateNode: { select: { elementName: true, ctdSectionNumber: true, titleZh: true, isLeaf: true } },
             },
         });
-        const nodeByTemplateId = new Map();
+        const seqType = sequence.sequenceTypeCode;
+        const productType = app.productTypeCode;
+        const rules = candidateRules.filter((r) => {
+            const seqTypes = r.sequenceTypeCodes ?? [];
+            if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType))
+                return false;
+            const productTypes = r.productTypeCodes ?? [];
+            if (productTypes.length > 0 && productType && !productTypes.includes(productType))
+                return false;
+            return true;
+        });
+        const nodesByTemplateId = new Map();
         for (const n of sequence.sequenceNodes) {
-            nodeByTemplateId.set(n.templateNodeId, n);
+            const arr = nodesByTemplateId.get(n.templateNodeId) ?? [];
+            arr.push(n);
+            nodesByTemplateId.set(n.templateNodeId, arr);
         }
+        const allSeqNodes = sequence.sequenceNodes;
+        const isSectionSatisfied = (sectionNodes) => {
+            for (const container of sectionNodes) {
+                const stack = [container.id];
+                while (stack.length) {
+                    const pid = stack.pop();
+                    for (const n of allSeqNodes) {
+                        if (n.parentId === pid) {
+                            if (n.isLeaf && n.status !== 'EMPTY')
+                                return true;
+                            stack.push(n.id);
+                        }
+                    }
+                }
+            }
+            return false;
+        };
         for (const rule of rules) {
-            const seqNode = nodeByTemplateId.get(rule.templateNodeId);
+            const seqNodes = nodesByTemplateId.get(rule.templateNodeId) ?? [];
             if (rule.ruleType === 'REQUIRED') {
-                const hasContent = seqNode &&
-                    seqNode.status === 'COMPLETED' &&
-                    (seqNode.fileAttachments?.length > 0 || seqNode.document);
+                let hasContent = false;
+                if (seqNodes.length === 0) {
+                    hasContent = false;
+                }
+                else if (rule.templateNode.isLeaf || seqNodes.some((n) => n.isLeaf)) {
+                    hasContent = seqNodes.some((n) => n.status === 'COMPLETED' &&
+                        ((n.fileAttachments?.length ?? 0) > 0 || n.document));
+                }
+                else {
+                    hasContent = isSectionSatisfied(seqNodes);
+                }
                 if (!hasContent) {
                     items.push({
                         ruleCode: `4.3`,
@@ -1246,13 +1284,14 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
                             ? client_1.ValidationSeverity.ERROR
                             : client_1.ValidationSeverity.WARNING,
                         description: `必填章节缺失: ${rule.templateNode.ctdSectionNumber} ${rule.templateNode.titleZh}`,
-                        detail: `申请类型 ${app.applicationTypeCode} + 注册行为 ${ra.regulatoryActivityTypeCode} 要求此章节`,
+                        detail: `申请类型 ${app.applicationTypeCode} + 注册行为 ${ra.regulatoryActivityTypeCode}${seqType ? ` + 序列类型 ${seqType}` : ''} 要求此章节`,
                         suggestion: '请完成此章节的内容编辑',
                     });
                 }
             }
             else if (rule.ruleType === 'FORBIDDEN') {
-                if (seqNode && seqNode.status !== 'EMPTY') {
+                const hasNonEmpty = seqNodes.some((n) => n.status !== 'EMPTY');
+                if (hasNonEmpty) {
                     items.push({
                         ruleCode: `4.3`,
                         ruleCategory: '区域性管理信息',

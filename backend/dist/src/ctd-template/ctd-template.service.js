@@ -27,6 +27,14 @@ const EXTENSION_NODE_ALLOWED_PRODUCT_TYPE = 'cnprt2';
 const SUBSTANCE_SECTIONS = new Set(['2.3.S', '3.2.S']);
 const PRODUCT_SECTIONS = new Set(['2.3.P', '3.2.P']);
 const INDICATION_SECTIONS = new Set(['2.7.3']);
+function buildInstanceLabel(keyFields, attrs) {
+    if (!keyFields || keyFields.length === 0)
+        return null;
+    const parts = keyFields
+        .map((k) => attrs[k])
+        .filter((v) => typeof v === 'string' && v.trim().length > 0);
+    return parts.length > 0 ? parts.join(' - ') : null;
+}
 let CtdTemplateService = class CtdTemplateService {
     prisma;
     cache;
@@ -262,7 +270,12 @@ let CtdTemplateService = class CtdTemplateService {
             throw new common_1.NotFoundException(`序列 ${sequenceId} 不存在`);
         const allNodes = await this.prisma.sequenceNode.findMany({
             where: { sequenceId },
-            orderBy: { sortOrder: 'asc' },
+            orderBy: [{ sortOrder: 'asc' }, { instanceIndex: 'asc' }],
+            include: {
+                templateNode: {
+                    select: { id: true, isRepeatable: true, instanceKeyFields: true },
+                },
+            },
         });
         const nodeMap = new Map();
         for (const node of allNodes) {
@@ -440,13 +453,175 @@ let CtdTemplateService = class CtdTemplateService {
         }
         return this.prisma.sequenceNode.delete({ where: { id: nodeId } });
     }
+    async listInstances(sequenceId, templateNodeId) {
+        const template = await this.prisma.ctdTemplateNode.findUnique({
+            where: { id: templateNodeId },
+        });
+        if (!template)
+            throw new common_1.NotFoundException('模板节点不存在');
+        if (!template.isRepeatable) {
+            throw new common_1.BadRequestException(`节点 ${template.ctdSectionNumber} 不支持多实例`);
+        }
+        return this.prisma.sequenceNode.findMany({
+            where: { sequenceId, templateNodeId },
+            orderBy: { instanceIndex: 'asc' },
+        });
+    }
+    async addInstance(sequenceId, templateNodeId, dto) {
+        const template = await this.prisma.ctdTemplateNode.findUnique({
+            where: { id: templateNodeId },
+        });
+        if (!template)
+            throw new common_1.NotFoundException('模板节点不存在');
+        if (!template.isRepeatable) {
+            throw new common_1.BadRequestException(`节点 ${template.ctdSectionNumber} 不支持多实例`);
+        }
+        const sequence = await this.prisma.sequence.findUnique({ where: { id: sequenceId } });
+        if (!sequence)
+            throw new common_1.NotFoundException(`序列 ${sequenceId} 不存在`);
+        const keyFields = template.instanceKeyFields ?? [];
+        const attrs = dto;
+        const filledKeys = keyFields.filter((k) => typeof attrs[k] === 'string' && attrs[k].trim());
+        if (filledKeys.length === 0) {
+            throw new common_1.BadRequestException(`至少需要填写 ${keyFields.join(' / ')} 中的一项用于区分实例`);
+        }
+        const existingInstances = await this.prisma.sequenceNode.findMany({
+            where: { sequenceId, templateNodeId },
+        });
+        const keySignature = (n) => keyFields.map((k) => (n[k] ?? '').trim()).join('|');
+        const newSig = keySignature(attrs);
+        if (existingInstances.some((n) => keySignature(n) === newSig)) {
+            throw new common_1.BadRequestException('已存在相同骨架属性组合的实例');
+        }
+        const maxIdx = existingInstances.reduce((max, n) => Math.max(max, n.instanceIndex ?? 0), -1);
+        const newInstanceIndex = maxIdx + 1;
+        if (!template.parentId) {
+            throw new common_1.BadRequestException('可重复节点必须有父节点');
+        }
+        const parentSeqNode = await this.prisma.sequenceNode.findFirst({
+            where: { sequenceId, templateNodeId: template.parentId },
+            orderBy: { instanceIndex: 'asc' },
+        });
+        if (!parentSeqNode) {
+            throw new common_1.BadRequestException('父节点未初始化, 无法创建实例');
+        }
+        const allDescendantTemplates = await this.collectTemplateSubtree(templateNodeId);
+        const isFirstSeq = sequence.sequenceNumber === '0000';
+        const instanceLabel = buildInstanceLabel(keyFields, dto);
+        const templateToNewSeqId = new Map();
+        for (const t of allDescendantTemplates) {
+            templateToNewSeqId.set(t.id, (0, crypto_1.randomUUID)());
+        }
+        const createData = [];
+        for (const t of allDescendantTemplates) {
+            const isRoot = t.id === templateNodeId;
+            const parentSeqId = isRoot
+                ? parentSeqNode.id
+                : (t.parentId && templateToNewSeqId.get(t.parentId)) || null;
+            const thisIsLeaf = t.isLeaf;
+            createData.push({
+                id: templateToNewSeqId.get(t.id),
+                sequenceId,
+                templateNodeId: t.id,
+                parentId: parentSeqId,
+                elementName: t.elementName,
+                ctdSectionNumber: t.ctdSectionNumber,
+                title: t.titleZh,
+                operation: isFirstSeq && thisIsLeaf ? client_1.LeafOperation.NEW : thisIsLeaf ? client_1.LeafOperation.NEW : null,
+                status: client_1.SequenceNodeStatus.EMPTY,
+                isRequired: false,
+                isLeaf: thisIsLeaf,
+                sortOrder: t.sortOrder,
+                instanceIndex: newInstanceIndex,
+                ...(isRoot
+                    ? {
+                        substance: dto.substance,
+                        manufacturer: dto.manufacturer,
+                        productName: dto.productName,
+                        dosageForm: dto.dosageForm,
+                        indication: dto.indication,
+                        instanceLabel,
+                    }
+                    : {}),
+            });
+        }
+        await this.prisma.$transaction(createData.map((d) => this.prisma.sequenceNode.create({ data: d })));
+        return this.prisma.sequenceNode.findUnique({
+            where: { id: templateToNewSeqId.get(templateNodeId) },
+        });
+    }
+    async removeInstance(sequenceId, instanceRootNodeId) {
+        const instanceRoot = await this.prisma.sequenceNode.findFirst({
+            where: { id: instanceRootNodeId, sequenceId },
+            include: { templateNode: { select: { isRepeatable: true, ctdSectionNumber: true } } },
+        });
+        if (!instanceRoot)
+            throw new common_1.NotFoundException('实例节点不存在');
+        if (!instanceRoot.templateNode.isRepeatable) {
+            throw new common_1.BadRequestException(`节点 ${instanceRoot.templateNode.ctdSectionNumber} 不是多实例节点`);
+        }
+        const peerCount = await this.prisma.sequenceNode.count({
+            where: { sequenceId, templateNodeId: instanceRoot.templateNodeId },
+        });
+        if (peerCount <= 1) {
+            throw new common_1.BadRequestException('不能删除最后一个实例, 至少保留一个');
+        }
+        const sequence = await this.prisma.sequence.findUnique({ where: { id: sequenceId } });
+        if (!sequence)
+            throw new common_1.NotFoundException(`序列 ${sequenceId} 不存在`);
+        if (sequence.sequenceNumber === '0000') {
+            const allNodes = await this.prisma.sequenceNode.findMany({ where: { sequenceId } });
+            const descendantIds = this.getDescendantIds(instanceRootNodeId, allNodes);
+            descendantIds.add(instanceRootNodeId);
+            await this.prisma.$transaction([
+                this.prisma.sequenceNode.updateMany({
+                    where: { id: { in: Array.from(descendantIds) } },
+                    data: { parentId: null },
+                }),
+                this.prisma.sequenceNode.deleteMany({
+                    where: { id: { in: Array.from(descendantIds) } },
+                }),
+            ]);
+            return { message: '实例已删除', deletedCount: descendantIds.size };
+        }
+        else {
+            const allNodes = await this.prisma.sequenceNode.findMany({ where: { sequenceId } });
+            const descendantIds = this.getDescendantIds(instanceRootNodeId, allNodes);
+            const leafIds = allNodes
+                .filter((n) => (descendantIds.has(n.id) || n.id === instanceRootNodeId) && n.isLeaf)
+                .map((n) => n.id);
+            await this.prisma.sequenceNode.updateMany({
+                where: { id: { in: leafIds } },
+                data: { operation: client_1.LeafOperation.DELETE },
+            });
+            return { message: '实例已标记为删除 (非首次序列)', markedCount: leafIds.length };
+        }
+    }
+    async collectTemplateSubtree(rootTemplateNodeId) {
+        const all = await this.prisma.ctdTemplateNode.findMany({
+            orderBy: { sortOrder: 'asc' },
+        });
+        const byId = new Map(all.map((t) => [t.id, t]));
+        const result = [];
+        const visit = (id) => {
+            const node = byId.get(id);
+            if (!node)
+                return;
+            result.push(node);
+            const children = all.filter((t) => t.parentId === id);
+            for (const c of children)
+                visit(c.id);
+        };
+        visit(rootTemplateNodeId);
+        return result;
+    }
     async checkCompleteness(sequenceId) {
         const sequence = await this.prisma.sequence.findUnique({
             where: { id: sequenceId },
             include: {
                 regulatoryActivity: {
                     include: {
-                        application: { select: { applicationTypeCode: true } },
+                        application: { select: { applicationTypeCode: true, productTypeCode: true } },
                     },
                 },
             },
@@ -455,10 +630,12 @@ let CtdTemplateService = class CtdTemplateService {
             throw new common_1.NotFoundException(`序列 ${sequenceId} 不存在`);
         const appTypeCode = sequence.regulatoryActivity.application.applicationTypeCode;
         const ratTypeCode = sequence.regulatoryActivity.regulatoryActivityTypeCode;
+        const productTypeCode = sequence.regulatoryActivity.application.productTypeCode;
+        const seqType = sequence.sequenceTypeCode;
         const nodes = await this.prisma.sequenceNode.findMany({
             where: { sequenceId },
         });
-        const rules = await this.prisma.ctdCompletenessRule.findMany({
+        const candidateRules = await this.prisma.ctdCompletenessRule.findMany({
             where: {
                 applicationTypeCode: appTypeCode,
                 regulatoryActivityTypeCode: ratTypeCode,
@@ -467,9 +644,26 @@ let CtdTemplateService = class CtdTemplateService {
                 templateNode: { select: { elementName: true, ctdSectionNumber: true, titleZh: true } },
             },
         });
+        const rules = candidateRules.filter((r) => {
+            const seqTypes = r.sequenceTypeCodes ?? [];
+            if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType))
+                return false;
+            const productTypes = r.productTypeCodes ?? [];
+            if (productTypes.length > 0 && productTypeCode && !productTypes.includes(productTypeCode))
+                return false;
+            return true;
+        });
+        const nodesByTemplateId = new Map();
+        for (const n of nodes) {
+            const arr = nodesByTemplateId.get(n.templateNodeId) ?? [];
+            arr.push(n);
+            nodesByTemplateId.set(n.templateNodeId, arr);
+        }
         const nodeByTemplateId = new Map();
         for (const n of nodes) {
-            nodeByTemplateId.set(n.templateNodeId, n);
+            if (!nodeByTemplateId.has(n.templateNodeId)) {
+                nodeByTemplateId.set(n.templateNodeId, n);
+            }
         }
         const completedNodes = new Set();
         for (const n of nodes) {
@@ -498,11 +692,38 @@ let CtdTemplateService = class CtdTemplateService {
             if (n.status === 'COMPLETED')
                 results.moduleStats[mod].completed++;
         }
+        const isSectionSatisfiedForTemplate = (templateNodeId) => {
+            const containers = nodesByTemplateId.get(templateNodeId) ?? [];
+            for (const container of containers) {
+                const stack = [container.id];
+                while (stack.length) {
+                    const pid = stack.pop();
+                    for (const n of nodes) {
+                        if (n.parentId === pid) {
+                            if (n.isLeaf && n.status !== 'EMPTY')
+                                return true;
+                            stack.push(n.id);
+                        }
+                    }
+                }
+            }
+            return false;
+        };
         for (const rule of rules) {
+            const seqNodes = nodesByTemplateId.get(rule.templateNodeId) ?? [];
             if (rule.ruleType === 'REQUIRED') {
                 results.requiredSections++;
-                const seqNode = nodeByTemplateId.get(rule.templateNodeId);
-                if (seqNode && seqNode.status === 'COMPLETED') {
+                let satisfied = false;
+                if (seqNodes.length === 0) {
+                    satisfied = false;
+                }
+                else if (seqNodes.some((n) => n.isLeaf)) {
+                    satisfied = seqNodes.some((n) => n.status === 'COMPLETED');
+                }
+                else {
+                    satisfied = isSectionSatisfiedForTemplate(rule.templateNodeId);
+                }
+                if (satisfied) {
                     results.completedRequired++;
                 }
                 else {
@@ -515,8 +736,7 @@ let CtdTemplateService = class CtdTemplateService {
                 }
             }
             else if (rule.ruleType === 'FORBIDDEN') {
-                const seqNode = nodeByTemplateId.get(rule.templateNodeId);
-                if (seqNode && seqNode.status !== 'EMPTY') {
+                if (seqNodes.some((n) => n.status !== 'EMPTY')) {
                     results.forbiddenViolations.push({
                         elementName: rule.templateNode.elementName,
                         section: rule.templateNode.ctdSectionNumber,
@@ -544,7 +764,9 @@ let CtdTemplateService = class CtdTemplateService {
             throw new common_1.NotFoundException(`序列 ${sequenceId} 不存在`);
         const appTypeCode = sequence.regulatoryActivity.application.applicationTypeCode;
         const ratTypeCode = sequence.regulatoryActivity.regulatoryActivityTypeCode;
-        const rules = await this.prisma.ctdCompletenessRule.findMany({
+        const productTypeCode = sequence.regulatoryActivity.application.productTypeCode;
+        const seqType = sequence.sequenceTypeCode;
+        const candidateRules = await this.prisma.ctdCompletenessRule.findMany({
             where: {
                 applicationTypeCode: appTypeCode,
                 regulatoryActivityTypeCode: ratTypeCode,
@@ -559,6 +781,15 @@ let CtdTemplateService = class CtdTemplateService {
                     },
                 },
             },
+        });
+        const rules = candidateRules.filter((r) => {
+            const seqTypes = r.sequenceTypeCodes ?? [];
+            if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType))
+                return false;
+            const productTypes = r.productTypeCodes ?? [];
+            if (productTypes.length > 0 && productTypeCode && !productTypes.includes(productTypeCode))
+                return false;
+            return true;
         });
         const required = rules
             .filter((r) => r.ruleType === 'REQUIRED')

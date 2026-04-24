@@ -12,9 +12,9 @@ export declare class DocumentController {
         nodeId: string;
         contentJson: import("@prisma/client/runtime/library").JsonValue | null;
         contentHtml: string | null;
-        xmlLang: string;
         contentText: string | null;
         wordCount: number;
+        xmlLang: string;
         updatedBy: string | null;
     } | {
         id: null;
@@ -39,9 +39,9 @@ export declare class DocumentController {
         nodeId: string;
         contentJson: import("@prisma/client/runtime/library").JsonValue | null;
         contentHtml: string | null;
-        xmlLang: string;
         contentText: string | null;
         wordCount: number;
+        xmlLang: string;
         updatedBy: string | null;
     }>;
     getVersions(nodeId: string): Promise<{
@@ -49,8 +49,8 @@ export declare class DocumentController {
         createdAt: Date;
         createdBy: string | null;
         version: number;
-        xmlLang: string;
         wordCount: number;
+        xmlLang: string;
     }[]>;
     getVersion(nodeId: string, v: number): Promise<{
         id: string;
@@ -59,8 +59,8 @@ export declare class DocumentController {
         version: number;
         contentJson: import("@prisma/client/runtime/library").JsonValue | null;
         contentHtml: string | null;
-        xmlLang: string;
         wordCount: number;
+        xmlLang: string;
         documentId: string;
     }>;
     createVersionSnapshot(nodeId: string, userId: string): Promise<{
@@ -70,8 +70,8 @@ export declare class DocumentController {
         version: number;
         contentJson: import("@prisma/client/runtime/library").JsonValue | null;
         contentHtml: string | null;
-        xmlLang: string;
         wordCount: number;
+        xmlLang: string;
         documentId: string;
     }>;
     restoreVersion(nodeId: string, v: number, userId: string): Promise<{
@@ -83,9 +83,9 @@ export declare class DocumentController {
         nodeId: string;
         contentJson: import("@prisma/client/runtime/library").JsonValue | null;
         contentHtml: string | null;
-        xmlLang: string;
         contentText: string | null;
         wordCount: number;
+        xmlLang: string;
         updatedBy: string | null;
     }>;
 }

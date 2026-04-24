@@ -22,6 +22,9 @@ interface CTDTreeProps {
   extensionOptions?: ExtensionOption[];
   isbiological?: boolean;
   selectedNodeId?: string;
+  // Plan 13 (2026-04-23): 多实例节点支持
+  onRequestAddInstance?: (node: SequenceNode) => void;
+  onRequestRemoveInstance?: (node: SequenceNode) => void;
 }
 
 /**
@@ -54,6 +57,8 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
   extensionOptions = [],
   isbiological = false,
   selectedNodeId,
+  onRequestAddInstance,
+  onRequestRemoveInstance,
 }) => {
   const [searchValue, setSearchValue] = useState('');
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
@@ -155,6 +160,23 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {node.title}
           </span>
+          {/* Plan 13: 多实例节点显示 instanceLabel (如 "阿莫西林 - 石药") */}
+          {node.instanceLabel && (
+            <span
+              style={{
+                flexShrink: 0,
+                fontSize: 11,
+                color: '#1890ff',
+                background: '#e6f7ff',
+                padding: '0 6px',
+                borderRadius: 3,
+                marginLeft: 4,
+              }}
+              title="实例标签"
+            >
+              {node.instanceLabel}
+            </span>
+          )}
         </span>
       );
 
@@ -169,12 +191,24 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
     return nodes.map(buildNode);
   }, [nodes, searchValue, flatNodes, isbiological, selectedNodeId]);
 
-  const handleRightClick = (info: { node: DataNode }) => {
+  const handleRightClick = (info: { node: DataNode; event: { preventDefault?: () => void } }) => {
     const nodeId = info.node.key as string;
     const seqNode = flatNodes.find((n) => n.id === nodeId);
     if (!seqNode) return;
     if (seqNode.ctdSectionNumber === '3.2.R' && isbiological && onAddExtension) {
       setExtensionModal({ visible: true, parentNodeId: nodeId });
+      return;
+    }
+    // Plan 13 (2026-04-23): 多实例节点右键
+    // - 若 template.isRepeatable (容器如 3.2.S), 提供"添加实例"
+    // - 若节点本身是某个 repeatable 模板的实例 (instanceLabel 非空), 提供"删除实例"
+    if (seqNode.templateNode?.isRepeatable && onRequestAddInstance) {
+      onRequestAddInstance(seqNode);
+      return;
+    }
+    if (seqNode.instanceLabel && onRequestRemoveInstance) {
+      onRequestRemoveInstance(seqNode);
+      return;
     }
   };
 
@@ -250,7 +284,7 @@ export const CTDTree: React.FC<CTDTreeProps> = ({
             if (selected) onNodeSelect?.(selected);
           }
         }}
-        onRightClick={({ node }) => handleRightClick({ node })}
+        onRightClick={({ node, event }) => handleRightClick({ node, event })}
         defaultExpandedKeys={nodes.map((n) => n.id)}
       />
 

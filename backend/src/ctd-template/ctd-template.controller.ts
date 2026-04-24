@@ -15,6 +15,7 @@ import {
   UpdateSequenceNodeDto,
   UpdateBackboneAttributesDto,
   CreateExtensionNodeDto,
+  AddInstanceDto,
 } from './dto';
 
 @Controller('api/v1')
@@ -92,6 +93,33 @@ export class CtdTemplateController {
     @Param('nodeId') nodeId: string,
   ) {
     return this.ctdTemplateService.deleteExtensionNode(seqId, nodeId);
+  }
+
+  // ==================== Plan 13: 多实例节点 ====================
+
+  @Get('sequences/:seqId/template-nodes/:templateNodeId/instances')
+  listInstances(
+    @Param('seqId') seqId: string,
+    @Param('templateNodeId') templateNodeId: string,
+  ) {
+    return this.ctdTemplateService.listInstances(seqId, templateNodeId);
+  }
+
+  @Post('sequences/:seqId/template-nodes/:templateNodeId/instances')
+  addInstance(
+    @Param('seqId') seqId: string,
+    @Param('templateNodeId') templateNodeId: string,
+    @Body() dto: AddInstanceDto,
+  ) {
+    return this.ctdTemplateService.addInstance(seqId, templateNodeId, dto);
+  }
+
+  @Delete('sequences/:seqId/instances/:instanceRootNodeId')
+  removeInstance(
+    @Param('seqId') seqId: string,
+    @Param('instanceRootNodeId') instanceRootNodeId: string,
+  ) {
+    return this.ctdTemplateService.removeInstance(seqId, instanceRootNodeId);
   }
 
   // ==================== Completeness Check ====================

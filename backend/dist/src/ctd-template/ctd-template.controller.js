@@ -52,6 +52,15 @@ let CtdTemplateController = class CtdTemplateController {
     deleteExtensionNode(seqId, nodeId) {
         return this.ctdTemplateService.deleteExtensionNode(seqId, nodeId);
     }
+    listInstances(seqId, templateNodeId) {
+        return this.ctdTemplateService.listInstances(seqId, templateNodeId);
+    }
+    addInstance(seqId, templateNodeId, dto) {
+        return this.ctdTemplateService.addInstance(seqId, templateNodeId, dto);
+    }
+    removeInstance(seqId, instanceRootNodeId) {
+        return this.ctdTemplateService.removeInstance(seqId, instanceRootNodeId);
+    }
     checkCompleteness(seqId) {
         return this.ctdTemplateService.checkCompleteness(seqId);
     }
@@ -127,6 +136,31 @@ __decorate([
     __metadata("design:paramtypes", [String, String]),
     __metadata("design:returntype", void 0)
 ], CtdTemplateController.prototype, "deleteExtensionNode", null);
+__decorate([
+    (0, common_1.Get)('sequences/:seqId/template-nodes/:templateNodeId/instances'),
+    __param(0, (0, common_1.Param)('seqId')),
+    __param(1, (0, common_1.Param)('templateNodeId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], CtdTemplateController.prototype, "listInstances", null);
+__decorate([
+    (0, common_1.Post)('sequences/:seqId/template-nodes/:templateNodeId/instances'),
+    __param(0, (0, common_1.Param)('seqId')),
+    __param(1, (0, common_1.Param)('templateNodeId')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, dto_1.AddInstanceDto]),
+    __metadata("design:returntype", void 0)
+], CtdTemplateController.prototype, "addInstance", null);
+__decorate([
+    (0, common_1.Delete)('sequences/:seqId/instances/:instanceRootNodeId'),
+    __param(0, (0, common_1.Param)('seqId')),
+    __param(1, (0, common_1.Param)('instanceRootNodeId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], CtdTemplateController.prototype, "removeInstance", null);
 __decorate([
     (0, common_1.Get)('sequences/:seqId/completeness'),
     __param(0, (0, common_1.Param)('seqId')),

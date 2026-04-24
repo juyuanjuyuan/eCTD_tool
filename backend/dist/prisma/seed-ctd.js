@@ -85,6 +85,13 @@ const E_SEAL_SECTIONS = new Set([
 function isExtensionPoint(elementName, sno) {
     return sno === '3.2.R';
 }
+const REPEATABLE_NODE_CONFIG = {
+    'm2-3-s-drug-substance': ['substance', 'manufacturer'],
+    'm2-3-p-drug-product': ['productName', 'dosageForm', 'manufacturer'],
+    'm2-7-3-summary-of-clinical-efficacy': ['indication'],
+    'm3-2-s-drug-substance': ['substance', 'manufacturer'],
+    'm3-2-p-drug-product': ['productName', 'dosageForm', 'manufacturer'],
+};
 function buildTemplateNodes() {
     const nodes = [];
     let sortCounter = 0;
@@ -96,6 +103,7 @@ function buildTemplateNodes() {
         const sno = el['@_structureno'];
         const name = el['@_name'];
         const module = getModuleNumber(sno);
+        const repeatKeys = REPEATABLE_NODE_CONFIG[name];
         nodes.push({
             elementName: name,
             ctdSectionNumber: sno,
@@ -108,6 +116,8 @@ function buildTemplateNodes() {
             requiresESeal: false,
             allowsExtension: isExtensionPoint(name, sno),
             defaultStfCategories: stf_default_categories_js_1.STF_DEFAULTS[sno] ?? null,
+            isRepeatable: !!repeatKeys,
+            instanceKeyFields: repeatKeys ?? null,
         });
     }
     for (const el of cnElements) {
@@ -125,6 +135,8 @@ function buildTemplateNodes() {
             requiresESeal: E_SEAL_SECTIONS.has(name),
             allowsExtension: false,
             defaultStfCategories: null,
+            isRepeatable: false,
+            instanceKeyFields: null,
         });
     }
     return nodes;
@@ -255,6 +267,84 @@ const COMPLETENESS_RULES = [
         ruleType: client_1.CompletenessRuleType.FORBIDDEN,
         severity: client_1.CompletenessRuleSeverity.ERROR,
     },
+    {
+        ruleId: '4.3.12',
+        applicationTypeCodes: ['cnapt2', 'cnapt3', 'cnapt4'],
+        regulatoryActivityTypeCodes: ['cnrat2'],
+        elementNames: ['cn-1-0', 'cn-1-2', 'cn-1-4-1', 'cn-1-11'],
+        ruleType: client_1.CompletenessRuleType.REQUIRED,
+        severity: client_1.CompletenessRuleSeverity.ERROR,
+    },
+    {
+        ruleId: '4.3.13',
+        applicationTypeCodes: ['cnapt2', 'cnapt3', 'cnapt4'],
+        regulatoryActivityTypeCodes: ['cnrat2'],
+        elementNames: ['cn-1-3-1-1', 'cn-1-3-2-1'],
+        ruleType: client_1.CompletenessRuleType.FORBIDDEN,
+        severity: client_1.CompletenessRuleSeverity.ERROR,
+    },
+    {
+        ruleId: '4.3.14',
+        applicationTypeCodes: ['cnapt1'],
+        regulatoryActivityTypeCodes: ['cnrat2'],
+        elementNames: ['cn-1-0', 'cn-1-2', 'cn-1-11'],
+        ruleType: client_1.CompletenessRuleType.REQUIRED,
+        severity: client_1.CompletenessRuleSeverity.ERROR,
+    },
+    {
+        ruleId: '4.3.15',
+        applicationTypeCodes: ['cnapt2', 'cnapt3', 'cnapt4'],
+        regulatoryActivityTypeCodes: ['cnrat3'],
+        elementNames: ['cn-1-0', 'cn-1-2', 'cn-1-4-1'],
+        ruleType: client_1.CompletenessRuleType.REQUIRED,
+        severity: client_1.CompletenessRuleSeverity.ERROR,
+    },
+    {
+        ruleId: '4.3.16',
+        applicationTypeCodes: ['cnapt2', 'cnapt3', 'cnapt4'],
+        regulatoryActivityTypeCodes: ['cnrat4'],
+        elementNames: ['cn-1-0', 'cn-1-2', 'cn-1-4-1'],
+        ruleType: client_1.CompletenessRuleType.REQUIRED,
+        severity: client_1.CompletenessRuleSeverity.ERROR,
+    },
+    {
+        ruleId: '4.3.18',
+        applicationTypeCodes: ['cnapt2'],
+        regulatoryActivityTypeCodes: ['cnrat8'],
+        elementNames: [
+            'cn-1-0', 'cn-1-2', 'cn-1-3-8-9', 'cn-1-4-1', 'cn-1-11',
+            'cn-1-3-3', 'cn-1-3-1-2', 'cn-1-3-2-2',
+        ],
+        ruleType: client_1.CompletenessRuleType.REQUIRED,
+        severity: client_1.CompletenessRuleSeverity.ERROR,
+    },
+    {
+        ruleId: '4.3.19',
+        applicationTypeCodes: ['cnapt2'],
+        regulatoryActivityTypeCodes: ['cnrat8'],
+        elementNames: ['cn-1-3-1-1', 'cn-1-3-2-1', 'cn-1-3-4-1', 'cn-1-3-4-2', 'cn-1-3-4-3'],
+        ruleType: client_1.CompletenessRuleType.FORBIDDEN,
+        severity: client_1.CompletenessRuleSeverity.ERROR,
+    },
+    {
+        ruleId: '4.3.20',
+        applicationTypeCodes: ['cnapt3'],
+        regulatoryActivityTypeCodes: ['cnrat8'],
+        elementNames: [
+            'cn-1-0', 'cn-1-2', 'cn-1-3-8-9', 'cn-1-4-1', 'cn-1-11',
+            'cn-1-3-3', 'cn-1-3-1-2', 'cn-1-3-2-2',
+        ],
+        ruleType: client_1.CompletenessRuleType.REQUIRED,
+        severity: client_1.CompletenessRuleSeverity.ERROR,
+    },
+    {
+        ruleId: '4.3.21',
+        applicationTypeCodes: ['cnapt4'],
+        regulatoryActivityTypeCodes: ['cnrat8'],
+        elementNames: ['cn-1-0', 'cn-1-2', 'cn-1-3-8-9', 'cn-1-4-1', 'cn-1-11', 'cn-1-3-3'],
+        ruleType: client_1.CompletenessRuleType.REQUIRED,
+        severity: client_1.CompletenessRuleSeverity.ERROR,
+    },
 ];
 async function seedTemplateNodes() {
     (0, stf_default_categories_js_1.validateStfDefaults)();
@@ -267,6 +357,18 @@ async function seedTemplateNodes() {
         if (unmatchedSections.length > 0) {
             console.warn(`  Warning: STF_DEFAULTS references sections not present in DB: ${unmatchedSections.join(', ')}`);
         }
+        let backfilledRepeatable = 0;
+        for (const [elementName, keys] of Object.entries(REPEATABLE_NODE_CONFIG)) {
+            const result = await prisma.ctdTemplateNode.updateMany({
+                where: { elementName },
+                data: {
+                    isRepeatable: true,
+                    instanceKeyFields: keys,
+                },
+            });
+            backfilledRepeatable += result.count;
+        }
+        console.log(`  Backfilled isRepeatable flag for ${backfilledRepeatable}/${Object.keys(REPEATABLE_NODE_CONFIG).length} repeatable nodes`);
         return;
     }
     console.log('Building CTD template tree from XML...');
@@ -298,6 +400,10 @@ async function seedTemplateNodes() {
                 requiresESeal: node.requiresESeal,
                 allowsExtension: node.allowsExtension,
                 defaultStfCategories: defaultStfCategoriesValue,
+                isRepeatable: node.isRepeatable,
+                instanceKeyFields: node.instanceKeyFields
+                    ? node.instanceKeyFields
+                    : undefined,
                 sortOrder: node.sortOrder,
             },
         });

@@ -4,3 +4,6 @@ export declare class CreateFileReferenceDto {
 export declare class UploadFileQueryDto {
     xmlLang?: string;
 }
+export declare class UpdateExportNameDto {
+    exportName?: string | null;
+}

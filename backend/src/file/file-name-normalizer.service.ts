@@ -115,8 +115,17 @@ export class FileNameNormalizerService {
   buildEctdRelativePath(
     ctdSectionNumber: string,
     normalizedFileName: string,
+    instanceIndex: number = 0,
   ): string {
-    const folder = this.getSectionFolder(ctdSectionNumber);
+    let folder = this.getSectionFolder(ctdSectionNumber);
+    // Plan 13 (2026-04-23): 多实例节点文件落在独立子目录, 避免同目录不同实例文件互相覆盖.
+    // instanceIndex=0 保持历史路径不变 (向后兼容); >0 追加 -N 后缀到 folder 最后一段.
+    if (instanceIndex > 0) {
+      const segments = folder.split('/');
+      const last = segments[segments.length - 1];
+      segments[segments.length - 1] = `${last}-${instanceIndex}`;
+      folder = segments.join('/');
+    }
     const relativePath = `${folder}/${normalizedFileName}`;
 
     // Validate total path length

@@ -10,6 +10,7 @@ vi.mock('../services/file', () => ({
     delete: vi.fn(),
     download: vi.fn(),
     preview: vi.fn(),
+    updateExportName: vi.fn(),
     listReferenceable: vi.fn(),
     createReference: vi.fn(),
   },

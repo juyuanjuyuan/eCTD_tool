@@ -80,6 +80,16 @@ function isExtensionPoint(elementName: string, sno: string): boolean {
   return sno === '3.2.R';
 }
 
+// Plan 13 (2026-04-23): 权威来源 ich-ectd-3-2.dtd 中可重复 (带 *) 的 5 个 element
+// 支持同一序列下多个原料药 / 多个制剂 / 多个适应症 / 多个生产商等场景
+const REPEATABLE_NODE_CONFIG: Record<string, string[]> = {
+  'm2-3-s-drug-substance': ['substance', 'manufacturer'],                       // 2.3.S
+  'm2-3-p-drug-product': ['productName', 'dosageForm', 'manufacturer'],         // 2.3.P
+  'm2-7-3-summary-of-clinical-efficacy': ['indication'],                         // 2.7.3
+  'm3-2-s-drug-substance': ['substance', 'manufacturer'],                       // 3.2.S
+  'm3-2-p-drug-product': ['productName', 'dosageForm', 'manufacturer'],         // 3.2.P
+};
+
 // ==================== Build Template Nodes ====================
 
 interface TemplateNode {
@@ -94,6 +104,9 @@ interface TemplateNode {
   requiresESeal: boolean;
   allowsExtension: boolean;
   defaultStfCategories: StfCategoryDimension[] | null;
+  // Plan 13
+  isRepeatable: boolean;
+  instanceKeyFields: string[] | null;
 }
 
 function buildTemplateNodes(): TemplateNode[] {
@@ -114,6 +127,7 @@ function buildTemplateNodes(): TemplateNode[] {
     const name = el['@_name'];
     const module = getModuleNumber(sno);
 
+    const repeatKeys = REPEATABLE_NODE_CONFIG[name];
     nodes.push({
       elementName: name,
       ctdSectionNumber: sno,
@@ -126,6 +140,8 @@ function buildTemplateNodes(): TemplateNode[] {
       requiresESeal: false,
       allowsExtension: isExtensionPoint(name, sno),
       defaultStfCategories: STF_DEFAULTS[sno] ?? null,
+      isRepeatable: !!repeatKeys,
+      instanceKeyFields: repeatKeys ?? null,
     });
   }
 
@@ -146,6 +162,8 @@ function buildTemplateNodes(): TemplateNode[] {
       requiresESeal: E_SEAL_SECTIONS.has(name),
       allowsExtension: false,
       defaultStfCategories: null,
+      isRepeatable: false,
+      instanceKeyFields: null,
     });
   }
 
@@ -304,6 +322,110 @@ const COMPLETENESS_RULES: CompletenessRuleInput[] = [
     ruleType: CompletenessRuleType.FORBIDDEN,
     severity: CompletenessRuleSeverity.ERROR,
   },
+
+  // ========== 补充申请 / 备案 / 报告 / 再注册 场景规则 (2026-04-24 增补) ==========
+  // 依据: reference/现行申报资料要求与eCTD目录元素、CTD目录层级对应表.xlsx
+  //       药品补充申请 / 境外生产药品再注册申请 两个 sheet
+  // 合法性已核对 reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包/depend-apt-rat-sqt.xml
+  // 跳过 4.3.8/4.3.9 沿用现有编号断档惯例
+
+  // 4.3.12 补充申请 (cnrat2) + 首次提交 (cnsqt1) - NDA/ANDA/原料药通用 MUST contain
+  // 依据: Excel "药品补充申请" sheet 第 3-32 行 M1 无"如适用"限定条目的交集
+  {
+    ruleId: '4.3.12',
+    applicationTypeCodes: ['cnapt2', 'cnapt3', 'cnapt4'],
+    regulatoryActivityTypeCodes: ['cnrat2'],
+    elementNames: ['cn-1-0', 'cn-1-2', 'cn-1-4-1', 'cn-1-11'],
+    ruleType: CompletenessRuleType.REQUIRED,
+    severity: CompletenessRuleSeverity.ERROR,
+  },
+  // 4.3.13 补充申请 (cnrat2) - NDA/ANDA/原料药 MUST NOT contain
+  // 依据: 补充申请针对已上市药品, 未上市药品专用章节禁用
+  {
+    ruleId: '4.3.13',
+    applicationTypeCodes: ['cnapt2', 'cnapt3', 'cnapt4'],
+    regulatoryActivityTypeCodes: ['cnrat2'],
+    elementNames: ['cn-1-3-1-1', 'cn-1-3-2-1'],
+    ruleType: CompletenessRuleType.FORBIDDEN,
+    severity: CompletenessRuleSeverity.ERROR,
+  },
+  // 4.3.14 IND 补充申请 (cnapt1 + cnrat2 + cnsqt1) MUST contain
+  // 说明: IND 阶段未批准上市, 不强制 cn-1-4-1
+  {
+    ruleId: '4.3.14',
+    applicationTypeCodes: ['cnapt1'],
+    regulatoryActivityTypeCodes: ['cnrat2'],
+    elementNames: ['cn-1-0', 'cn-1-2', 'cn-1-11'],
+    ruleType: CompletenessRuleType.REQUIRED,
+    severity: CompletenessRuleSeverity.ERROR,
+  },
+  // 4.3.15 备案 (cnrat3) + 首次提交 - NDA/ANDA/原料药 MUST contain
+  // 依据: 备案属于上市后变更简化形式, 共用药品补充申请 M1 核心清单
+  {
+    ruleId: '4.3.15',
+    applicationTypeCodes: ['cnapt2', 'cnapt3', 'cnapt4'],
+    regulatoryActivityTypeCodes: ['cnrat3'],
+    elementNames: ['cn-1-0', 'cn-1-2', 'cn-1-4-1'],
+    ruleType: CompletenessRuleType.REQUIRED,
+    severity: CompletenessRuleSeverity.ERROR,
+  },
+  // 4.3.16 报告 (cnrat4) + 首次提交 - NDA/ANDA/原料药 MUST contain
+  // 依据: 上市后报告类变更, 与 cnrat3 备案同源
+  {
+    ruleId: '4.3.16',
+    applicationTypeCodes: ['cnapt2', 'cnapt3', 'cnapt4'],
+    regulatoryActivityTypeCodes: ['cnrat4'],
+    elementNames: ['cn-1-0', 'cn-1-2', 'cn-1-4-1'],
+    ruleType: CompletenessRuleType.REQUIRED,
+    severity: CompletenessRuleSeverity.ERROR,
+  },
+  // 跳过 4.3.17 (原分析中 cnapt2/3 + cnrat5 经核对为非法组合, 不纳入规则)
+
+  // 4.3.18 NDA 再注册 (cnapt2 + cnrat8 + cnsqt1) MUST contain
+  // 依据: Excel "境外生产药品再注册申请" sheet 制剂段 + "药品补充申请" sheet 4/5 分组交集
+  {
+    ruleId: '4.3.18',
+    applicationTypeCodes: ['cnapt2'],
+    regulatoryActivityTypeCodes: ['cnrat8'],
+    elementNames: [
+      'cn-1-0', 'cn-1-2', 'cn-1-3-8-9', 'cn-1-4-1', 'cn-1-11',
+      'cn-1-3-3', 'cn-1-3-1-2', 'cn-1-3-2-2',
+    ],
+    ruleType: CompletenessRuleType.REQUIRED,
+    severity: CompletenessRuleSeverity.ERROR,
+  },
+  // 4.3.19 NDA 再注册 (cnapt2 + cnrat8) MUST NOT contain
+  // 依据: 再注册阶段药品必已上市, 未上市和临床试验专用章节禁用
+  {
+    ruleId: '4.3.19',
+    applicationTypeCodes: ['cnapt2'],
+    regulatoryActivityTypeCodes: ['cnrat8'],
+    elementNames: ['cn-1-3-1-1', 'cn-1-3-2-1', 'cn-1-3-4-1', 'cn-1-3-4-2', 'cn-1-3-4-3'],
+    ruleType: CompletenessRuleType.FORBIDDEN,
+    severity: CompletenessRuleSeverity.ERROR,
+  },
+  // 4.3.20 ANDA 再注册 (cnapt3 + cnrat8 + cnsqt1) MUST contain
+  {
+    ruleId: '4.3.20',
+    applicationTypeCodes: ['cnapt3'],
+    regulatoryActivityTypeCodes: ['cnrat8'],
+    elementNames: [
+      'cn-1-0', 'cn-1-2', 'cn-1-3-8-9', 'cn-1-4-1', 'cn-1-11',
+      'cn-1-3-3', 'cn-1-3-1-2', 'cn-1-3-2-2',
+    ],
+    ruleType: CompletenessRuleType.REQUIRED,
+    severity: CompletenessRuleSeverity.ERROR,
+  },
+  // 4.3.21 原料药再注册 (cnapt4 + cnrat8 + cnsqt1) MUST contain
+  // 说明: 原料药再注册不要求说明书 / 包装标签
+  {
+    ruleId: '4.3.21',
+    applicationTypeCodes: ['cnapt4'],
+    regulatoryActivityTypeCodes: ['cnrat8'],
+    elementNames: ['cn-1-0', 'cn-1-2', 'cn-1-3-8-9', 'cn-1-4-1', 'cn-1-11', 'cn-1-3-3'],
+    ruleType: CompletenessRuleType.REQUIRED,
+    severity: CompletenessRuleSeverity.ERROR,
+  },
 ];
 
 // ==================== Seed Functions ====================
@@ -329,6 +451,21 @@ async function seedTemplateNodes() {
         `  Warning: STF_DEFAULTS references sections not present in DB: ${unmatchedSections.join(', ')}`,
       );
     }
+    // Plan 13 (2026-04-23): 为已 seed 库回填 isRepeatable / instanceKeyFields
+    let backfilledRepeatable = 0;
+    for (const [elementName, keys] of Object.entries(REPEATABLE_NODE_CONFIG)) {
+      const result = await prisma.ctdTemplateNode.updateMany({
+        where: { elementName },
+        data: {
+          isRepeatable: true,
+          instanceKeyFields: keys as unknown as object,
+        },
+      });
+      backfilledRepeatable += result.count;
+    }
+    console.log(
+      `  Backfilled isRepeatable flag for ${backfilledRepeatable}/${Object.keys(REPEATABLE_NODE_CONFIG).length} repeatable nodes`,
+    );
     return;
   }
 
@@ -374,6 +511,11 @@ async function seedTemplateNodes() {
         requiresESeal: node.requiresESeal,
         allowsExtension: node.allowsExtension,
         defaultStfCategories: defaultStfCategoriesValue,
+        // Plan 13: 多实例节点元数据
+        isRepeatable: node.isRepeatable,
+        instanceKeyFields: node.instanceKeyFields
+          ? (node.instanceKeyFields as unknown as object)
+          : undefined,
         sortOrder: node.sortOrder,
       },
     });

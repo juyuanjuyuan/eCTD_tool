@@ -77,8 +77,14 @@ let FileNameNormalizerService = class FileNameNormalizerService {
             throw new common_1.BadRequestException(`文件大小 ${(size / (1024 * 1024)).toFixed(1)}MB 超过 ${maxLabel} 限制`);
         }
     }
-    buildEctdRelativePath(ctdSectionNumber, normalizedFileName) {
-        const folder = this.getSectionFolder(ctdSectionNumber);
+    buildEctdRelativePath(ctdSectionNumber, normalizedFileName, instanceIndex = 0) {
+        let folder = this.getSectionFolder(ctdSectionNumber);
+        if (instanceIndex > 0) {
+            const segments = folder.split('/');
+            const last = segments[segments.length - 1];
+            segments[segments.length - 1] = `${last}-${instanceIndex}`;
+            folder = segments.join('/');
+        }
         const relativePath = `${folder}/${normalizedFileName}`;
         if (relativePath.length > MAX_PATH_LENGTH) {
             throw new common_1.BadRequestException(`文件路径长度 ${relativePath.length} 超过 ${MAX_PATH_LENGTH} 字符限制`);

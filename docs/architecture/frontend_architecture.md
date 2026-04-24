@@ -57,10 +57,19 @@
   - 自然高度撑开 + 父容器滚动（不再使用 antd Tree 的 `virtual` 模式与固定 height，避免展开模块时下方模块被遮挡）
 - WP-07 新增:
   - ✅ 审批状态图标: CheckCircleOutlined 绿(APPROVED)/ClockCircleOutlined 蓝(SUBMITTED)/CloseCircleOutlined 红(REJECTED)
+- Plan 13 (2026-04-23) 新增:
+  - ✅ 多实例节点标签展示：当 SequenceNode 有 `instanceLabel` 时，节点标题右侧显示蓝色小标签（如 "阿莫西林 - 石药集团"）
+  - ✅ 右键菜单扩展：(a) 若节点 `templateNode.isRepeatable=true`（3.2.S / 3.2.P / 2.7.3 等容器），右键触发 `onRequestAddInstance` 弹出 `AddInstanceModal`；(b) 若节点是某实例（有 `instanceLabel`），右键触发 `onRequestRemoveInstance` 显示删除确认弹窗
 - 待开发:
   - 文件合规状态图标
   - STF/电子签章标记
   - 拖拽排序
+
+### 2.1.1 添加实例弹窗 (`AddInstanceModal`) ✅ Plan 13 (2026-04-23)
+
+- 根据 `CtdTemplateNode.instanceKeyFields` 动态渲染骨架属性输入框（`substance` / `manufacturer` / `productName` / `dosageForm` / `indication`）
+- 同组内 `instanceKeyFields` 组合唯一性由服务端校验（不能添加两个完全相同区分键的实例）
+- 提交成功后调用 `ctdApi.addInstance` → 深拷贝模板子树创建新 SequenceNode 子树
 
 ### 2.2 内容完整性看板 (`CompletenessPanel`) ✅
 
@@ -108,13 +117,14 @@
 - 上传进度条（Progress）
 - 文件扩展名前端校验（.pdf/.xml/.xpt/.txt/.xsl）
 - 文件大小前端校验（500MB/4GB，2026-04-08 从 200MB 上调对齐 ICH 上限）
-- 文件列表（List，含文件图标、合规状态 Badge、引用标签）
+- 文件列表（Table，含文件图标、合规状态 Badge、引用标签）
+- **导出名列（2026-04-24）**：用户可点击内联编辑 eCTD 导出 basename（仅 a-z/0-9/-/_，basename+ext ≤64 字符），显示当前有效名（自定义黑色、未设置灰色回落显示 stored_name），右侧只读扩展名；引用文件禁止改名
 - 文件操作: 预览（PDF）、下载（presigned URL）、删除（确认弹窗）
 - PDF 合规状态图标: 绿色通过/黄色警告/红色错误
 - 合规详情 Modal（错误/警告列表 Table）
 - 前序序列文件引用 Modal（Table 选择器，显示序列号/章节/文件名/大小）
 - 文件引用创建（同一申请内跨序列复用，验证前序存在性）
-- 对应 API: `fileApi.upload/list/delete/download/preview/createReference/listReferenceable`
+- 对应 API: `fileApi.upload/list/delete/download/preview/updateExportName/createReference/listReferenceable`
 
 ### 2.6 审批面板 (PropertiesPanel 审批 Tab) ✅ (WP-07 已实现)
 

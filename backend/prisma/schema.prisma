@@ -258,6 +258,13 @@ model CtdTemplateNode {
   requiresStf     Boolean     @default(false) @map("requires_stf")
   requiresESeal   Boolean     @default(false) @map("requires_e_seal")
   allowsExtension Boolean     @default(false) @map("allows_extension")
+  // Plan 13 (2026-04-23): 该节点是否支持多实例 (DTD 可重复元素: m2-3-s/m2-3-p/m2-7-3/m3-2-s/m3-2-p)
+  // 对应 ich-ectd-3-2.dtd 中 `*` 标记的 element, 同一序列下可创建多个 SequenceNode 承载不同骨架属性组合
+  isRepeatable     Boolean     @default(false) @map("is_repeatable")
+  // Plan 13: 多实例节点的区分键字段清单 (JSON 数组)
+  // 如 3.2.S: ["substance","manufacturer"]; 2.3.P: ["productName","dosageForm","manufacturer"]; 2.7.3: ["indication"]
+  // 仅 isRepeatable=true 时有意义
+  instanceKeyFields Json?     @map("instance_key_fields")
   // Plan 12 决策 4: 该 CTD 章节预设的 STF category 维度清单。
   // 仅 M4 4.2.x / M5 5.3.x 叶节点需要填写。
   // 格式: [{ name: "species", required: true }, { name: "route-of-admin", required: true }]
@@ -280,6 +287,12 @@ model CtdCompletenessRule {
   id                          String                   @id @default(uuid())
   applicationTypeCode         String                   @map("application_type_code") @db.VarChar(10)
   regulatoryActivityTypeCode  String                   @map("regulatory_activity_type_code") @db.VarChar(10)
+  // Plan 13 (2026-04-23): 规则适用的序列类型清单；默认仅 cnsqt1 首次提交触发，
+  // 避免对 cnsqt2 回复/cnsqt3 撤回/cnsqt4 格式转换等后续序列误报
+  sequenceTypeCodes           String[]                 @default(["cnsqt1"]) @map("sequence_type_codes")
+  // Plan 13: 规则适用的产品类型清单；空数组=适用所有产品类型；
+  // 如 IVD/MAH 变更等子场景可通过该字段区分
+  productTypeCodes            String[]                 @default([]) @map("product_type_codes")
   templateNodeId              String                   @map("template_node_id")
   ruleType                    CompletenessRuleType     @default(REQUIRED) @map("rule_type")
   severity                    CompletenessRuleSeverity  @default(ERROR)
@@ -311,6 +324,13 @@ model SequenceNode {
   productName      String?            @map("product_name") @db.VarChar(200)
   dosageForm       String?            @map("dosage_form") @db.VarChar(200)
   indication       String?            @db.VarChar(500)
+  // Plan 13 (2026-04-23): 多实例节点区分。
+  // - 非 repeatable 节点恒为 0 (业务上等价于无实例概念)
+  // - repeatable 节点及其整个后代子树共享同一 instanceIndex (0 起递增)
+  // - 同一 sequence 下同一 templateNode 的实例按 instanceIndex 区分
+  instanceIndex    Int                @default(0) @map("instance_index")
+  // UI 展示用的实例标签, 由 instanceKeyFields 拼接生成 (如 "阿莫西林 - 石药")
+  instanceLabel    String?            @map("instance_label") @db.VarChar(200)
   // Approval fields
   approvalStatus   ApprovalStatus     @default(DRAFT) @map("approval_status")
   submittedBy      String?            @map("submitted_by")
@@ -419,6 +439,11 @@ model FileAttachment {
   sequenceNodeId    String   @map("sequence_node_id")
   originalName      String   @map("original_name") @db.VarChar(255)
   storedName        String   @map("stored_name") @db.VarChar(255)
+  // User-editable eCTD export basename (no folder, no extension). When set,
+  // takes precedence over storedName for ectdRelativePath / xlink:href in
+  // exported packages. Null = fall back to storedName. Constrained to eCTD
+  // filename rules (a-z 0-9 - _) and unique within the same sequence_node_id.
+  exportName        String?  @map("export_name") @db.VarChar(64)
   storagePath       String   @map("storage_path") @db.VarChar(500)
   ectdRelativePath  String   @map("ectd_relative_path") @db.VarChar(180)
   fileType          String   @map("file_type") @db.VarChar(10)

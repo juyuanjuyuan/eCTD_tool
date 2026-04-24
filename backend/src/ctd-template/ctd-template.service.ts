@@ -10,6 +10,7 @@ import {
   UpdateSequenceNodeDto,
   UpdateBackboneAttributesDto,
   CreateExtensionNodeDto,
+  AddInstanceDto,
 } from './dto';
 import { LeafOperation, SequenceNodeStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
@@ -44,6 +45,21 @@ const EXTENSION_NODE_ALLOWED_PRODUCT_TYPE = 'cnprt2';
 const SUBSTANCE_SECTIONS = new Set(['2.3.S', '3.2.S']);
 const PRODUCT_SECTIONS = new Set(['2.3.P', '3.2.P']);
 const INDICATION_SECTIONS = new Set(['2.7.3']);
+
+/**
+ * Plan 13: 根据 templateNode.instanceKeyFields + AddInstanceDto 拼接 UI 展示用的 instanceLabel.
+ * 顺序按 key 数组来; 非空字段用 " - " 连接; 全空返回 null.
+ */
+function buildInstanceLabel(
+  keyFields: string[] | null,
+  attrs: { substance?: string; manufacturer?: string; productName?: string; dosageForm?: string; indication?: string },
+): string | null {
+  if (!keyFields || keyFields.length === 0) return null;
+  const parts = keyFields
+    .map((k) => (attrs as Record<string, string | undefined>)[k])
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+  return parts.length > 0 ? parts.join(' - ') : null;
+}
 
 @Injectable()
 export class CtdTemplateService {
@@ -349,7 +365,13 @@ export class CtdTemplateService {
 
     const allNodes = await this.prisma.sequenceNode.findMany({
       where: { sequenceId },
-      orderBy: { sortOrder: 'asc' },
+      orderBy: [{ sortOrder: 'asc' }, { instanceIndex: 'asc' }],
+      // Plan 13: include template.isRepeatable + instanceKeyFields 让前端渲染多实例 UI
+      include: {
+        templateNode: {
+          select: { id: true, isRepeatable: true, instanceKeyFields: true },
+        },
+      },
     });
 
     // Build tree
@@ -580,6 +602,221 @@ export class CtdTemplateService {
     return this.prisma.sequenceNode.delete({ where: { id: nodeId } });
   }
 
+  // ==================== Plan 13: 多实例节点 ====================
+
+  /**
+   * 列出某可重复模板节点在指定序列下的全部实例 (SequenceNode 根节点, 不含子树).
+   */
+  async listInstances(sequenceId: string, templateNodeId: string) {
+    const template = await this.prisma.ctdTemplateNode.findUnique({
+      where: { id: templateNodeId },
+    });
+    if (!template) throw new NotFoundException('模板节点不存在');
+    if (!template.isRepeatable) {
+      throw new BadRequestException(`节点 ${template.ctdSectionNumber} 不支持多实例`);
+    }
+    return this.prisma.sequenceNode.findMany({
+      where: { sequenceId, templateNodeId },
+      orderBy: { instanceIndex: 'asc' },
+    });
+  }
+
+  /**
+   * 为可重复模板节点添加一个新实例. 服务端按 instanceKeyFields 校验必填属性,
+   * 深拷贝整个模板子树创建 SequenceNode, 所有新节点共享同一 instanceIndex.
+   *
+   * 规则:
+   * - 非首次序列 (sequenceNumber != '0000'), 新实例的 leaf 自动标记 operation=NEW
+   *   (eCTD 意义: 新增原料药/制剂是"新增"行为)
+   * - 同一实例组内, instanceKeyFields 组合必须唯一 (例如不能有两个同样
+   *   substance+manufacturer 的原料药)
+   */
+  async addInstance(sequenceId: string, templateNodeId: string, dto: AddInstanceDto) {
+    const template = await this.prisma.ctdTemplateNode.findUnique({
+      where: { id: templateNodeId },
+    });
+    if (!template) throw new NotFoundException('模板节点不存在');
+    if (!template.isRepeatable) {
+      throw new BadRequestException(`节点 ${template.ctdSectionNumber} 不支持多实例`);
+    }
+
+    const sequence = await this.prisma.sequence.findUnique({ where: { id: sequenceId } });
+    if (!sequence) throw new NotFoundException(`序列 ${sequenceId} 不存在`);
+
+    const keyFields = (template.instanceKeyFields as string[] | null) ?? [];
+    const attrs = dto as Record<string, string | undefined>;
+
+    // 校验必填 key 字段至少填写一个 (宽松策略: DTD 中部分为 IMPLIED)
+    const filledKeys = keyFields.filter((k) => typeof attrs[k] === 'string' && attrs[k]!.trim());
+    if (filledKeys.length === 0) {
+      throw new BadRequestException(
+        `至少需要填写 ${keyFields.join(' / ')} 中的一项用于区分实例`,
+      );
+    }
+
+    // 校验唯一性: 同 templateNode 下 instanceKeyFields 组合不能重复
+    const existingInstances = await this.prisma.sequenceNode.findMany({
+      where: { sequenceId, templateNodeId },
+    });
+    const keySignature = (n: Record<string, string | null | undefined>) =>
+      keyFields.map((k) => (n[k] ?? '').trim()).join('|');
+    const newSig = keySignature(attrs as Record<string, string>);
+    if (existingInstances.some((n) => keySignature(n as unknown as Record<string, string | null>) === newSig)) {
+      throw new BadRequestException('已存在相同骨架属性组合的实例');
+    }
+
+    // 计算下一个 instanceIndex
+    const maxIdx = existingInstances.reduce(
+      (max, n) => Math.max(max, n.instanceIndex ?? 0),
+      -1,
+    );
+    const newInstanceIndex = maxIdx + 1;
+
+    // 找到当前序列下该模板节点的父 SequenceNode 作为挂载点
+    if (!template.parentId) {
+      throw new BadRequestException('可重复节点必须有父节点');
+    }
+    const parentSeqNode = await this.prisma.sequenceNode.findFirst({
+      where: { sequenceId, templateNodeId: template.parentId },
+      orderBy: { instanceIndex: 'asc' }, // 取第一个实例作为挂载点 (一般父节点不是 repeatable)
+    });
+    if (!parentSeqNode) {
+      throw new BadRequestException('父节点未初始化, 无法创建实例');
+    }
+
+    // 深拷贝模板子树: 拉取 template 自身及其所有后代
+    const allDescendantTemplates = await this.collectTemplateSubtree(templateNodeId);
+    const isFirstSeq = sequence.sequenceNumber === '0000';
+    const instanceLabel = buildInstanceLabel(keyFields, dto);
+
+    // 预生成所有 SequenceNode ID, 构建 templateId -> newSeqNodeId 映射
+    const templateToNewSeqId = new Map<string, string>();
+    for (const t of allDescendantTemplates) {
+      templateToNewSeqId.set(t.id, randomUUID());
+    }
+
+    // 构建 create 数据 (root 节点 parentId = parentSeqNode.id, 子节点按 template 树的 parent)
+    const createData: Parameters<typeof this.prisma.sequenceNode.create>[0]['data'][] = [];
+    for (const t of allDescendantTemplates) {
+      const isRoot = t.id === templateNodeId;
+      const parentSeqId = isRoot
+        ? parentSeqNode.id
+        : (t.parentId && templateToNewSeqId.get(t.parentId)) || null;
+      const thisIsLeaf = t.isLeaf;
+
+      createData.push({
+        id: templateToNewSeqId.get(t.id)!,
+        sequenceId,
+        templateNodeId: t.id,
+        parentId: parentSeqId,
+        elementName: t.elementName,
+        ctdSectionNumber: t.ctdSectionNumber,
+        title: t.titleZh,
+        operation: isFirstSeq && thisIsLeaf ? LeafOperation.NEW : thisIsLeaf ? LeafOperation.NEW : null,
+        status: SequenceNodeStatus.EMPTY,
+        isRequired: false,
+        isLeaf: thisIsLeaf,
+        sortOrder: t.sortOrder,
+        instanceIndex: newInstanceIndex,
+        // 骨架属性只落在 root 实例节点上
+        ...(isRoot
+          ? {
+              substance: dto.substance,
+              manufacturer: dto.manufacturer,
+              productName: dto.productName,
+              dosageForm: dto.dosageForm,
+              indication: dto.indication,
+              instanceLabel,
+            }
+          : {}),
+      });
+    }
+
+    await this.prisma.$transaction(
+      createData.map((d) => this.prisma.sequenceNode.create({ data: d })),
+    );
+
+    // 返回新创建的根实例节点
+    return this.prisma.sequenceNode.findUnique({
+      where: { id: templateToNewSeqId.get(templateNodeId)! },
+    });
+  }
+
+  /**
+   * 删除一个实例. 首次序列: 硬删除整个子树. 非首次序列: 级联给子树叶子标记 operation=DELETE.
+   */
+  async removeInstance(sequenceId: string, instanceRootNodeId: string) {
+    const instanceRoot = await this.prisma.sequenceNode.findFirst({
+      where: { id: instanceRootNodeId, sequenceId },
+      include: { templateNode: { select: { isRepeatable: true, ctdSectionNumber: true } } },
+    });
+    if (!instanceRoot) throw new NotFoundException('实例节点不存在');
+    if (!instanceRoot.templateNode.isRepeatable) {
+      throw new BadRequestException(`节点 ${instanceRoot.templateNode.ctdSectionNumber} 不是多实例节点`);
+    }
+
+    // 不允许删除最后一个实例 (至少保留 1 个以维持目录树结构)
+    const peerCount = await this.prisma.sequenceNode.count({
+      where: { sequenceId, templateNodeId: instanceRoot.templateNodeId },
+    });
+    if (peerCount <= 1) {
+      throw new BadRequestException('不能删除最后一个实例, 至少保留一个');
+    }
+
+    const sequence = await this.prisma.sequence.findUnique({ where: { id: sequenceId } });
+    if (!sequence) throw new NotFoundException(`序列 ${sequenceId} 不存在`);
+
+    if (sequence.sequenceNumber === '0000') {
+      // 首次序列: 直接级联删除子树 (Prisma onDelete: SET NULL on parent relation, 但 sequenceId CASCADE)
+      // 先收集所有后代 id 再批量删
+      const allNodes = await this.prisma.sequenceNode.findMany({ where: { sequenceId } });
+      const descendantIds = this.getDescendantIds(instanceRootNodeId, allNodes);
+      descendantIds.add(instanceRootNodeId);
+      // 从叶子往根删, 避免 parent fk 冲突: Prisma parent 关系默认 onDelete=NoAction,
+      // 先用 updateMany 清空 parentId, 再 deleteMany
+      await this.prisma.$transaction([
+        this.prisma.sequenceNode.updateMany({
+          where: { id: { in: Array.from(descendantIds) } },
+          data: { parentId: null },
+        }),
+        this.prisma.sequenceNode.deleteMany({
+          where: { id: { in: Array.from(descendantIds) } },
+        }),
+      ]);
+      return { message: '实例已删除', deletedCount: descendantIds.size };
+    } else {
+      // 非首次序列: 级联标记子树叶子为 DELETE (生命周期规范: 不能物理删除)
+      const allNodes = await this.prisma.sequenceNode.findMany({ where: { sequenceId } });
+      const descendantIds = this.getDescendantIds(instanceRootNodeId, allNodes);
+      const leafIds = allNodes
+        .filter((n) => (descendantIds.has(n.id) || n.id === instanceRootNodeId) && n.isLeaf)
+        .map((n) => n.id);
+      await this.prisma.sequenceNode.updateMany({
+        where: { id: { in: leafIds } },
+        data: { operation: LeafOperation.DELETE },
+      });
+      return { message: '实例已标记为删除 (非首次序列)', markedCount: leafIds.length };
+    }
+  }
+
+  /** 递归拉取模板节点及其所有后代 (按 sortOrder 排序). */
+  private async collectTemplateSubtree(rootTemplateNodeId: string) {
+    const all = await this.prisma.ctdTemplateNode.findMany({
+      orderBy: { sortOrder: 'asc' },
+    });
+    const byId = new Map(all.map((t) => [t.id, t]));
+    const result: typeof all = [];
+    const visit = (id: string) => {
+      const node = byId.get(id);
+      if (!node) return;
+      result.push(node);
+      const children = all.filter((t) => t.parentId === id);
+      for (const c of children) visit(c.id);
+    };
+    visit(rootTemplateNodeId);
+    return result;
+  }
+
   // ==================== Completeness Check ====================
 
   async checkCompleteness(sequenceId: string) {
@@ -588,7 +825,7 @@ export class CtdTemplateService {
       include: {
         regulatoryActivity: {
           include: {
-            application: { select: { applicationTypeCode: true } },
+            application: { select: { applicationTypeCode: true, productTypeCode: true } },
           },
         },
       },
@@ -597,14 +834,16 @@ export class CtdTemplateService {
 
     const appTypeCode = sequence.regulatoryActivity.application.applicationTypeCode;
     const ratTypeCode = sequence.regulatoryActivity.regulatoryActivityTypeCode;
+    const productTypeCode = sequence.regulatoryActivity.application.productTypeCode;
+    const seqType = sequence.sequenceTypeCode;
 
     // Get all sequence nodes
     const nodes = await this.prisma.sequenceNode.findMany({
       where: { sequenceId },
     });
 
-    // Get rules
-    const rules = await this.prisma.ctdCompletenessRule.findMany({
+    // Plan 13: 按 sequenceType + productType 精筛规则
+    const candidateRules = await this.prisma.ctdCompletenessRule.findMany({
       where: {
         applicationTypeCode: appTypeCode,
         regulatoryActivityTypeCode: ratTypeCode,
@@ -613,11 +852,27 @@ export class CtdTemplateService {
         templateNode: { select: { elementName: true, ctdSectionNumber: true, titleZh: true } },
       },
     });
+    const rules = candidateRules.filter((r) => {
+      const seqTypes = r.sequenceTypeCodes ?? [];
+      if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType)) return false;
+      const productTypes = r.productTypeCodes ?? [];
+      if (productTypes.length > 0 && productTypeCode && !productTypes.includes(productTypeCode)) return false;
+      return true;
+    });
 
-    // Build maps
+    // Plan 13: 同一 templateNode 可能有多个实例, 规则命中则任一实例满足即可
+    const nodesByTemplateId = new Map<string, typeof nodes>();
+    for (const n of nodes) {
+      const arr = nodesByTemplateId.get(n.templateNodeId) ?? [];
+      arr.push(n);
+      nodesByTemplateId.set(n.templateNodeId, arr);
+    }
+    // 为兼容旧调用点保留 nodeByTemplateId (取第一个实例)
     const nodeByTemplateId = new Map<string, typeof nodes[0]>();
     for (const n of nodes) {
-      nodeByTemplateId.set(n.templateNodeId, n);
+      if (!nodeByTemplateId.has(n.templateNodeId)) {
+        nodeByTemplateId.set(n.templateNodeId, n);
+      }
     }
 
     const completedNodes = new Set<string>();
@@ -654,12 +909,40 @@ export class CtdTemplateService {
       if (n.status === 'COMPLETED') results.moduleStats[mod].completed++;
     }
 
+    // Plan 13: SECTION 容器"至少一叶子非空"语义
+    const isSectionSatisfiedForTemplate = (templateNodeId: string): boolean => {
+      const containers = nodesByTemplateId.get(templateNodeId) ?? [];
+      for (const container of containers) {
+        const stack = [container.id];
+        while (stack.length) {
+          const pid = stack.pop()!;
+          for (const n of nodes) {
+            if (n.parentId === pid) {
+              if (n.isLeaf && n.status !== 'EMPTY') return true;
+              stack.push(n.id);
+            }
+          }
+        }
+      }
+      return false;
+    };
+
     // Check required rules
     for (const rule of rules) {
+      const seqNodes = nodesByTemplateId.get(rule.templateNodeId) ?? [];
       if (rule.ruleType === 'REQUIRED') {
         results.requiredSections++;
-        const seqNode = nodeByTemplateId.get(rule.templateNodeId);
-        if (seqNode && seqNode.status === 'COMPLETED') {
+        let satisfied = false;
+        if (seqNodes.length === 0) {
+          satisfied = false;
+        } else if (seqNodes.some((n) => n.isLeaf)) {
+          // 叶节点: 任一实例 COMPLETED 即满足
+          satisfied = seqNodes.some((n) => n.status === 'COMPLETED');
+        } else {
+          // SECTION 容器: 后代叶子非空
+          satisfied = isSectionSatisfiedForTemplate(rule.templateNodeId);
+        }
+        if (satisfied) {
           results.completedRequired++;
         } else {
           results.missingRequired.push({
@@ -670,8 +953,8 @@ export class CtdTemplateService {
           });
         }
       } else if (rule.ruleType === 'FORBIDDEN') {
-        const seqNode = nodeByTemplateId.get(rule.templateNodeId);
-        if (seqNode && seqNode.status !== 'EMPTY') {
+        // 任一实例非空即违规
+        if (seqNodes.some((n) => n.status !== 'EMPTY')) {
           results.forbiddenViolations.push({
             elementName: rule.templateNode.elementName,
             section: rule.templateNode.ctdSectionNumber,
@@ -703,8 +986,11 @@ export class CtdTemplateService {
 
     const appTypeCode = sequence.regulatoryActivity.application.applicationTypeCode;
     const ratTypeCode = sequence.regulatoryActivity.regulatoryActivityTypeCode;
+    const productTypeCode = sequence.regulatoryActivity.application.productTypeCode;
+    const seqType = sequence.sequenceTypeCode;
 
-    const rules = await this.prisma.ctdCompletenessRule.findMany({
+    // Plan 13: 按 sequenceType + productType 精筛规则
+    const candidateRules = await this.prisma.ctdCompletenessRule.findMany({
       where: {
         applicationTypeCode: appTypeCode,
         regulatoryActivityTypeCode: ratTypeCode,
@@ -719,6 +1005,13 @@ export class CtdTemplateService {
           },
         },
       },
+    });
+    const rules = candidateRules.filter((r) => {
+      const seqTypes = r.sequenceTypeCodes ?? [];
+      if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType)) return false;
+      const productTypes = r.productTypeCodes ?? [];
+      if (productTypes.length > 0 && productTypeCode && !productTypes.includes(productTypeCode)) return false;
+      return true;
     });
 
     const required = rules

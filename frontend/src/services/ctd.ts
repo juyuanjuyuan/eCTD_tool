@@ -56,6 +56,33 @@ export const ctdApi = {
   deleteExtensionNode: (seqId: string, nodeId: string) =>
     api.delete(`/sequences/${seqId}/nodes/${nodeId}/extension`),
 
+  // Plan 13 (2026-04-23): 多实例节点 — 同一申请多个原料药/制剂/适应症
+  listInstances: (seqId: string, templateNodeId: string) =>
+    api.get<never, SequenceNode[]>(
+      `/sequences/${seqId}/template-nodes/${templateNodeId}/instances`,
+    ),
+
+  addInstance: (
+    seqId: string,
+    templateNodeId: string,
+    data: {
+      substance?: string;
+      manufacturer?: string;
+      productName?: string;
+      dosageForm?: string;
+      indication?: string;
+    },
+  ) =>
+    api.post<never, SequenceNode>(
+      `/sequences/${seqId}/template-nodes/${templateNodeId}/instances`,
+      data,
+    ),
+
+  removeInstance: (seqId: string, instanceRootNodeId: string) =>
+    api.delete<never, { message: string }>(
+      `/sequences/${seqId}/instances/${instanceRootNodeId}`,
+    ),
+
   checkCompleteness: (seqId: string) =>
     api.get<never, CompletenessResult>(`/sequences/${seqId}/completeness`),
 

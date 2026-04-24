@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Delete,
   Param,
   Body,
@@ -16,7 +17,7 @@ import {
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { FileService } from './file.service';
-import { CreateFileReferenceDto } from './dto';
+import { CreateFileReferenceDto, UpdateExportNameDto } from './dto';
 
 @Controller('api/v1')
 @UseGuards(JwtAuthGuard)
@@ -110,6 +111,19 @@ export class FileController {
     @Param('id') id: string,
   ) {
     return this.fileService.getFile(nodeId, id);
+  }
+
+  /**
+   * Update the eCTD export filename for a file.
+   * PATCH /api/v1/nodes/:nodeId/files/:id/export-name
+   */
+  @Patch('nodes/:nodeId/files/:id/export-name')
+  async updateExportName(
+    @Param('nodeId') nodeId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateExportNameDto,
+  ) {
+    return this.fileService.updateExportName(nodeId, id, dto.exportName ?? null);
   }
 
   /**

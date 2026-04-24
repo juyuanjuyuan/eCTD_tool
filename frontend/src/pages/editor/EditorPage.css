@@ -1,0 +1,10 @@
+/* Make antd Sider's internal children wrapper a column flex container so
+   inner `flex: 1; overflow: auto` panels actually scroll when the CTD tree or
+   properties content overflows the viewport. Without this, .ant-layout-sider-
+   children has no height constraint and the overflow rule is ignored. */
+.editor-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
