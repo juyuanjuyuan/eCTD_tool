@@ -59,12 +59,6 @@ const operationOptions = [
   { label: '删除 (delete)', value: 'DELETE' },
 ];
 
-const langOptions = [
-  { label: '中文 (zh)', value: 'zh' },
-  { label: '英文 (en)', value: 'en' },
-  { label: '未指定', value: '' },
-];
-
 const statusOptions = [
   { label: '未开始', value: 'EMPTY' },
   { label: '编辑中', value: 'EDITING' },
@@ -329,22 +323,6 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 disabled={node.approvalStatus === 'APPROVED' || node.approvalStatus === 'SUBMITTED'}
               />
             )}
-          </Field>
-
-          <Field label="语言属性 (xml:lang)">
-            <Select
-              value={node.xmlLang || 'zh'}
-              options={langOptions}
-              style={{ width: '100%' }}
-              disabled={node.approvalStatus === 'APPROVED' || node.approvalStatus === 'SUBMITTED'}
-              onChange={async (val) => {
-                try {
-                  await ctdApi.updateSequenceNode(sequenceId, node.id, { xmlLang: val });
-                  message.success('语言属性已更新');
-                  onNodeUpdated();
-                } catch (err: any) { message.error(err.message); }
-              }}
-            />
           </Field>
 
           {doc && (

@@ -26,7 +26,6 @@ import {
   UserAddOutlined,
   CloseCircleOutlined,
   TeamOutlined,
-  SearchOutlined,
   MailOutlined,
   ArrowRightOutlined,
 } from '@ant-design/icons';
