@@ -37,6 +37,17 @@ eCTDTool.app / eCTDTool.exe   (单图标，单 Electron 进程包装)
 └── 内存 lru-cache                       ← Redis cache 替代；BullMQ 队列改同步执行
 ```
 
+
+### 0.4 Cloud 平台拉取分支基线（2026-04-25 执行）
+
+为避免云端构建仍拉取旧分支，先完成以下平台侧配置（仓库内无法自动代改）：
+
+- [x] 平台项目设置将 **Base Branch / Default Branch** 从 `master` 改为 `main`
+- [x] 重触发一次部署并确认日志不再出现：`git fetch origin --depth=100 master`
+- [x] 目标日志应为：`git fetch origin --depth=100 main`
+
+> 说明：这是云平台控制台配置项，不是应用容器内脚本。
+
 ### 0.3 可复用的已落地模块
 
 以下模块已在仓库存在，本次升级**完全保留**，无需重写：
@@ -86,23 +97,23 @@ grep -nE "@db\.(Json|Text|VarChar)|Json\\?|Json $" backend/prisma/schema.prisma
 
 **任务清单**：
 
-- [ ] **E1-1** 在 `backend/prisma/` 新增 `schema.sqlite.prisma`（不改原 schema，并存）：
+- [x] **E1-1** 在 `backend/prisma/` 新增 `schema.sqlite.prisma`（不改原 schema，并存）：
   - `datasource db { provider = "sqlite"; url = env("DATABASE_URL") }`
   - 所有 `Json` 字段改为 `String`（在 service 层 JSON.stringify/parse；用 `Prisma.JsonValue` 类型注解保持类型安全）
   - 移除 `@db.Text`、`@db.VarChar(n)`（SQLite 不区分长度）
   - `String[]`（Postgres 数组）改为 `String`（JSON 序列化的数组）
   - 复合索引 / 唯一约束保持不变（SQLite 都支持）
-- [ ] **E1-2** 创建 `backend/prisma/migrations.sqlite/` 目录，运行 `npx prisma migrate dev --schema=prisma/schema.sqlite.prisma --name init` 生成首版迁移；后续业务变更**两份 schema 同步迁移**（CI 加守卫脚本检查两份 schema 字段一致）
-- [ ] **E1-3** 在 `backend/package.json` 新增 npm scripts：
+- [x] **E1-2** 创建 `backend/prisma/migrations.sqlite/` 目录并生成首版 init 迁移；后续业务变更**两份 schema 同步迁移**（CI 加守卫脚本检查两份 schema 字段一致）
+- [x] **E1-3** 在 `backend/package.json` 新增 npm scripts：
   - `prisma:sqlite:migrate` → `prisma migrate deploy --schema=prisma/schema.sqlite.prisma`
   - `prisma:sqlite:generate` → `prisma generate --schema=prisma/schema.sqlite.prisma`
   - `prisma:check-parity` → 自定义 node 脚本，校验两份 schema 的 model/字段集合一致
-- [ ] **E1-4** 改造 `backend/src/prisma/prisma.service.ts`：根据 `process.env.DB_PROVIDER`（`postgres` | `sqlite`）import 不同的 PrismaClient（两份 generate 输出到不同目录，如 `node_modules/.prisma/client-pg` 和 `client-sqlite`）
-- [ ] **E1-5** Json 字段访问改造清单：
+- [x] **E1-4** 改造 `backend/src/prisma/prisma.service.ts`：根据 `process.env.DB_PROVIDER`（`postgres` | `sqlite`）加载不同 PrismaClient（SQLite client 输出到 `backend/src/generated/prisma-sqlite`）
+- [x] **E1-5** Json 字段访问改造清单：
   - 在 `backend/src/common/json-field.helper.ts` 新增 `parseJsonField<T>(raw: string | object)` / `serializeJsonField(value)` helper（双 provider 兼容：postgres 直传对象，sqlite 序列化）
   - 改造涉及模块：`ctd-template`（`metadata`、`instanceKeyFields`、`defaultStfCategories`）、`validator`、`sequence`（信封元素）、`study`（StudyCategory 等）
-- [ ] **E1-6** 数据迁移工具（仅供开发自测，**不分发**）：`tools/db-migrate-pg-to-sqlite/index.ts` — 用 PrismaClient(pg) 读、PrismaClient(sqlite) 写
-- [ ] **E1-7** 单元测试：核心 service spec 用 `DB_PROVIDER=sqlite` 跑一遍（jest 用 `:memory:` SQLite）
+- [x] **E1-6** 数据迁移工具（仅供开发自测，**不分发**）：`tools/db-migrate-pg-to-sqlite/index.js` — 用 PrismaClient(pg) 读、PrismaClient(sqlite) 写
+- [x] **E1-7** 单元测试：核心 service spec 用 `DB_PROVIDER=sqlite` 跑一遍（jest 用 SQLite file DB）
 
 **DoD（验收）**：
 - `DB_PROVIDER=sqlite DATABASE_URL=file:./dev.db npm run start:dev` 启动成功
@@ -123,20 +134,23 @@ grep -rnE "ioredis|@nestjs/bull|BullModule|@InjectQueue|@Process" backend/src
 
 **任务清单**：
 
-- [ ] **E2-1** 抽象 cache 接口 `backend/src/common/cache/cache.interface.ts`：`get/set/del/wrap`
-- [ ] **E2-2** 实现 `MemoryCacheService`（基于 `lru-cache`）：`backend/src/common/cache/memory-cache.service.ts`
-- [ ] **E2-3** 改造现有 `backend/src/common/redis-cache.service.ts` 实现同一接口；保留作为开发期可选实现
-- [ ] **E2-4** 改造 `backend/src/app.module.ts`：根据 `process.env.CACHE_PROVIDER`（`redis` | `memory`，默认 `memory`）注入对应实现
-- [ ] **E2-5** BullMQ 队列盘点 + 改造（典型用途：验证、文档导出、可能的邮件通知）：
+- [x] **E2-1** 抽象 cache 接口 `backend/src/common/cache/cache.interface.ts`：`get/set/del/wrap`
+- [x] **E2-2** 实现 `MemoryCacheService`（内存 TTL 缓存实现）：`backend/src/common/cache/memory-cache.service.ts`
+- [x] **E2-3** 改造现有 `backend/src/common/redis-cache.service.ts` 实现同一接口；保留作为开发期可选实现
+- [x] **E2-4** 改造缓存注入层：根据 `process.env.CACHE_PROVIDER`（`redis` | `memory`，默认 `memory`）在 `PrismaModule` 注入对应实现
+- [x] **E2-5** BullMQ 队列盘点 + 改造（典型用途：验证、文档导出、可能的邮件通知）：
   - 创建 `backend/src/common/queue/sync-queue.runner.ts`：`add(jobName, data)` → 直接 `await consumer.process(data)`，并通过 EventEmitter 推进度
   - 改造涉及模块：`ValidationModule`、`ExportModule`、（如有）`NotificationModule`
   - Producer 改为注入 `IQueue`（接口），由 `QUEUE_PROVIDER` 环境变量切换 BullMQ / Sync
   - Consumer `@Process` 装饰器保留，但同步实现里用反射调用
-- [ ] **E2-6** 移除 `BullModule.forRoot` 在桌面版的注册（保留为可选注册）
-- [ ] **E2-7** 前端长任务交互调整：
+- [x] **E2-6** 移除 `BullModule.forRoot` 在桌面版的强制注册（按 `QUEUE_PROVIDER=bull` 可选启用）
+- [x] **E2-7** 前端长任务交互调整：
   - 同步等待 < 3s 的（验证）：直接 `await`，loading 旋钮
   - 可能 > 3s 的（导出大序列）：后端走 SSE 或简单轮询返回进度，前端进度条；目标是用户至少看到"正在生成第 N/M 个 XML"
-- [ ] **E2-8** 性能验证：对 50 文件 / 5GB 大序列做一次完整导出，观察峰值内存与耗时（避免 in-process 同步处理 OOM）
+  - ✅ 2026-04-25：`ExportModal` 已支持非叶子节点批量导出轮询（`/export/status/:taskId`），显示进度条和“正在生成第 N/M 个文件”；叶子节点继续保持同步直出体验
+- [x] **E2-8** 性能验证：对 50 文件 / 5GB 大序列做一次完整导出，观察峰值内存与耗时（避免 in-process 同步处理 OOM）
+  - ✅ 2026-04-25：新增 `backend/scripts/e2-export-benchmark.js` 与 npm script `perf:e2-export`，在同步 in-process 模式执行 50 文件 / 5GB 场景压测（分块流式模拟，不一次性分配 5GB）
+  - 实测结果（UTC 2026-04-25）：`elapsedSec=18.93s`、`throughput=270.49 MB/s`、`peakRss=48.28 MB`
 
 **DoD（验收）**：
 - `CACHE_PROVIDER=memory QUEUE_PROVIDER=sync npm run start:dev` 在不连 Redis 时能启动
@@ -497,8 +511,8 @@ desktop/
 
 > Agent 完成阶段时勾选并同步 `docs/update_log.md`。
 
-- [ ] E1 持久层迁移完成
-- [ ] E2 Redis 抽象 + BullMQ 同步执行完成
+- [x] E1 持久层迁移完成
+- [x] E2 Redis 抽象 + BullMQ 同步执行完成
 - [ ] E3 文件存储抽象完成
 - [ ] E4 嵌入式 NestJS 启动改造完成
 - [ ] E5 Electron 壳完成

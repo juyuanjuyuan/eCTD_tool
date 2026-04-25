@@ -18,7 +18,12 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "seed:ctd": "ts-node prisma/seed-ctd.ts"
+    "seed:ctd": "ts-node prisma/seed-ctd.ts",
+    "prisma:sqlite:migrate": "prisma migrate deploy --schema=prisma/schema.sqlite.prisma",
+    "prisma:sqlite:generate": "prisma generate --schema=prisma/schema.sqlite.prisma",
+    "prisma:check-parity": "node scripts/prisma-check-parity.js",
+    "perf:e2-export": "node scripts/e2-export-benchmark.js",
+    "db:migrate:pg-to-sqlite": "node ../tools/db-migrate-pg-to-sqlite/index.js"
   },
   "dependencies": {
     "@nestjs/bull": "^11.0.4",

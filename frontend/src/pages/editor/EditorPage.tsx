@@ -307,6 +307,35 @@ const EditorPage: React.FC = () => {
     && (selectedNode.approvalStatus === 'DRAFT' || selectedNode.approvalStatus === 'REJECTED')
     && selectedNode.status !== 'EMPTY';
 
+  const collectLeafNodeIds = useCallback((root: SequenceNode | null, tree: SequenceNode[]): string[] => {
+    if (!root) return [];
+    const leaves: string[] = [];
+    const targetId = root.id;
+
+    const findTargetAndCollect = (items: SequenceNode[]): boolean => {
+      for (const n of items) {
+        if (n.id === targetId) {
+          const walk = (node: SequenceNode) => {
+            if (node.isLeaf) {
+              leaves.push(node.id);
+              return;
+            }
+            node.children?.forEach(walk);
+          };
+          walk(n);
+          return true;
+        }
+        if (n.children?.length && findTargetAndCollect(n.children)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    findTargetAndCollect(tree);
+    return leaves;
+  }, []);
+
   // Render the center content based on active tab
   const renderCenterContent = () => {
     if (needsInit) {
@@ -553,7 +582,7 @@ const EditorPage: React.FC = () => {
                 type="text"
                 icon={<ExportOutlined />}
                 onClick={() => setExportModalOpen(true)}
-                disabled={!selectedNode?.isLeaf}
+                disabled={!selectedNode}
               />
             </Tooltip>
           </Space>
@@ -747,12 +776,13 @@ const EditorPage: React.FC = () => {
       </Layout>
 
       {/* Export Modal */}
-      {selectedNode?.isLeaf && (
+      {selectedNode && (
         <ExportModal
           open={exportModalOpen}
           onClose={() => setExportModalOpen(false)}
           sequenceId={seqId!}
           node={selectedNode}
+          batchNodeIds={collectLeafNodeIds(selectedNode, nodes)}
         />
       )}
 

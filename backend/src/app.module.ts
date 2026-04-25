@@ -25,16 +25,24 @@ import { CollaborationModule } from './collaboration/collaboration.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { HealthModule } from './health/health.module';
 
+const queueProvider = process.env.QUEUE_PROVIDER || 'sync';
+const bullRootImports =
+  queueProvider === 'bull'
+    ? [
+        BullModule.forRoot({
+          redis: {
+            host: process.env.REDIS_HOST || 'localhost',
+            port: parseInt(process.env.REDIS_PORT || '6379', 10),
+            password: process.env.REDIS_PASSWORD || undefined,
+          },
+        }),
+      ]
+    : [];
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    BullModule.forRoot({
-      redis: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379', 10),
-        password: process.env.REDIS_PASSWORD || undefined,
-      },
-    }),
+    ...bullRootImports,
     PrismaModule,
     HealthModule,
     AuthModule,

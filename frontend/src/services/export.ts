@@ -32,6 +32,10 @@ export interface TaskStatus {
   error?: string;
 }
 
+export interface BatchDownloadUrl {
+  url: string;
+}
+
 const token = () => localStorage.getItem('accessToken');
 
 export const exportApi = {
@@ -83,4 +87,8 @@ export const exportApi = {
   // Task status
   getTaskStatus: (seqId: string, taskId: string) =>
     api.get<never, TaskStatus>(`/sequences/${seqId}/export/status/${taskId}`),
+
+  // Batch result download url
+  getDownloadUrl: (seqId: string, taskId: string) =>
+    api.get<never, BatchDownloadUrl>(`/sequences/${seqId}/export/download/${taskId}`),
 };

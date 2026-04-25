@@ -19,6 +19,18 @@ Project (1) ──< (N) ProjectInvitation
 User (1) ──< (N) Notification
 ```
 
+
+## 1.1 桌面版 SQLite 双 schema 过渡（software_upgrade / E1）
+
+- 主 schema 保持 `backend/prisma/schema.prisma`（PostgreSQL，开发期兼容）。
+- 新增 `backend/prisma/schema.sqlite.prisma`（SQLite，桌面版运行时）。
+- 字段映射约定：
+  - `Json/Json?` → `String/String?`（由 service 层负责 JSON serialize/parse）；
+  - `String[]` → `String`（保存 JSON 字符串，如 `[]`、`["cnsqt1"]`）；
+  - 去除 `@db.VarChar/@db.Text/@db.Char/@db.SmallInt` 等 provider-specific 注解。
+- 通过 `npm run prisma:check-parity` 校验两份 schema 的 model/field 集合一致性。
+- SQLite 迁移独立存放在 `backend/prisma/migrations.sqlite/`，用于桌面版初始化。
+
 ## 2. 表设计
 
 ### 2.1 用户相关

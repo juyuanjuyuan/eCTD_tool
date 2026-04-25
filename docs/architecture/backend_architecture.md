@@ -49,6 +49,26 @@ dashboard (聚合查询, 依赖 assignment/approval/activity-log/project)
 invitation (在 project 模块内, InvitationController, 邮箱邀请+接受+取消)
 ```
 
+
+### 1.3 持久层双 provider（software_upgrade / E1 进行中）
+
+- Prisma 进入过渡态：
+  - PostgreSQL schema：`backend/prisma/schema.prisma`
+  - SQLite schema：`backend/prisma/schema.sqlite.prisma`
+- 新增脚本：
+  - `npm run prisma:sqlite:migrate`
+  - `npm run prisma:sqlite:generate`
+  - `npm run prisma:check-parity`
+- SQLite 首版迁移目录：`backend/prisma/migrations.sqlite/`（含 init SQL）。
+- 新增 JSON 双 provider helper：`backend/src/common/json-field.helper.ts`，已在 `ctd-template` / `study` 接入读取 JSON 字段。
+- `PrismaService` 已按 `DB_PROVIDER` 支持 Postgres/SQLite 双客户端切换（SQLite 走 `src/generated/prisma-sqlite`，通过代理转发 delegate 调用）。
+- 新增开发迁移脚本：`node tools/db-migrate-pg-to-sqlite/index.js`（PG→SQLite 数据搬运，支持 `--dry-run`）。
+- E2 进行中：新增 `ICacheService` 抽象与 `MemoryCacheService`（TTL 内存缓存），`RedisCacheService` 已实现统一 `wrap` 接口。
+- E2 继续：`PrismaModule` 按 `CACHE_PROVIDER` 选择注入 `RedisCacheService` 或 `MemoryCacheService`（默认 memory，无 Redis 也可运行缓存调用链）。
+- E2 队列抽象：新增 `IQueue` / `SyncQueueRunner` / `BullQueueAdapter`，`ExportModule` 按 `QUEUE_PROVIDER` 在同步执行与 Bull 队列之间切换。
+- E2 队列基础设施：`AppModule` 与 `ExportModule` 对 Bull 注册改为可选（仅 `QUEUE_PROVIDER=bull` 启用），默认 `sync` 不依赖 Redis。
+- 目标：在不打断现有 PG 开发流的前提下，为 Electron 桌面版提供 SQLite 运行基座。
+
 ## 2. API 规范
 
 ### 2.1 URL 约定

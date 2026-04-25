@@ -4,7 +4,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WordExportService } from './word-export.service';
 import { PDFExportService } from './pdf-export.service';
 import { PDFComplianceService } from './pdf-compliance.service';
-import { getQueueToken } from '@nestjs/bull';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 describe('ExportService', () => {
@@ -68,7 +67,7 @@ describe('ExportService', () => {
         { provide: WordExportService, useValue: wordExport },
         { provide: PDFExportService, useValue: pdfExport },
         { provide: PDFComplianceService, useValue: pdfCompliance },
-        { provide: getQueueToken('export'), useValue: exportQueue },
+        { provide: 'EXPORT_QUEUE', useValue: exportQueue },
       ],
     }).compile();
 
