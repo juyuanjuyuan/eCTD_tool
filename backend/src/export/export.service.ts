@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bull';
-import type { Queue } from 'bull';
+import type { IQueue } from '../common/queue/queue.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { WordExportService } from './word-export.service';
 import { PDFExportService } from './pdf-export.service';
@@ -25,7 +24,7 @@ export class ExportService {
     private wordExport: WordExportService,
     private pdfExport: PDFExportService,
     private pdfCompliance: PDFComplianceService,
-    @InjectQueue('export') private exportQueue: Queue,
+    @Inject('EXPORT_QUEUE') private exportQueue: any,
     @Optional() @Inject(MinioService) private minioService?: MinioService,
   ) {}
 

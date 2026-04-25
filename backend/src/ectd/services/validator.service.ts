@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { parseJsonField } from '../../common/json-field.helper';
 import { Md5Service } from './md5.service';
 import { ValidationSeverity } from '@prisma/client';
 
@@ -1569,10 +1570,16 @@ export class ValidatorService {
     const productType = app.productTypeCode as string | undefined;
     const rules = candidateRules.filter((r) => {
       // sequenceTypeCodes 为空数组视为适用所有; 默认 ['cnsqt1']
-      const seqTypes = r.sequenceTypeCodes ?? [];
+      const seqTypes = parseJsonField<string[]>(
+        r.sequenceTypeCodes as string | string[] | null,
+        [],
+      );
       if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType)) return false;
       // productTypeCodes 为空数组视为适用所有
-      const productTypes = r.productTypeCodes ?? [];
+      const productTypes = parseJsonField<string[]>(
+        r.productTypeCodes as string | string[] | null,
+        [],
+      );
       if (productTypes.length > 0 && productType && !productTypes.includes(productType)) return false;
       return true;
     });

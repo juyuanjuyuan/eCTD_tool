@@ -14,6 +14,7 @@ import {
 } from './dto';
 import { LeafOperation, SequenceNodeStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { parseJsonField } from '../common/json-field.helper';
 
 /**
  * 3.2.R (Regional Information) extension node definitions.
@@ -643,7 +644,10 @@ export class CtdTemplateService {
     const sequence = await this.prisma.sequence.findUnique({ where: { id: sequenceId } });
     if (!sequence) throw new NotFoundException(`序列 ${sequenceId} 不存在`);
 
-    const keyFields = (template.instanceKeyFields as string[] | null) ?? [];
+    const keyFields = parseJsonField<string[]>(
+      template.instanceKeyFields as string | string[] | null,
+      [],
+    );
     const attrs = dto as Record<string, string | undefined>;
 
     // 校验必填 key 字段至少填写一个 (宽松策略: DTD 中部分为 IMPLIED)
@@ -853,9 +857,15 @@ export class CtdTemplateService {
       },
     });
     const rules = candidateRules.filter((r) => {
-      const seqTypes = r.sequenceTypeCodes ?? [];
+      const seqTypes = parseJsonField<string[]>(
+        r.sequenceTypeCodes as string | string[] | null,
+        [],
+      );
       if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType)) return false;
-      const productTypes = r.productTypeCodes ?? [];
+      const productTypes = parseJsonField<string[]>(
+        r.productTypeCodes as string | string[] | null,
+        [],
+      );
       if (productTypes.length > 0 && productTypeCode && !productTypes.includes(productTypeCode)) return false;
       return true;
     });
@@ -1007,9 +1017,15 @@ export class CtdTemplateService {
       },
     });
     const rules = candidateRules.filter((r) => {
-      const seqTypes = r.sequenceTypeCodes ?? [];
+      const seqTypes = parseJsonField<string[]>(
+        r.sequenceTypeCodes as string | string[] | null,
+        [],
+      );
       if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType)) return false;
-      const productTypes = r.productTypeCodes ?? [];
+      const productTypes = parseJsonField<string[]>(
+        r.productTypeCodes as string | string[] | null,
+        [],
+      );
       if (productTypes.length > 0 && productTypeCode && !productTypes.includes(productTypeCode)) return false;
       return true;
     });

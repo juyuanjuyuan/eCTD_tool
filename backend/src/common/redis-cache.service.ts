@@ -1,8 +1,9 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
+import { ICacheService } from './cache/cache.interface';
 
 @Injectable()
-export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
+export class RedisCacheService implements OnModuleInit, OnModuleDestroy, ICacheService {
   private readonly logger = new Logger(RedisCacheService.name);
   private client: Redis;
 
@@ -57,6 +58,21 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
     } catch {
       // Ignore cache delete failures
     }
+  }
+
+  async wrap<T>(
+    key: string,
+    factory: () => Promise<T>,
+    ttlSeconds = 3600,
+  ): Promise<T> {
+    const cached = await this.get<T>(key);
+    if (cached !== null) {
+      return cached;
+    }
+
+    const value = await factory();
+    await this.set(key, value, ttlSeconds);
+    return value;
   }
 
   async delPattern(pattern: string): Promise<void> {

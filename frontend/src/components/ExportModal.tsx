@@ -5,6 +5,7 @@ import {
   Button,
   Alert,
   Spin,
+  Progress,
   List,
   Tag,
   Typography,
@@ -27,6 +28,7 @@ interface ExportModalProps {
   onClose: () => void;
   sequenceId: string;
   node: SequenceNode;
+  batchNodeIds?: string[];
 }
 
 const ExportModal: React.FC<ExportModalProps> = ({
@@ -34,20 +36,50 @@ const ExportModal: React.FC<ExportModalProps> = ({
   onClose,
   sequenceId,
   node,
+  batchNodeIds = [],
 }) => {
   const [format, setFormat] = useState<'word' | 'pdf'>('pdf');
   const [exporting, setExporting] = useState(false);
+  const [taskProgress, setTaskProgress] = useState(0);
+  const [taskStatusText, setTaskStatusText] = useState('');
   const [complianceResult, setComplianceResult] = useState<ComplianceResult | null>(null);
   const [removedLinks, setRemovedLinks] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const isBatchMode = !node.isLeaf;
+  const totalBatchNodes = batchNodeIds.length;
 
   const handleExport = async () => {
     setExporting(true);
+    setTaskProgress(0);
+    setTaskStatusText('');
     setError(null);
     setComplianceResult(null);
     setRemovedLinks([]);
 
     try {
+      if (isBatchMode) {
+        if (totalBatchNodes === 0) {
+          throw new Error('当前节点下没有可导出的叶子章节');
+        }
+
+        const createTask =
+          format === 'word'
+            ? await exportApi.exportWordBatch(sequenceId, batchNodeIds)
+            : await exportApi.exportPdfBatch(sequenceId, batchNodeIds);
+
+        const taskId = createTask.taskId;
+        const finalStatus = await pollTaskUntilDone(taskId, totalBatchNodes);
+
+        if (finalStatus.status === 'failed') {
+          throw new Error(finalStatus.error || '批量导出失败');
+        }
+
+        const download = await exportApi.getDownloadUrl(sequenceId, taskId);
+        window.open(download.url, '_blank');
+        onClose();
+        return;
+      }
+
       if (format === 'word') {
         const blob = await exportApi.exportWord(sequenceId, node.id);
         downloadBlob(blob, `${node.ctdSectionNumber.replace(/\./g, '-')}_${node.title}.docx`);
@@ -69,6 +101,34 @@ const ExportModal: React.FC<ExportModalProps> = ({
     }
   };
 
+  const pollTaskUntilDone = async (
+    taskId: string,
+    total: number,
+  ): Promise<{ status: string; progress: number; error?: string }> => {
+    for (let i = 0; i < 600; i++) {
+      const status = await exportApi.getTaskStatus(sequenceId, taskId);
+      const progress = typeof status.progress === 'number' ? Math.max(0, Math.min(100, status.progress)) : 0;
+      setTaskProgress(progress);
+
+      const completed = Math.min(total, Math.floor((progress / 100) * total));
+      setTaskStatusText(`正在生成第 ${Math.max(1, completed)} / ${total} 个文件...`);
+
+      if (status.status === 'completed' || status.status === 'failed') {
+        setTaskProgress(status.status === 'completed' ? 100 : progress);
+        setTaskStatusText(
+          status.status === 'completed'
+            ? `已完成 ${total} / ${total} 个文件`
+            : `任务失败（已处理 ${completed} / ${total}）`,
+        );
+        return status;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+
+    return { status: 'failed', progress: taskProgress, error: '导出任务超时，请稍后重试' };
+  };
+
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -83,6 +143,8 @@ const ExportModal: React.FC<ExportModalProps> = ({
   const handleClose = () => {
     setComplianceResult(null);
     setRemovedLinks([]);
+    setTaskProgress(0);
+    setTaskStatusText('');
     setError(null);
     onClose();
   };
@@ -114,6 +176,11 @@ const ExportModal: React.FC<ExportModalProps> = ({
           <Descriptions.Item label="章节">
             {node.ctdSectionNumber} {node.title}
           </Descriptions.Item>
+          {!node.isLeaf && (
+            <Descriptions.Item label="导出范围">
+              当前节点下叶子章节：{totalBatchNodes} 个（批量压缩包）
+            </Descriptions.Item>
+          )}
           <Descriptions.Item label="状态">
             <Tag>{node.status}</Tag>
           </Descriptions.Item>
@@ -154,8 +221,16 @@ const ExportModal: React.FC<ExportModalProps> = ({
           <div style={{ textAlign: 'center', padding: 20 }}>
             <Spin size="large" />
             <div style={{ marginTop: 12, color: '#8c8c8c' }}>
-              正在生成{format === 'word' ? 'Word' : 'PDF'}文档...
+              {isBatchMode
+                ? `正在生成${format === 'word' ? 'Word' : 'PDF'}批量导出包...`
+                : `正在生成${format === 'word' ? 'Word' : 'PDF'}文档...`}
             </div>
+            {isBatchMode && (
+              <div style={{ marginTop: 12 }}>
+                <Progress percent={taskProgress} size="small" status="active" />
+                <Typography.Text type="secondary">{taskStatusText}</Typography.Text>
+              </div>
+            )}
           </div>
         )}
 

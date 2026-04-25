@@ -14,6 +14,7 @@ import {
   StfDocumentInput,
 } from '../ectd/services/study-tagging-file.service';
 import { CreateStudyDto, UpdateStudyDto } from './dto';
+import { parseJsonField } from '../common/json-field.helper';
 
 /**
  * Result of metadata validation. `valid` is true iff `errors` is empty.
@@ -405,9 +406,10 @@ export class StudyService {
       where: { ctdSectionNumber },
       select: { defaultStfCategories: true },
     });
-    const defaults = node?.defaultStfCategories as
-      | Array<{ name: string; required?: boolean }>
-      | null;
+    const defaults = parseJsonField<Array<{ name: string; required?: boolean }> | null>(
+      node?.defaultStfCategories as string | Array<{ name: string; required?: boolean }> | null,
+      null,
+    );
     if (Array.isArray(defaults)) {
       for (const def of defaults) {
         if (def.required && !categoryNames.has(def.name)) {
