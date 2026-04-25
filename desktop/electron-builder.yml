@@ -43,8 +43,8 @@ extraResources:
       - "**/*"
   - from: ../tools/keys/public.pem
     to: public.pem
-  - from: ./resources/icon.png
-    to: icon.png
+#  - from: ./resources/icon.png
+#    to: icon.png
 
 # Native modules need to be unpacked from asar so dlopen can resolve their
 # `.node` files. Anything required at runtime via dynamic require also needs to
@@ -60,7 +60,7 @@ mac:
         - arm64
         - x64
   category: public.app-category.business
-  icon: ./resources/icon.icns
+#  icon: ./resources/icon.icns
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: ./build/entitlements.mac.plist
@@ -72,7 +72,7 @@ mac:
 
 dmg:
   title: "${productName} ${version}"
-  icon: ./resources/icon.icns
+#  icon: ./resources/icon.icns
   contents:
     - x: 110
       y: 150
@@ -86,7 +86,7 @@ win:
     - target: nsis
       arch:
         - x64
-  icon: ./resources/icon.ico
+#  icon: ./resources/icon.ico
   publisherName: 巨源科技 (replace with legal entity)
   # signtoolOptions are picked up automatically when WIN_CSC_LINK is set
 
@@ -97,12 +97,12 @@ nsis:
   createDesktopShortcut: always
   createStartMenuShortcut: true
   shortcutName: eCTDTool
-  installerIcon: ./resources/icon.ico
-  uninstallerIcon: ./resources/icon.ico
+#  installerIcon: ./resources/icon.ico
+#  uninstallerIcon: ./resources/icon.ico
 
 # Linux is not a delivery target but supported for dev convenience.
 linux:
   target:
     - AppImage
   category: Office
-  icon: ./resources/icon.png
+#  icon: ./resources/icon.png

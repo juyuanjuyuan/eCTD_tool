@@ -43,6 +43,12 @@ node scripts/build-firstrun-db.js
 mv -f prisma/first-run.db dist-embed/first-run.db
 popd > /dev/null
 
+echo "==> [2.5/6] backend: install native modules for embed"
+pushd backend/dist-embed > /dev/null
+npm install --omit=dev
+cp -R ../node_modules/.prisma ./node_modules/
+popd > /dev/null
+
 echo "==> [3/6] frontend: vite production build"
 pushd frontend > /dev/null
 npm run build

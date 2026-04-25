@@ -1,6 +1,7 @@
 {
   "name": "ectd-desktop",
   "version": "1.0.0",
+  "author": "Juyuan",
   "description": "eCTD Tool — desktop / Electron shell (software_upgrade E5+)",
   "private": true,
   "main": "dist/main/index.js",

@@ -116,6 +116,7 @@ async function main() {
         private: true,
         main: 'backend.bundle.js',
         dependencies: NATIVE_EXTERNALS.reduce((acc, name) => {
+          if (name.includes('/dist/')) return acc;
           acc[name] = '*';
           return acc;
         }, {}),
