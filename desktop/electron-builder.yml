@@ -1,0 +1,108 @@
+# electron-builder configuration (software_upgrade / E8 stage)
+#
+# Run via npm scripts in desktop/package.json:
+#   npm run build:mac      # builds both arm64 + x64 dmg
+#   npm run build:mac:arm64
+#   npm run build:mac:x64
+#   npm run build:win
+#
+# Mac signing + notarization is automatic when these env vars are set
+# (see scripts/build-electron.sh):
+#   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+#
+# Windows signing reads `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD` (PFX file +
+# password) or accepts an EV USB token via signtool autoconfig.
+
+appId: com.juyuan.ectd-tool
+productName: eCTDTool
+copyright: Copyright © 2026 ${author}
+
+directories:
+  output: release
+  buildResources: build
+
+# Files included inside the .asar archive (Electron app code only)
+files:
+  - dist/**/*
+  - package.json
+  - "!node_modules/**/{test,__tests__,*.md,*.markdown,LICENSE,license,README,readme}/**"
+
+# Files copied to <app>/Contents/Resources/ (or %ProgramFiles%\<app>\resources\
+# on Windows). The backend bundle, generated Prisma client, and reference XMLs
+# all live here. Paths in `extraResources.from` are relative to the desktop/
+# directory (the `cwd` of the build).
+extraResources:
+  - from: ../backend/dist-embed
+    to: backend
+    filter:
+      - "**/*"
+      - "!**/*.map"   # source maps are huge; skip in customer builds
+  - from: ./resources/reference
+    to: reference
+    filter:
+      - "**/*"
+  - from: ../tools/keys/public.pem
+    to: public.pem
+  - from: ./resources/icon.png
+    to: icon.png
+
+# Native modules need to be unpacked from asar so dlopen can resolve their
+# `.node` files. Anything required at runtime via dynamic require also needs to
+# stay outside asar.
+asarUnpack:
+  - "node_modules/**/*.node"
+  - "node_modules/electron-log/**"
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  category: public.app-category.business
+  icon: ./resources/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: ./build/entitlements.mac.plist
+  entitlementsInherit: ./build/entitlements.mac.plist
+  notarize: false   # set to true (and configure APPLE_ID etc.) once Apple Developer cert is in place
+  extendInfo:
+    NSHighResolutionCapable: true
+    LSApplicationCategoryType: public.app-category.business
+
+dmg:
+  title: "${productName} ${version}"
+  icon: ./resources/icon.icns
+  contents:
+    - x: 110
+      y: 150
+    - x: 240
+      y: 150
+      type: link
+      path: /Applications
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: ./resources/icon.ico
+  publisherName: 巨源科技 (replace with legal entity)
+  # signtoolOptions are picked up automatically when WIN_CSC_LINK is set
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: eCTDTool
+  installerIcon: ./resources/icon.ico
+  uninstallerIcon: ./resources/icon.ico
+
+# Linux is not a delivery target but supported for dev convenience.
+linux:
+  target:
+    - AppImage
+  category: Office
+  icon: ./resources/icon.png

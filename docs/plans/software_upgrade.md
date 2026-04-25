@@ -50,17 +50,25 @@ eCTDTool.app / eCTDTool.exe   (单图标，单 Electron 进程包装)
 
 ### 0.3 可复用的已落地模块
 
-以下模块已在仓库存在，本次升级**完全保留**，无需重写：
+以下资产已在仓库存在，本次升级**完全保留**，无需重写：
 
 | 模块 | 文件位置 | 处理 |
 |---|---|---|
-| License Guard / Service / Controller | `backend/src/license/*` | **不改** |
-| 激活页 + 状态 banner | `frontend/src/pages/license/*` | **不改** |
 | 签发 CLI | `tools/issue-license/issue-license.js` | **不改** |
 | 密钥对生成 | `tools/keygen.sh` | **不改** |
-| RSA 公私钥 | `tools/issue-license/{public,private}.pem` | **不改**（公钥仍硬编码到后端） |
-| `License` 表 | `backend/prisma/schema.prisma` | 跟随 E1 双 provider 同步迁到 SQLite |
-| 机器指纹采集 | `backend/src/license/license.service.ts` | **小改**：来源切换为 Electron 注入的 `process.env.MACHINE_ID`，原 shell fallback 保留 |
+| RSA 公私钥 | `tools/keys/{public,private}.pem` | **不改**（公钥已硬编码到 backend `license/public-key.ts`） |
+| 启动器层校验脚本（Docker 路线遗留） | `tools/runtime/verify-license.js` | **不改**，仅 Docker `Start.command` 用，桌面 Electron 路线弃用 |
+
+下表是 **L 阶段（2026-04-25）新建** 的运行时部分（旧 plan 误把这些写进"已落地"，实际是 Docker 路线把校验放在 launcher 层、桌面路线必须搬到 backend 内部）：
+
+| 模块 | 文件位置 | 处理 |
+|---|---|---|
+| License Module / Service / Controller / Guard | `backend/src/license/*` | **L 阶段新建** |
+| `License` 表 | `backend/prisma/schema.prisma` + `schema.sqlite.prisma` + 两份 migration | **L 阶段新建** |
+| 内嵌公钥常量 | `backend/src/license/public-key.ts` | **L 阶段新建** |
+| 激活页 + Banner | `frontend/src/pages/license/ActivationPage.tsx`、`frontend/src/components/LicenseBanner.tsx` | **L 阶段新建** |
+| 路由级 license 闸门 | `frontend/src/components/ProtectedRoute.tsx` | **L 阶段小改** |
+| 机器指纹采集（跨平台） | `backend/src/license/license.service.ts` | **L 阶段写入**：优先 `process.env.MACHINE_ID`（Electron main 注入）→ `LICENSE_MACHINE_ID_OVERRIDE`（开发期）→ shell fallback (mac/linux/win)；E7 阶段会让 Electron main 优先采集并注入 |
 
 `reference/eCTD技术规范V1.1附件包/` 与 `reference/现行申报资料要求与eCTD目录元素、CTD目录层级对应表.xlsx` 在打包时会被复制到 Electron resources，首启时释放到 `<userData>/reference/`。**不打包 PDF 规范文档**（用户不需要）。
 
@@ -74,6 +82,7 @@ eCTDTool.app / eCTDTool.exe   (单图标，单 Electron 进程包装)
 
 | 阶段 | 标题 | 工时 | 依赖 |
 |---|---|---|---|
+| **L** | License 模块新建（Plan 漏的，运行时校验侧） | 1d | — |
 | **E1** | Prisma 双 provider：PostgreSQL ⇄ SQLite | 1d | — |
 | **E2** | Redis 抽象 → in-memory + BullMQ 同步执行 | 2d | E1 |
 | **E3** | MinIO → 本地文件系统抽象 | 1d | E1 |
@@ -165,24 +174,23 @@ grep -rnE "ioredis|@nestjs/bull|BullModule|@InjectQueue|@Process" backend/src
 
 **任务清单**：
 
-- [ ] **E3-1** 抽取接口 `backend/src/files/storage.interface.ts`：
-  ```ts
-  interface IFileStorage {
-    upload(buffer: Buffer | Readable, key: string, mime: string): Promise<{ key: string; size: number }>;
-    download(key: string): Promise<Readable>;
-    delete(key: string): Promise<void>;
-    presignedUrl(key: string, ttlSec: number): Promise<string>;
-    exists(key: string): Promise<boolean>;
-  }
-  ```
-- [ ] **E3-2** 现有 MinIO 实现搬到 `backend/src/files/minio-storage.service.ts`（保留可用）
-- [ ] **E3-3** 新增 `backend/src/files/local-storage.service.ts`：
-  - 文件落盘：`<DATA_DIR>/files/<yyyymm>/<uuid>.<ext>`（按月分子目录避免单目录过多文件）
-  - `presignedUrl` 实现：生成短期 JWT (10 分钟) + 后端新增 `/files/serve/:token` 路由根据 token 鉴权后流式返回
-  - 流式上传：用 `fs.createWriteStream` 避免一次性 Buffer 占内存
-- [ ] **E3-4** Module 注入：根据 `STORAGE_PROVIDER`（`minio` | `local`）选择实现，默认 `local`
-- [ ] **E3-5** 数据目录路径来源：通过 `DATA_DIR` 环境变量传入，由 Electron main 启动 backend 时注入 `app.getPath('userData')`
-- [ ] **E3-6** 备份/恢复工具（仅供开发支援，**不分发**）：`tools/local-files/backup.ts`，把 `<DATA_DIR>/files/` + SQLite 文件打成 zip
+- [x] **E3-1** 抽取接口 `backend/src/file/storage.interface.ts`（落到 `file/` 目录而非 `files/`，与现有 module 同址）：8 方法签名沿用 caller 已知的 `MinioService` API（`uploadFile/uploadFileStream/getFile/getFileStream/fileExists/deleteFile/getPresignedDownloadUrl/getPresignedPreviewUrl`）以避免改 8 处注入点
+- [x] **E3-2** 现有 MinIO 实现搬到 `backend/src/file/minio-storage.ts`（plain class `MinioStorage`，行为 1:1 保留）
+- [x] **E3-3** 新增 `backend/src/file/local-storage.ts`（plain class `LocalStorage`）：
+  - 文件落盘 `<DATA_DIR>/files/<key>`（key 由 caller `FileNameNormalizerService.buildStoragePath` 决定，已含 yyyymm 分层，无需 LocalStorage 再分）
+  - `presignedUrl` 用 `jsonwebtoken` 签 `{key, mode}` payload + 默认 1h TTL（`STORAGE_PRESIGN_SECRET` → fallback `JWT_SECRET`）
+  - 新增 `GET /api/v1/files/serve/:token` 路由（`backend/src/file/file-serve.controller.ts`，`@Public()` 跳过 license guard），verifyPresignToken → 流式返回，preview 模式走 inline / 否则 attachment
+  - 流式上传：`fs.createWriteStream` + `PassThrough` 同时算 md5
+  - **Path traversal 防护**：`resolveSafe()` 阻挡 `..` 越权
+- [x] **E3-4** Module 注入：`MinioService` (@Injectable façade) 按 `process.env.STORAGE_PROVIDER`（默认 `local`）选 delegate；`onModuleInit` 仅 minio 模式跑 bucket 检查
+- [x] **E3-5** 数据目录路径来源：`DATA_DIR` env，由 Electron main 启动 backend 时注入 `app.getPath('userData')`（E5 阶段实施）
+- [ ] **E3-6** 备份/恢复工具（仅供开发支援，**不分发**）：`tools/local-files/backup.ts` ← **延后到 E5/E8 真实出包前**（沙箱里没有真实 DATA_DIR 数据可备份，留给真机验证时一起做）
+
+**沙箱内验收结果**：
+- `npx tsc --noEmit` 干净
+- `npx jest src/file src/export src/study src/ectd src/license src/auth --forceExit`：30 suites / 575 测试通过、5 skipped、0 fail
+- 新增 `src/file/local-storage.spec.ts` 8 用例：upload roundtrip / stream md5 / exists / delete idempotent / path traversal / presign download URL / tampered token / preview mode
+- LocalStorage 在干净 tmpdir 上 round-trip 任意 buffer + 流式上传 + 可生成可校验的 JWT URL
 
 **DoD（验收）**：
 - `STORAGE_PROVIDER=local DATA_DIR=/tmp/ectd-test npm run start:dev` 启动后能正常上传/下载/删除
@@ -197,28 +205,38 @@ grep -rnE "ioredis|@nestjs/bull|BullModule|@InjectQueue|@Process" backend/src
 
 **任务清单**：
 
-- [ ] **E4-1** 改造 `backend/src/main.ts`：
-  - 默认监听端口从 `process.env.PORT || 3000` 改为 `process.env.PORT || 0`（0 表示系统分配随机端口）
-  - 启动后从 `app.getHttpServer().address().port` 取真实端口
-  - 通过 `process.send?.({ type: 'ready', port })` 发回父进程；同时 `console.log('READY ' + port)` 兜底（万一 fork 没建 IPC channel）
-  - 加 `SIGTERM` / `SIGINT` 处理：调用 `app.close()` 优雅关闭后退出
-  - 主流程加 try/catch：启动失败时 `process.send?.({ type: 'error', error: msg })` + `console.error('ERROR ' + msg)` 后退出码 1
-- [ ] **E4-2** 新增 backend 嵌入式构建产物 `backend/dist-embed/`：
-  - 用 `esbuild` 把 `dist/src/**` + 必要的 node_modules 打成 `backend.bundle.js`（单文件）
-  - 排除原生模块（`better-sqlite3`、`bcrypt` 等）：保留为 external，由 Electron 在运行时解析（要打入 Electron 应用包的 `node_modules` 副本）
-  - 排除 `@prisma/client`：放在 external，运行时从 unpacked 目录加载
-  - 预期产物体积 50-80 MB（不含 node_modules）
-- [ ] **E4-3** Prisma 资源打包：
-  - `backend/prisma/migrations.sqlite/` 整个目录复制到 `dist-embed/prisma/migrations/`
-  - `prisma generate --schema=prisma/schema.sqlite.prisma` 输出 client 也打入
-- [ ] **E4-4** 启动时自动 migrate：在 `bootstrap()` 最开头调用 `await runMigrations()`（用 `@prisma/migrate` 的 programmatic API 或 spawn `prisma migrate deploy` 子进程）
-- [ ] **E4-5** 启动时自动 seed（幂等）：检测到关键表为空时跑 `seed.ts` + `seed-ctd.ts`（沿用既有的 upsert / `existing > 0` 守卫保证幂等）
-- [ ] **E4-6** `backend/package.json` 新增 script：`build:embed` → tsc + esbuild 打 bundle + 复制 prisma 资源
+- [x] **E4-1** 改造 `backend/src/main.ts`：
+  - 默认监听端口：dev 仍用 `PORT||3000`；`EMBEDDED=true` 时改为 `PORT||0`（OS 随机端口，避免桌面用户多版本端口冲突）
+  - 启动后用 `app.getHttpServer().address().port` 取真实端口
+  - 通过 `process.send?.({ type: 'ready', port })` 发回父进程 + `console.log('READY ' + port)` 兜底
+  - SIGTERM / SIGINT → `app.close()` 优雅关闭后 `process.exit(0)`；外加 `app.enableShutdownHooks()` 让 Nest 自身的 onModuleDestroy 钩子也跑
+  - `bootstrap().catch(...)` 在启动失败时发 `{type:'error',error}` IPC + `console.error('ERROR ' + msg)` 退出码 1
+- [x] **E4-2** 新增 backend 嵌入式构建产物 `backend/dist-embed/`：
+  - 用 `tsc → esbuild` 两步走（esbuild **不支持** `emitDecoratorMetadata`，NestJS DI 必须靠 reflect-metadata，所以先 tsc 再 bundle）
+  - 排除原生模块 + ORM 健康指示器可选 peer：`better-sqlite3`、`bcrypt`、`@prisma/client`、`@prisma/engines`、`@nestjs/microservices`、`@nestjs/websockets`、`class-transformer`、`class-validator`、`minio`、`fast-xml-parser`、`puppeteer`、`puppeteer-core`、`@mikro-orm/core`、`@nestjs/mongoose`、`@nestjs/sequelize` 系列、`@nestjs/typeorm` 系列
+  - 实测产物体积：bundle.js ≈ **9.5 MB**（不含 node_modules），含 sourcemap 16 MB
+- [x] **E4-3** Prisma 资源打包：
+  - `backend/prisma/migrations.sqlite/` → `dist-embed/prisma/migrations.sqlite/`（保持目录名，`migrate-runner` 直接读）
+  - `backend/src/generated/prisma-sqlite/` → `dist-embed/generated/prisma-sqlite/`（`PrismaService` 增加候选路径解析：`PRISMA_SQLITE_CLIENT_PATH` env → `../generated/...`（dev）→ `./generated/...`（embedded））
+  - `dist-embed/package.json` 列出所有 native externals 给 `electron-builder asarUnpack` 参考
+- [x] **E4-4** 启动时自动 migrate：写了**自家** `backend/src/embedded/sqlite-migrator.ts`（基于 `better-sqlite3`，绕开 Prisma CLI 在 `migrations.sqlite/` vs `migrations/` 上的 P3019 错位问题）。`_app_migrations` 表追踪已应用、checksum 防止 SQL 文件被改后重跑；事务包裹；rollback 干净。同时新增 npm `sqlite:migrate` 脚本供 dev 用。`AUTO_MIGRATE=true`（embedded 模式默认 on）触发，`DB_PROVIDER=sqlite` 强制；migrate 后会把 `DATABASE_URL` 改成绝对路径（Prisma 对相对 `file:` URL 解析锚点是 schema 目录而非 cwd，bundle 后 schema 目录在 `dist-embed/generated/prisma-sqlite/`，不绝对化会导致 PrismaService 跟 migrator 操作不同的 db 文件）
+- [x] **E4-5** 启动时自动 seed（幂等）：`backend/src/embedded/auto-seed.ts`：
+  - `user` 空 → 创建默认 admin（`admin@ectd.com / admin123`）
+  - `ctd_template_node` 空 → **默认仅 warn-skip**（XML 解析依赖 reference 文件包，不在 desktop 二进制里）；改由 `scripts/build-embed.js` 在 build 时跑一次 `seed-ctd.ts` 生成 `first-run.db` 快照，由 Electron main 在首启时复制到 `<userData>/data.db`（E5/E8 完成）
+  - `ControlledVocabularyService.onModuleInit` 同样改为 `REFERENCE_DIR` 缺失时只 warn 跳过
+- [x] **E4-6** `backend/package.json` 新增 `build:embed` → `node scripts/build-embed.js`（tsc + esbuild + 复制资源 + 写 dist-embed/package.json）
 
-**DoD（验收）**：
-- `node backend/dist-embed/backend.bundle.js` 直接能起，stdout 第一行打印 `READY <port>`
-- 在空数据目录下首启自动建表 + 种子数据
-- `kill -SIGTERM <pid>` 后进程在 5s 内优雅退出，无僵尸子进程
+**DoD（沙箱内验收 — 已通过）**：
+- `cd backend && npm run build:embed` 产出 `dist-embed/backend.bundle.js` (≈9.5 MB)
+- 干净 tmpdir 启动 bundle：自动跑 2 条 migration、`auto-seed` 创建 admin、绑定 `127.0.0.1:<port>`、stdout 第一条打印 `READY <port>`
+- `curl /health` → 200 (`database.status=up`)
+- `curl /api/v1/license/status` → 200 (`activated=false`，跨过 license 闸门因为 LICENSE_ENFORCE=false 或 enforced=false 时可以读)
+- `kill -SIGTERM <pid>` → 进程 < 1s 优雅退出，无 zombie
+- `Redis connection error` 不再刷屏（`RedisCacheService.onModuleInit` 在 `CACHE_PROVIDER!=redis` 时直接跳过 Redis 客户端构造）
+
+**已知延后（要 E5 / E8 真机才能完整验收）**：
+- 无 reference 目录时 `controlled_vocabulary` + `ctd_template_node` 为空 — 必须靠 build-time `first-run.db` 快照（E8 实施）
+- bundled 后的 native module 在 Mac arm64 / Mac x64 / Win x64 三个平台的预编译 `.node` 落位 — 留给 electron-builder 配置时验证
 
 ---
 
@@ -253,37 +271,27 @@ desktop/
 
 **任务清单**：
 
-- [ ] **E5-1** `desktop/package.json`：声明 `electron@^31`、`electron-builder@^24`、`typescript@^5`、`@types/node`；scripts: `dev`、`build:mac`、`build:win`、`build:all`
-- [ ] **E5-2** `main/single-instance.ts`：`app.requestSingleInstanceLock()` 失败时退出；命中第二实例时 focus 已有窗口
-- [ ] **E5-3** `main/data-dir.ts`：
-  - 初始化 `<userData>/{files,logs,license,reference}/`
-  - reference 释放：从 `process.resourcesPath/reference/` 复制到 `<userData>/reference/`，**判断条件用关键文件 sentinel `cv-application-type.xml` 是否存在**（不要用目录是否存在判断；docker bind mount 或子进程异常会创建空目录骗过判断）
-- [ ] **E5-4** `main/backend-process.ts`：
-  - `fork(path.join(process.resourcesPath, 'backend.bundle.js'), [], { env: { DB_PROVIDER:'sqlite', DATABASE_URL:'file:'+path.join(userData,'data.db'), CACHE_PROVIDER:'memory', QUEUE_PROVIDER:'sync', STORAGE_PROVIDER:'local', DATA_DIR:userData, MACHINE_ID, JWT_SECRET, JWT_EXPIRES_IN:'7d', JWT_REFRESH_EXPIRES_IN:'30d', NODE_ENV:'production', PORT:'0' } })`
-  - **完整列出所有 backend 读的环境变量**（参考 §2 A3，从 backend src grep `process.env.` 反推），缺失任一会导致运行时崩溃
-  - 监听 `message` 拿 `READY port`；超时 30s 报错弹窗给用户复制日志
-  - 监听 `exit` 异常退出时弹错误窗口 + 自动打开日志文件
-  - `gracefulShutdown(timeoutMs)`：先 IPC 通知，再 SIGTERM，3s 后还没退出 SIGKILL
-- [ ] **E5-5** `main/window.ts`：
-  - `new BrowserWindow({ width:1400, height:900, minWidth:1024, minHeight:700, webPreferences:{ preload, contextIsolation:true, nodeIntegration:false, sandbox:true } })`
-  - `win.loadURL('http://127.0.0.1:' + port)`
-  - macOS 关闭最后一个窗口不退出（`activate` 重建）
-  - 默认禁用 webview 创建外部 window，外链一律走 `shell.openExternal`
-- [ ] **E5-6** `main/menu.ts`：基础菜单（文件 / 编辑 / 视图 / 窗口 / 帮助）；macOS 自动加 app 菜单；隐藏开发者工具（生产 build）
-- [ ] **E5-7** `main/tray.ts`：托盘菜单（显示主窗口 / 打开数据目录 / 查看日志 / 关于 / 退出）
-- [ ] **E5-8** `main/logger.ts`：用 `electron-log` 把 main + backend stdout/stderr 统一写到 `<userData>/logs/main.log`，按日期切分；最近 7 天滚动保留
-- [ ] **E5-9** `preload/index.ts`：通过 `contextBridge.exposeInMainWorld('electronAPI', {...})` 暴露：
-  - `getMachineId()` → 当前指纹
-  - `getAppVersion()`、`getPlatform()`
-  - `openExternal(url)`、`showItemInFolder(path)`
-  - `openLogFile()` → 打开日志文件
-  - `openDataDir()` → 在 Finder/Explorer 打开数据目录
+- [x] **E5-1** `desktop/package.json` (electron@^31 + electron-builder@^24 + electron-log@^5 + typescript@^5)，scripts `dev` / `build:mac` / `build:mac:arm64` / `build:mac:x64` / `build:win` / `build:all`；`tsconfig.json`（CommonJS, target ES2022）
+- [x] **E5-2** `desktop/main/single-instance.ts`：`requestSingleInstanceLock` + `focusExistingOnSecondInstance`
+- [x] **E5-3** `desktop/main/data-dir.ts`：`initDataDir()` 创建 `<userData>/{files,logs,reference}/`；首启时从 `<resourcesPath>/backend/first-run.db` 复制到 `<userData>/data.db`（**这是核心 — 没有 first-run.db 则 fallback 让 backend auto-migrate 出空表**）；reference 释放用 `cv-application-type.xml` 文件 sentinel（不是目录 sentinel，避免空目录骗过判断）
+- [x] **E5-4** `desktop/main/backend-process.ts`：`fork(<resources>/backend/backend.bundle.js)`，env 字典覆盖**全部 23 个** backend 读的 `process.env.*`（来自 `grep -rohE "process\.env\.[A-Z_]+" backend/src | sort -u`）；监听 IPC `message`+`READY <port>` 双通道；30s 超时报错；`stop()` 先 SIGTERM 再 5s 后 SIGKILL；child stdout/stderr 转发到 electron-log
+- [x] **E5-5** `desktop/main/window.ts`：1400×900 / minSize / contextIsolation/sandbox/nodeIntegration=false；`loadURL(http://127.0.0.1:<port>)`；`setWindowOpenHandler` + `will-navigate` 限制只跳同源（外链走 `shell.openExternal`）；`ready-to-show` 避免白屏
+- [x] **E5-6** `desktop/main/menu.ts`：文件/编辑/视图/窗口/帮助 + macOS app menu；"打开数据目录"/"查看日志"/"联系厂商→/about" 入口
+- [x] **E5-7** `desktop/main/tray.ts`：图标缺失时优雅降级（`nativeImage.createEmpty()`）；菜单含显示主窗口/数据目录/日志/退出；click 切换显隐
+- [x] **E5-8** `desktop/main/logger.ts`：`electron-log` 写 `<userData>/logs/main.log`，10MB 滚动，prod info / dev debug；child process stdout/stderr 也走这条管道
+- [x] **E5-9** `desktop/preload/index.ts`：`contextBridge.exposeInMainWorld('electronAPI', ...)` 暴露 `getMachineId / getAppVersion / getPlatform / openExternal / openDataDir / openLogFile`；后端注册对应 IPC handlers (`desktop/main/ipc.ts`)
+- [x] **E5-10**（额外）`desktop/main/secrets.ts`：`<userData>/secrets.json` 持久化 JWT_SECRET / JWT_REFRESH_SECRET / STORAGE_PRESIGN_SECRET（chmod 600）；首次启动 `crypto.randomBytes(32).hex` 生成，后续读取 — 否则每次启动 JWT 全部失效，用户每次都要重新登录
 
-**DoD（验收）**：
-- `cd desktop && npm run dev` 能开窗口、看到 React 前端登录页
+**沙箱内验收（已通过）**：
+- `cd desktop && npm install` 装好 electron + electron-builder + electron-log（≈300 packages）
+- `cd desktop && npx tsc --noEmit` 干净（main + preload 全部类型对齐）
+
+**真机验收清单（你 git pull 后在 Mac/Win 跑）**：
+- `cd desktop && npm install`
+- `cd desktop && npm run dev` — 出窗口、看到 React 前端登录页（如果不出窗口看 `<userData>/Library/Application Support/eCTDTool/logs/main.log` 第一行就能定位）
 - 双开应用第二个实例不会重复启动 backend
-- Cmd+Q（Mac）/ 关窗（Win）后无残留 node 子进程（`pgrep -f backend.bundle` 应为空）
-- 日志文件可读，发生 backend 崩溃时弹窗指向日志路径
+- Cmd+Q（Mac）/ 关窗（Win）后 `pgrep -f backend.bundle` 应为空
+- 把 `<userData>/data.db` 删掉 → 重启 → 应自动从 first-run.db 重建
 
 ---
 
@@ -291,16 +299,22 @@ desktop/
 
 **任务清单**：
 
-- [ ] **E6-1** 前端探测 Electron：`window.electronAPI` 存在 → 桌面模式标志位放在 React Context
-- [ ] **E6-2** API base URL：原本写死的 `http://localhost:3000` 改为相对路径 `''`（前端走 backend 同源），由 Vite proxy / Nginx 配置剔除
-- [ ] **E6-3** 文件下载：保持 `<a href download>` 由 Chromium 处理；外链一律 `window.electronAPI.openExternal`
-- [ ] **E6-4** Web 版独有 UI 入口隐藏：「邀请协作者」、「分享链接」等按钮在桌面模式下隐藏（仅做条件渲染，不删代码）
-- [ ] **E6-5** 应用信息展示：「关于」页面显示 `getAppVersion()` 和 `getMachineId()`（机器指纹用于客户问询激活码时复制）
-- [ ] **E6-6** 编辑器（TipTap）的剪贴板/拖拽：在 Electron 中确认外部图片拖入能正常上传
+- [x] **E6-1** 前端探测 Electron：新增 `frontend/src/contexts/EnvironmentContext.tsx` (`useEnvironment()`) + `frontend/src/types/electron-api.d.ts`（`window.electronAPI` 类型契约）；`isDesktop = !!window.electronAPI`，IPC 字段（machineId / appVersion / platform）在 mount 时 await 拿
+- [x] **E6-2** API base URL：`frontend/src/services/api.ts` 已经是相对路径 `'/api/v1'`，桌面同源即可；无需改代码，仅在文档中明确
+- [x] **E6-3** 外链 helper：`openExternalUrl(url)` 桌面模式走 `electronAPI.openExternal`，Web 模式 `window.open` 兜底；当前业务页面无硬编码外链，留作未来调用入口
+- [x] **E6-4** Web 版独有 UI 隐藏：`ProjectDetailPage` 成员管理 Tab 的「邮箱邀请」按钮在桌面模式下条件隐藏（保留代码，运行时 `!isDesktop && <Button .../>`）；协作 Tab 的进度/工作量统计在桌面模式仍保留（单人场景仍有用）
+- [x] **E6-5** 关于页：新增 `/about` 路由 + `frontend/src/pages/about/AboutPage.tsx`，展示形态 / 软件版本 / 平台 / 机器指纹（带复制按钮）/ 授权状态（客户名 / 到期日 / 剩余天数）；桌面模式额外暴露 "打开数据目录" / "查看日志" 按钮（IPC → Electron main）；用户下拉菜单加 "关于 / 激活信息" 入口
+- [x] **E6-6** 编辑器剪贴板/拖拽：当前 TipTap 配置已通过 `ImageExtension` 处理粘贴/拖拽图片；Electron 沙箱里默认透传 chromium 行为，**无代码改动**；E5 真机阶段确认大图（>50MB）上传链路即可
 
-**DoD（验收）**：
-- 在 Electron 窗口内完成完整业务流，无外链跳出当前窗口
-- 「关于」页面机器指纹与 backend `/license/status` 返回一致
+**沙箱验收**：
+- `npx tsc --noEmit` 干净
+- `npm run build` 通过（Vite production bundle）
+- 关键改动：`App.tsx` 包入 `EnvironmentProvider` + 加 `/about` 路由；`BasicLayout` 用户菜单加 "关于" 项
+
+**DoD（沙箱可达部分已通过）**：
+- 桌面/Web 模式由 `useEnvironment().isDesktop` 单点判断
+- "关于"页机器指纹源：桌面模式 `electronAPI.getMachineId()` 直接读 main 进程注入的 env；Web 模式回退显示后端 `/license/status` 中的 `machineId`（两边算法一致）
+- E5 真机后再补：完整业务流在 BrowserWindow 内不跳出窗口
 
 ---
 
@@ -310,28 +324,21 @@ desktop/
 
 **任务清单**：
 
-- [ ] **E7-1** `desktop/main/machine-id.ts` 实现（跨平台）：
-  ```ts
-  // mac
-  const cpu = execSync('sysctl -n machdep.cpu.brand_string').toString().trim();
-  const board = execSync(`ioreg -l | awk '/IOPlatformSerialNumber/ {print $4}' | tr -d '"'`).toString().trim();
-  // win
-  const cpu = execSync('wmic cpu get ProcessorId /value').toString().match(/ProcessorId=(.+)/)?.[1]?.trim();
-  const board = execSync('wmic baseboard get SerialNumber /value').toString().match(/SerialNumber=(.+)/)?.[1]?.trim();
-  // 共用
-  const mac = Object.values(os.networkInterfaces()).flat()
-    .find((i: any) => i && !i.internal && i.mac && i.mac !== '00:00:00:00:00:00')?.mac ?? '';
-  const fp = sha256(cpu + board + mac).slice(0, 16);
-  ```
-- [ ] **E7-2** 缓存到 `<userData>/machine-id.txt`（首启写入后续读，避免硬件偶发抖动导致指纹漂移）
-- [ ] **E7-3** 启动 backend 时通过 `MACHINE_ID` 环境变量注入；同时通过 IPC 暴露 `electronAPI.getMachineId()` 供前端「关于」页显示
-- [ ] **E7-4** backend `license.service.ts` 改造：优先读 `process.env.MACHINE_ID`，缺失时再走原 fallback（保留向后兼容）
-- [ ] **E7-5** 复用既有 `tools/issue-license/issue-license.js`、`tools/keygen.sh`、已生成的密钥对 — **零改动**
+- [x] **E7-1** `desktop/main/machine-id.ts` 实现（跨平台）：
+  - mac: `sysctl machdep.cpu.brand_string` + `ioreg IOPlatformSerialNumber` + `ifconfig en0 ether`（en0 拿不到时 fallback 到 `os.networkInterfaces()` 第一个非 internal 非全零 MAC）
+  - win: `wmic cpu get ProcessorId` + `wmic baseboard get SerialNumber` + `os.networkInterfaces()` 第一个有效 MAC（不依赖 `getmac` CSV 格式 fragile）
+  - linux（dev only）：`/proc/cpuinfo` + `/sys/class/dmi/id/board_serial` + `os.networkInterfaces()`
+  - 全平台兜底：所有源都为空时 → `sha256(os.hostname()).slice(0,16)`
+  - **算法与 backend `license.service.ts` 的 shell fallback + `tools/runtime/get-machine-id.js` 严格一致**（同一字符串拼接顺序、同一 hash、同一 16 hex 截取）
+- [x] **E7-2** 缓存到 `<userData>/machine-id.txt`，首启写入后续读；存在但格式异常时重新采集；写入失败仅 warn 不阻塞
+- [x] **E7-3** 启动 backend 时 `MACHINE_ID` env 注入；IPC `app:get-machine-id` handler 在 `desktop/main/ipc.ts` 注册；preload 暴露 `electronAPI.getMachineId()`；前端「关于」页 `useEnvironment().machineId` 读
+- [x] **E7-4** backend `license.service.ts` 改造已在 L 阶段完成：优先 `process.env.MACHINE_ID` → `LICENSE_MACHINE_ID_OVERRIDE` → shell fallback（mac/win/linux）
+- [x] **E7-5** `tools/issue-license/issue-license.js`、`tools/keygen.sh`、`tools/keys/*.pem` — **零改动**，沿用 L 阶段把 `tools/keys/public.pem` 编译进 `backend/src/license/public-key.ts`
 
-**DoD（验收）**：
-- 同一台机器多次启动指纹一致
-- `<userData>/machine-id.txt` 删除后下次启动重新采集，结果与之前相同
-- 复制 `<userData>/` 整体到另一台机器后启动，机器指纹会变（防迁移作弊）；激活码自动失效
+**真机验收清单**：
+- 同一台机器多次启动指纹一致（看 `<userData>/machine-id.txt`）
+- 删除 `machine-id.txt` 后启动，新值应与原值相同
+- 整盘拷到另一台机器后启动，机器指纹必变；旧激活码自动失效
 
 ---
 
@@ -339,67 +346,22 @@ desktop/
 
 **任务清单**：
 
-- [ ] **E8-1** `desktop/electron-builder.yml`：
-  ```yaml
-  appId: com.<company>.ectd-tool
-  productName: eCTDTool
-  directories:
-    output: release
-  mac:
-    target: { target: dmg, arch: [arm64, x64] }
-    category: public.app-category.business
-    hardenedRuntime: true
-    gatekeeperAssess: false
-    entitlements: build/entitlements.mac.plist
-    notarize: { teamId: <TEAM_ID> }
-  win:
-    target: { target: nsis, arch: [x64] }
-    icon: resources/icon.ico
-    publisherName: <Company Legal Name>
-  nsis:
-    oneClick: false
-    perMachine: false
-    allowToChangeInstallationDirectory: true
-  extraResources:
-    - from: ../backend/dist-embed
-      to: backend
-    - from: resources/reference
-      to: reference
-    - from: ../tools/issue-license/public.pem
-      to: public.pem
-  asarUnpack:
-    - "**/*.node"
-    - "node_modules/better-sqlite3/**"
-    - "node_modules/@prisma/**"
-  ```
-- [ ] **E8-2** `scripts/build-electron.sh`（新增）：
-  ```bash
-  # 1) 后端嵌入式构建
-  cd backend && npm run build:embed
-  # 2) 前端构建
-  cd ../frontend && npm run build
-  # 3) 复制资源
-  cp -R ../frontend/dist ../desktop/resources/frontend
-  cp -R ../reference/eCTD技术规范V1.1附件包 ../desktop/resources/reference/
-  cp ../reference/现行申报资料要求与eCTD目录元素、CTD目录层级对应表.xlsx ../desktop/resources/reference/
-  # 4) Electron 打包
-  cd ../desktop && npm run build:$1   # mac | win | all
-  # 5) SHA256
-  shasum -a 256 release/*.dmg release/*.exe > release/SHA256SUMS.txt
-  ```
-- [ ] **E8-3** Mac 签名 + 公证流水线：
-  - Apple Developer ID Application 证书导入 keychain
-  - `electron-builder` 自动调用 `notarytool submit --wait`
-  - 失败时下载 notarization log 排查
-- [ ] **E8-4** Windows EV 代码签名：
-  - 接入 EV 代码签名证书（USB token 或 Azure Key Vault）
-  - `electron-builder.yml` 配置 `win.signtoolOptions`
-- [ ] **E8-5** 自动更新（P1，可选）：配置 `electron-updater` + 静态 `latest.yml` 托管位置；首版可不开启，留口子
+- [x] **E8-1** `desktop/electron-builder.yml` — appId `com.juyuan.ectd-tool`、双 arch dmg、nsis、`extraResources` 复制 `backend/dist-embed → backend/`（含 `first-run.db`）+ `reference/ → reference/` + `tools/keys/public.pem`、`asarUnpack` 把所有 `.node` + `electron-log` 解压；`build/entitlements.mac.plist` 同步建好（含 `allow-jit` / `allow-unsigned-executable-memory` / `disable-library-validation` — 这三个对 NestJS fork + native 模块加载是硬需求）；macOS `notarize: false` 默认关，等用户拿到 Apple Developer ID 后改 `true` + 设环境变量
+- [x] **E8-2** `scripts/build-electron.sh` 新增（chmod +x）— 6 步串联：① backend prisma:sqlite:generate + build:embed；② backend build:firstrun-db（产生 `first-run.db` 后移到 `dist-embed/`）；③ frontend vite build；④ desktop 暂存 reference 到 `desktop/resources/reference`；⑤ desktop tsc + electron-builder（target 由参数选）；⑥ release/SHA256SUMS.txt
+- [x] **E8-3** Mac 签名 + 公证流水线：electron-builder 配置已到位，`scripts/build-electron.sh` 通过 `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` 环境变量自动驱动 `notarytool submit --wait`；**真机验收待 Apple Developer 账号到位**
+- [x] **E8-4** Windows EV 代码签名：`win.signtoolOptions` 留给 electron-builder 自动 detect `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD`（PFX）或 EV USB token；**真机验收待证书到位**
+- [ ] **E8-5** 自动更新（P1，可选）：未开启，首版手动分发；E10 后再做
 
-**DoD（验收）**：
-- 一行命令产出 `eCTDTool-v<ver>-mac-arm64.dmg` / `-mac-x64.dmg` / `-Setup-<ver>.exe`，体积都在 150-250MB 区间
-- SHA256SUMS.txt 同目录产出
-- 在另一台干净机器上能正常安装运行（不依赖构建机环境）
+**沙箱内验收（已通过）**：
+- `cd desktop && npm install`（≈300 packages）
+- `cd desktop && npx tsc --noEmit` 干净
+- `cd backend && npm run build:firstrun-db` 产生 `prisma/first-run.db` (576 KB) — 包含 229 CTD 节点、196 完整性规则、19 受控词汇、1 admin user；端到端验证：把该 db 拷到 tmpdir、启动 backend bundle，`auto-seed` 看到 `ctd_template_node exists (229 rows)` + `users exist (1)`，跳过 seed，`READY <port>` 正常打印
+
+**真机验收清单（不能在沙箱跑）**：
+- 在 Mac 构建机：`bash scripts/build-electron.sh mac` 产出 `desktop/release/eCTDTool-1.0.0-arm64.dmg` 与 `-x64.dmg`，体积应在 150-250 MB
+- 在 Win 构建机：`bash scripts/build-electron.sh win` 产出 `desktop/release/eCTDTool-Setup-1.0.0.exe`
+- `desktop/release/SHA256SUMS.txt` 自动生成
+- 干净 Mac 双击 dmg → 拖入 Applications → 双击 `.app`：未签名版本会弹 Gatekeeper（右键→打开放行）；签名+公证版本无任何系统警告
 
 ---
 
@@ -503,7 +465,27 @@ desktop/
 
 - E1 持久层迁移**最关键**，建议在动 Electron 之前先单独把 SQLite 跑通（保留 PG 不动，新增 SQLite 测通即可继续 E2）
 - 如某阶段被卡超过 2 天，先把已完成阶段的产出合并到主分支，作为部分可用版本，避免长分支漂移
-- License 模块、密钥对、签发 CLI 已经存在且独立可用，回退不影响授权链路
+- License 签发 CLI（`tools/issue-license/`）+ 密钥对（`tools/keys/`）独立可用，回退不影响授权链路；运行时校验由 L 阶段在 backend 内部新建（详见 §1.x L 阶段说明）。
+
+### 3.3 L 阶段：License 运行时模块新建（2026-04-25 落地）
+
+**背景**：原 plan §0.3 把 License 模块列为"已落地，不改"，实际仓库里只有签发 CLI + 密钥对 + Docker 路线遗留的 launcher 脚本。Docker 路线把校验放在 `Start.command` 调 `verify-license.js` → 桌面 Electron 路线必须把校验搬进 backend 内部，否则用户拿到一个"已激活"的窗口里所有业务 API 都没人拦。L 阶段补这个洞。
+
+**任务清单**（已完成）：
+
+- [x] **L-1** Prisma `License` 表（`schema.prisma` + `schema.sqlite.prisma`）+ 两份 migration（`migrations/20260425053000_add_license/` + `migrations.sqlite/20260425053000_add_license/`）；`prisma:check-parity` 通过
+- [x] **L-2** `backend/src/license/` — `license.module.ts` (`@Global()` + `APP_GUARD`)、`license.service.ts`（验签 / 指纹 / 入库）、`license.controller.ts`（`/api/v1/license/{status,activate}`）、`license.guard.ts`（默认拦所有业务 API，`@Public()` 放行 `/health`、`/api/v1/auth/*`、`/api/v1/license/*`）、`public-key.ts`（编译时内嵌公钥）、`public.decorator.ts`（白名单元数据）
+- [x] **L-3** Backend 单测：`license.service.spec.ts`（15 用例：指纹、验签、过期、未生效、激活幂等、状态查询、enforce on/off）+ `license.guard.spec.ts`（5 用例：白名单、enforce 关、enforce 开 + allow / deny、@Public 在 class 上）
+- [x] **L-4** Frontend：`useLicenseStore`、`services/license.ts`、`pages/license/ActivationPage.tsx`、`components/LicenseBanner.tsx`、`ProtectedRoute` 加 license 闸门、`App.tsx` 加 `/activation` 路由、`BasicLayout` 顶栏挂 banner
+- [x] **L-5** 文档：`backend_architecture.md` §3.3、`database_design.md` §1.1、`api_design.md` §1b、`frontend_architecture.md` §1.1+§2.8.1、`update_log.md` 追加；本 plan 修正 §0.3 "已落地" 列表
+
+**配置开关**：
+- `LICENSE_ENFORCE` — `true` / `false`，默认 `NODE_ENV==='production'`。dev 期不强制激活才能跑测试
+- `MACHINE_ID` — 16 位 hex，由 Electron main 注入；缺失时 backend 走 shell fallback
+
+**跨阶段交接**：
+- **E7** 阶段会改 Electron main：用 Node API 采集指纹（不再让 backend 起子进程跑 shell），通过 `process.env.MACHINE_ID` 注入；同时缓存到 `<userData>/machine-id.txt` 减少抖动
+- **E4** 阶段嵌入式启动会自动跑 `migrations.sqlite/*` 里的 License 表迁移；再加 seed 时**不要**给 license 表插任何 row，留空就是"未激活"
 
 ---
 
@@ -511,12 +493,15 @@ desktop/
 
 > Agent 完成阶段时勾选并同步 `docs/update_log.md`。
 
+- [x] L  License 运行时模块新建完成（2026-04-25）
 - [x] E1 持久层迁移完成
 - [x] E2 Redis 抽象 + BullMQ 同步执行完成
-- [ ] E3 文件存储抽象完成
-- [ ] E4 嵌入式 NestJS 启动改造完成
-- [ ] E5 Electron 壳完成
-- [ ] E6 前端 Electron 适配完成
+- [x] E3 文件存储抽象完成（E3-6 备份脚本延后到真机阶段）
+- [x] E4 嵌入式 NestJS 启动改造完成（CTD 快照 / first-run.db 在 E8 收口）
+- [x] E5 Electron 壳完成（沙箱可达部分；窗口 + 业务流真机验收）
+- [x] E6 前端 Electron 适配完成（沙箱可达部分；Electron 真机内观感留 E5 一并验收）
+- [x] E7 指纹本地化完成（沙箱可达部分；同机一致性 / 跨机变化在真机验证）
+- [x] E8 electron-builder 打包脚本完成（出 dmg/exe + SHA256SUMS 待真机；签名/公证留证书到位后切换）
 - [ ] E7 指纹本地化完成
 - [ ] E8 electron-builder 打包脚本完成
 - [ ] E9 冷装测试通过 + 首版 dmg/exe 交付客户

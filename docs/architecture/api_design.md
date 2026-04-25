@@ -10,6 +10,26 @@
 | POST | `/logout` | 退出登录 | 已登录 |
 | GET | `/me` | 获取当前用户信息 | 已登录 |
 
+> 全部 `/api/v1/auth/*` 路由对 `LicenseGuard` 标记 `@Public()`，未激活机器仍可登录到激活页。
+
+## 1b. 桌面版激活码 `/api/v1/license` (software_upgrade / L 阶段)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET  | `/status`   | 查询本机激活状态：`{ activated, enforced, machineId, license? }` | 公开（@Public） |
+| POST | `/activate` | 提交激活码（body `{ code }`），后端验签 + 比对指纹 + 入库 | 已登录（@Public 对 license guard 放行，但仍要 JWT） |
+
+响应字段（`license` 子对象，仅在 activated=true 时返回）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| customer | string | 激活码 payload 中的客户名 |
+| issuedAt | string (yyyy-MM-dd) | 签发日 |
+| expiresAt | string (yyyy-MM-dd) | 到期日 |
+| daysRemaining | number | 距到期天数（≤0 表示已过期） |
+| valid | boolean | 当前是否仍能通过完整校验（签名+指纹+到期） |
+| reason | enum? | 当 valid=false 时的失败原因：`malformed` / `bad-signature` / `fingerprint-mismatch` / `expired` / `not-yet-valid` |
+
 ## 2. 用户管理 `/api/v1/users`
 
 | 方法 | 路径 | 说明 | 权限 |
@@ -111,6 +131,14 @@
 | GET | `/versions/:version` | 获取特定版本内容 | 成员 |
 | POST | `/versions` | 创建版本快照 | EDITOR+ |
 | POST | `/restore/:version` | 恢复到指定版本 | EDITOR+ |
+
+## 11b. 本地文件流式服务 `/api/v1/files/serve/:token` ✅ (software_upgrade / E3 阶段)
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/files/serve/:token` | 桌面/local 模式下用于把 LocalStorage 落盘文件流式给浏览器；token 是 10min 内有效的 JWT，含 `{key, mode}` | 公开（@Public，token 自身即凭证） |
+
+仅 `STORAGE_PROVIDER=local` 时生效；minio 模式用其原生 presigned S3 URL。
 
 ## 11. 文件管理 `/api/v1/nodes/:nodeId/files` ✅ (WP-06 已实现)
 

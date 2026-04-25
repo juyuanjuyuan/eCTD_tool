@@ -7,6 +7,8 @@
 | 模块 | 路由 | 说明 | 权限 |
 |------|------|------|------|
 | 登录 | `/login` | 登录/注册页 | 公开 |
+| 激活 ✅ | `/activation` | 桌面版激活页：展示本机指纹+复制按钮、粘贴激活码、显示已激活客户名/到期日/剩余天数（software_upgrade / L 阶段） | 已登录 |
+| 关于 ✅ | `/about` | 软件版本、运行形态（Web / 桌面）、机器指纹、激活状态汇总；桌面模式额外暴露"打开数据目录" / "查看日志"（software_upgrade / E6 阶段） | 已登录 |
 | 工作台 ✅ | `/dashboard` | 个人工作台: 我的待办（待编辑/待审阅/待处理邀请）+ 最近编辑 + 我的项目 | ALL |
 | 项目列表 | `/projects` | 项目（药品）列表 CRUD，每行末尾有蓝色「进入项目」按钮 | EDITOR+ |
 | 项目详情 ✅ | `/projects/:id` | 项目下的申请、序列管理 + 协作 Tab（进度总览、工作量分布）+ 成员管理增强；申请表格每行末尾有蓝色「进入申请」按钮 | EDITOR+ |
@@ -156,6 +158,29 @@
 - 已审批节点: Alert "该节点已审批通过，不可编辑" + 只读模式
 - RichEditor editable={!isReadOnly}
 - 对应 API: `editLockApi.acquire/release/query/forceUnlock/heartbeat`
+
+### 2.8.0 桌面环境检测 (`EnvironmentContext`) ✅ (software_upgrade / E6 阶段)
+
+`frontend/src/contexts/EnvironmentContext.tsx`、`frontend/src/types/electron-api.d.ts`：
+
+- 入口 `useEnvironment()` 返回 `{ isDesktop, machineId, appVersion, platform }`
+- 检测：`window.electronAPI` 存在 → 桌面模式
+- IPC 字段（指纹/版本/平台）由 `EnvironmentProvider` 在 mount 时一次性 await
+- 业务页用 `isDesktop` 做条件渲染：项目详情页 `邮箱邀请` 按钮 / 协作分享类按钮在桌面模式隐藏（编辑器协作 Tab 仍保留以便单机用户也能看到自己工作量）
+- 公共 helper `openExternalUrl(url)`：桌面模式走 `electronAPI.openExternal`，Web 模式走 `window.open(url, '_blank')`
+
+### 2.8.1 激活码 Banner (`LicenseBanner`) ✅ (software_upgrade / L 阶段)
+
+位置：`frontend/src/components/LicenseBanner.tsx`，挂在 `BasicLayout` 的 Header 上 NotificationCenter 左侧。
+
+行为：
+- `useLicenseStore` 拉取 `/license/status`；`enforced=false` 时整体不渲染
+- 颜色：`>30 天` 绿色 / `≤30` 橙色 / `≤7` 或失效 红色
+- 文案：`剩余 N 天` / `已过期` / `未激活，点此激活`
+- 点击跳 `/activation` 页面（已实现重新激活 UI）
+- Tooltip 显示客户名 + 到期日全文
+
+`ActivationPage`（`frontend/src/pages/license/ActivationPage.tsx`）：复制本机指纹给厂商 → 粘贴激活码 → 提交 → 成功后跳 `/projects`。`ProtectedRoute` 中插入 license 闸门：`isLicenseBlocking(status)` 为真时强制跳 `/activation`，避免业务页面拿到 403 才提示。
 
 ### 2.9 PDF 预览组件 (`PDFViewer`)
 

@@ -2,3 +2,12 @@ docs/eCTD验证软件V1.1.0.zip
 tmp/
 .env
 .env.production.example
+
+# software_upgrade — desktop / Electron build artifacts (regenerable)
+backend/dist-embed/
+backend/src/generated/
+backend/prisma/first-run.db
+backend/prisma/test.db
+desktop/node_modules/
+desktop/dist/
+desktop/release/

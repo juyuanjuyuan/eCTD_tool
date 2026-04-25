@@ -1,0 +1,25 @@
+{
+  "name": "ectd-desktop",
+  "version": "1.0.0",
+  "description": "eCTD Tool — desktop / Electron shell (software_upgrade E5+)",
+  "private": true,
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build:ts": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json && electron .",
+    "build:mac": "npm run build:ts && electron-builder --mac --x64 --arm64",
+    "build:mac:arm64": "npm run build:ts && electron-builder --mac --arm64",
+    "build:mac:x64": "npm run build:ts && electron-builder --mac --x64",
+    "build:win": "npm run build:ts && electron-builder --win --x64",
+    "build:all": "npm run build:ts && electron-builder -mwl"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "electron": "^31.7.6",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "electron-log": "^5.2.4"
+  }
+}

@@ -50,7 +50,47 @@ invitation (在 project 模块内, InvitationController, 邮箱邀请+接受+取
 ```
 
 
-### 1.3 持久层双 provider（software_upgrade / E1 进行中）
+### 1.3 嵌入式启动 / Electron 桌面集成（software_upgrade / E4 阶段）
+
+`backend/src/embedded/` 收口桌面单机版的运行时基础：
+
+- `sqlite-migrator.ts`：基于 `better-sqlite3` 的迁移 runner，读 `prisma/migrations.sqlite/<sortedName>/migration.sql`，用 `_app_migrations(name, checksum, applied_at)` 跟踪。绕开了 Prisma CLI 默认 migrations 路径与 SQLite 路径错位的 P3019 问题，桌面运行时不依赖 Prisma CLI。事务包裹 + checksum 校验（防止 SQL 文件被改后再 apply）。
+- `auto-seed.ts`：用户空 → 创建默认 admin；CTD 模板表空 → 默认 warn-skip（CTD 模板 seed 依赖 `reference/eCTD技术规范V1.1附件包/` XML 文件，桌面 binary 不携带；E8 build 时跑一次 seed 后冻结成 `first-run.db` 快照，Electron main 首启复制到 `<userData>/data.db`）
+- `embedded-paths.ts`：解析 `MIGRATIONS_DIR`、`DATABASE_URL`（绝对化 file: URL 以避免 Prisma 相对路径锚点漂移）
+- `main.ts`：`EMBEDDED=true` 时端口默认 `0`（OS 随机），`AUTO_MIGRATE` / `AUTO_SEED` 默认 on；启动后 `process.send({type:'ready', port})` + `console.log('READY ' + port)` 双通道；SIGTERM/SIGINT → `app.close()` → exit；启动失败 IPC + console.error 报错并 exit 1
+- `RedisCacheService.onModuleInit` 在 `CACHE_PROVIDER!=redis` 时跳过 Redis 客户端构造（避免 desktop / sqlite 模式刷屏 ECONNREFUSED）
+- `ControlledVocabularyService` 在 `REFERENCE_DIR` 缺失或 reference 路径不存在时仅 warn 跳过
+
+新构建产物：`backend/dist-embed/`
+- `backend.bundle.js` — esbuild 单文件 CJS bundle（≈9.5 MB），native deps + ORM 健康指示器可选 peer 全部 external
+- `prisma/migrations.sqlite/*` — 迁移 SQL 文件
+- `generated/prisma-sqlite/*` — 生成的 SQLite Prisma client（含平台 `.node` 引擎）
+- `package.json` — 列出所有 external 依赖供 `electron-builder asarUnpack` 解压
+
+环境变量（embedded 模式新增）：
+- `EMBEDDED` — `true` 时启用嵌入式行为（随机端口 + AUTO_MIGRATE/AUTO_SEED 默认 on + IPC ready）
+- `AUTO_MIGRATE` / `AUTO_SEED` — `true|false`，覆盖 EMBEDDED 默认
+- `MIGRATIONS_DIR` — Electron main 注入的迁移目录绝对路径
+- `PRISMA_SQLITE_CLIENT_PATH` — Electron main 注入的 generated client 绝对路径
+- `REFERENCE_DIR` — Electron main 注入 `<userData>/reference/`（首启释放后的 reference 目录）
+
+### 1.4 文件存储抽象（software_upgrade / E3 阶段）
+
+`backend/src/file/` 在保留 `MinioService` 这个对外注入名（8 处 caller）的前提下，引入抽象层：
+
+- `storage.interface.ts` 定义 `IFileStorage`（uploadFile / uploadFileStream / getFile / getFileStream / fileExists / deleteFile / getPresignedDownloadUrl / getPresignedPreviewUrl）
+- `minio-storage.ts` 提供 `MinioStorage`（原 minio.service.ts 内部逻辑迁出，行为 1:1 保留）
+- `local-storage.ts` 提供 `LocalStorage`（落到 `<DATA_DIR>/files/<key>`，按月路径由 caller 自己决定；`presignedUrl` 用 JWT 签 10min 短期 token）
+- `MinioService`（@Injectable 名字保留为 façade）按 `process.env.STORAGE_PROVIDER`（默认 `local`）选择 delegate；`onModuleInit` 仅在 `minio` 模式跑 bucket 检查
+- 新增 `file-serve.controller.ts` 暴露 `GET /api/v1/files/serve/:token`（`@Public()` 跳过 license guard，因为 token 自身就是凭证），仅 local 模式生效
+
+环境变量：
+- `STORAGE_PROVIDER` = `local` | `minio`，默认 `local`
+- `DATA_DIR` — 桌面版数据根目录，由 Electron main 注入（E5 阶段写入）
+- `STORAGE_PRESIGN_SECRET` — 可选；缺省时 fallback 到 `JWT_SECRET`，再缺省直接报错
+- `PUBLIC_BASE_URL` — 可选；前后端同源时留空（生成相对路径）
+
+### 1.4 持久层双 provider（software_upgrade / E1 进行中）
 
 - Prisma 进入过渡态：
   - PostgreSQL schema：`backend/prisma/schema.prisma`
@@ -133,6 +173,24 @@ invitation (在 project 模块内, InvitationController, 邮箱邀请+接受+取
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN, Role.MANAGER)
 ```
+
+### 3.3 桌面版激活码守卫（software_upgrade / L 阶段）
+
+桌面 Electron 路线下增加全局 `LicenseGuard` (`backend/src/license/license.guard.ts`)，通过 `APP_GUARD` 注册：
+
+- 默认行为：production 环境强制启用 (`LICENSE_ENFORCE` 控制，默认 `NODE_ENV==='production'`)
+- 白名单：`@Public()` (`backend/src/license/public.decorator.ts`) 放行的路由，包含：
+  - `GET /health`
+  - 全部 `/api/v1/auth/*`（登录、注册、刷新、me）
+  - 全部 `/api/v1/license/*`（状态查询、激活）
+- 拒绝时返回 `403 Forbidden` 提示前往激活页
+
+`LicenseService` 负责：
+- 内嵌公钥验签（`backend/src/license/public-key.ts`，build-time 编译进二进制，运行时不读文件）
+- 机器指纹采集：优先 `process.env.MACHINE_ID`（Electron main 注入）→ `LICENSE_MACHINE_ID_OVERRIDE`（开发期）→ shell fallback (mac/linux/win 各一套)
+- 激活流程：解析 `base64url(payload).base64url(signature)` → RSA-SHA256 验签 → 比对指纹 → 校验 `expiresAt > today` → upsert 到 `license` 表，旧 active 行置 false
+- 校验报错分类：`malformed` / `bad-signature` / `fingerprint-mismatch` / `expired` / `not-yet-valid`，前端按类型给出对应提示
+- 启动时不阻塞 boot；guard 在第一个业务请求时同步校验 DB 现状
 
 ## 4. eCTD 核心业务逻辑
 

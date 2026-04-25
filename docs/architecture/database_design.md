@@ -20,7 +20,32 @@ User (1) ──< (N) Notification
 ```
 
 
-## 1.1 桌面版 SQLite 双 schema 过渡（software_upgrade / E1）
+## 1.1 桌面版激活码表 `license` (software_upgrade / L 阶段)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID | 主键 |
+| code | TEXT (unique) | 完整激活码 `base64url(payload).base64url(signature)` |
+| customer | varchar(200) | payload.customer |
+| machine_id | varchar(64) | payload.machineId（16 位 hex） |
+| issued_at | DATE | payload.issuedAt |
+| expires_at | DATE | payload.expiresAt |
+| nonce | varchar(64) | payload.nonce |
+| activated_at | timestamp | 写入时间 |
+| activated_by | UUID? | 激活操作的 user.id |
+| is_active | bool | 当前是否生效（同一时刻最多一行 true，由 service 在 `$transaction` 中维护） |
+| created_at | timestamp | |
+| updated_at | timestamp | |
+
+索引：`is_active`、`expires_at`。
+
+设计要点：
+- 一行 = 一次激活记录，便于审计
+- 旧激活码不删除，仅置 `is_active=false`，便于追溯客户历次续期
+- `code` 唯一约束 → 重复 activate 同一码走 upsert，幂等
+- 启动每次重读最新 `is_active=true` 行 → 重新跑签名/指纹/到期校验，DB 改写无效（仍要私钥才能伪造）
+
+## 1.2 桌面版 SQLite 双 schema 过渡（software_upgrade / E1）
 
 - 主 schema 保持 `backend/prisma/schema.prisma`（PostgreSQL，开发期兼容）。
 - 新增 `backend/prisma/schema.sqlite.prisma`（SQLite，桌面版运行时）。

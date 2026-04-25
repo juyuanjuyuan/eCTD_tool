@@ -9,7 +9,18 @@ import {
 } from './seeds/stf-default-categories.js';
 import type { StfCategoryDimension } from './seeds/stf-default-categories.js';
 
-const prisma = new PrismaClient();
+// Mutable so `runCtdSeed(client)` can inject either the PG or SQLite Prisma
+// client. Default-constructed only when this file is invoked directly via
+// `npm run seed:ctd` (require.main === module check below).
+let prisma: any;
+
+/** When DB_PROVIDER=sqlite, JSON columns are stored as TEXT and need stringify. */
+function serializeJsonField<T>(value: T): T | string {
+  if (process.env.DB_PROVIDER === 'sqlite' && value !== null && typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+  return value as T | string;
+}
 
 // ==================== XML Parsing ====================
 
@@ -458,7 +469,7 @@ async function seedTemplateNodes() {
         where: { elementName },
         data: {
           isRepeatable: true,
-          instanceKeyFields: keys as unknown as object,
+          instanceKeyFields: serializeJsonField(keys),
         },
       });
       backfilledRepeatable += result.count;
@@ -510,12 +521,10 @@ async function seedTemplateNodes() {
         requiresStf: nodeRequiresStf,
         requiresESeal: node.requiresESeal,
         allowsExtension: node.allowsExtension,
-        defaultStfCategories: defaultStfCategoriesValue,
+        defaultStfCategories: serializeJsonField(defaultStfCategoriesValue ?? null),
         // Plan 13: 多实例节点元数据
         isRepeatable: node.isRepeatable,
-        instanceKeyFields: node.instanceKeyFields
-          ? (node.instanceKeyFields as unknown as object)
-          : undefined,
+        instanceKeyFields: serializeJsonField(node.instanceKeyFields ?? null),
         sortOrder: node.sortOrder,
       },
     });
@@ -610,18 +619,31 @@ async function seedCompletenessRules(nameToId?: Map<string, string>) {
 
 // ==================== Main ====================
 
-async function main() {
+/**
+ * Programmatic entry point. Pass either the PG `@prisma/client` or the SQLite
+ * one (`backend/src/generated/prisma-sqlite`); JSON-shaped fields are
+ * automatically stringified when DB_PROVIDER=sqlite.
+ */
+export async function runCtdSeed(client: any): Promise<void> {
+  prisma = client;
   console.log('=== CTD Template Seed ===');
   const nameToId = await seedTemplateNodes();
   await seedCompletenessRules(nameToId);
   console.log('=== CTD Template Seed Complete ===');
 }
 
-main()
-  .catch((e) => {
+async function cliMain() {
+  prisma = new PrismaClient();
+  try {
+    await runCtdSeed(prisma);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+if (require.main === module) {
+  cliMain().catch((e) => {
     console.error('Seed failed:', e);
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });
+}
