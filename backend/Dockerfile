@@ -59,6 +59,8 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 # Reference files (CV XMLs, DTDs, XSLs, etc.) live outside the build context
 # (sibling ../reference/). They are bind-mounted into /reference at runtime by
@@ -73,8 +75,8 @@ EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
 
-# Production mode — prisma/*.ts is compiled alongside src/, so tsc uses the
-# project root as rootDir and src/main.ts lands at dist/src/main.js
+# Entry runs prisma migrate deploy + idempotent seeds, then execs the CMD below.
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["node", "dist/src/main.js"]

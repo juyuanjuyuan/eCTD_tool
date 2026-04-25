@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -68,6 +66,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-ectd}:${POSTGRES_PASSWORD:-ectd_desktop_password}@postgres:5432/${POSTGRES_DB:-ectd}?schema=public
       JWT_SECRET: ${JWT_SECRET:-replace_me_jwt_secret}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-replace_me_refresh_secret}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-30d}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -90,7 +90,7 @@ services:
       - ${DATA_DIR:?DATA_DIR is required}/reference:/reference:ro
       - ${DATA_DIR:?DATA_DIR is required}/logs/backend:/app/logs
     healthcheck:
-      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3000/api/health']
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3000/health']
       interval: 30s
       timeout: 10s
       start_period: 40s
