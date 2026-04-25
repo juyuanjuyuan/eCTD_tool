@@ -1,375 +1,508 @@
-# Software Upgrade — 桌面单机版打包与激活码交付方案
+# Software Upgrade — 桌面单机版（Electron）打包与激活码交付方案
 
-> 创建日期：2026-04-24
-> 背景：客户希望在本地电脑单机运行 eCTD 工具，不能看到源代码，按激活码授权，一年有效期，到期由我方重发激活码或软件。
-> 目标：把当前 Web 版（NestJS + React + PostgreSQL + Redis + MinIO）打包为 **Mac 版** 和 **Windows 版** 两个桌面发行版，功能与 Web 版完全一致，仅运行方式和授权方式不同。
-
----
-
-## 0. 总体方案（Mac/Windows 通用部分）
-
-### 0.1 技术选型
-
-| 层 | 方案 |
-|---|---|
-| 运行底座 | Docker Desktop（Mac/Windows 均官方支持） |
-| 分发形态 | 所有服务镜像 `docker save` 打包 + 启动器 + 安装脚本 |
-| 源码保护 | 镜像内只含 `dist/*.js`（tsc/vite 编译产物），不含 `.ts` 源文件 |
-| 激活码 | RSA-2048 签名 JSON，绑定机器指纹 + 到期日 |
-| 启动入口 | 双击启动器 → 启动 docker compose → 打开浏览器到 `http://localhost` |
-
-### 0.2 激活码机制（跨平台共用）
-
-**机器指纹**
-```
-fingerprint = sha256(cpu_id + primary_mac + board_serial)[:16]
-```
-首次启动时采集并缓存到 `<dataDir>/machine-id.txt`。
-
-**激活码 Payload**（你方私钥签发）
-```json
-{
-  "customer": "<客户名称>",
-  "machineId": "<16 位指纹>",
-  "issuedAt": "2026-04-24",
-  "expiresAt": "2027-04-24",
-  "nonce": "<随机串>"
-}
-```
-Base64(payload) + "." + Base64(RSA-SHA256 签名) → 激活码字符串（约 500 字符）。
-
-**产品端校验**（内置公钥硬编码在后端镜像）
-- RSA 验签 → 失败拒绝
-- `machineId` 匹配 → 不匹配拒绝
-- `now < expiresAt` → 过期拒绝
-- 时间回拨检测：`last-seen-time` 存数据库，系统时间倒流 > 1 小时拒绝
-
-**过期行为**
-- 剩余 ≤ 30 天：前端顶部 banner 黄色提醒
-- 已过期：所有业务 API 返回 `403 LICENSE_EXPIRED`，只留 `/license/*`、`/auth/*` 可访问
-- 用户在激活页粘贴新激活码 → 重新激活
-
-### 0.3 共用落地清单（两平台共享）
-
-| # | 产物 | 说明 |
-|---|---|---|
-| C1 | `backend/src/license/license.module.ts` | License 模块 |
-| C2 | `backend/src/license/license.service.ts` | 指纹采集、签名验证、到期检查 |
-| C3 | `backend/src/license/license.guard.ts` | 全局 Guard，拦截所有业务 API |
-| C4 | `backend/src/license/license.controller.ts` | `POST /license/activate`、`GET /license/status` |
-| C5 | `backend/prisma/schema.prisma` 新增 `License` 表 | 字段：code、customer、machineId、issuedAt、expiresAt、lastSeenAt |
-| C6 | `frontend/src/pages/license/ActivatePage.tsx` | 未激活强制跳转的激活页（显示机器指纹供复制） |
-| C7 | `frontend/src/pages/license/LicenseStatus.tsx` | 顶部 banner + 设置页授权详情 |
-| C8 | `tools/issue-license/` | **你方内部**签发 CLI（`node issue-license.js --customer=X --machineId=Y --days=365`），使用私钥；私钥不进产品镜像 |
-| C9 | `tools/keygen.sh` | 一次性生成 RSA-2048 密钥对；公钥嵌入 `license.service.ts`，私钥保存在你方本地 |
-| C10 | `scripts/build-release.sh` | 构建镜像 → `docker save` → 压缩 → 附启动器 |
-
-**共用工时**：3 天（C1–C10）。
+> 创建日期：2026-04-25
+> 背景：客户要求**单机使用**，不能看到源代码，按激活码授权一年有效期，到期由我方重发激活码或软件。
+> 目标：把现有 NestJS + React 代码打包成原生桌面软件（Mac `.dmg` / Windows `.exe`），用户双击即用，**零前置依赖**（不需要 Docker / Node / PostgreSQL / WSL2）。
+> 本计划由 Agent 执行：每完成一个任务必须 ① 勾选对应 `[ ]` → `[x]` ② 同步在 `docs/update_log.md` 追加一条记录 ③ 修改后端模块同步更新 `backend_architecture.md` / `database_design.md` / `api_design.md`，修改前端的同步更新 `frontend_architecture.md`。
 
 ---
 
-## 1. Mac 版执行计划（macOS 12+，Intel & Apple Silicon）
+## 0. 总体方案
 
-### 1.0 当前执行进度（2026-04-24）
+### 0.1 用户视角的最终形态
 
-- [x] M1 已启动并完成首版产物：新增仓库级 `docker-compose.desktop.yml`，用于桌面单机版（默认端口前端 `18080`、后端 `13000`，并关闭 MinIO 控制台公开访问）。
-- [x] 云端分支策略已调整要求：将平台自动拉取目标从 `master` 统一切换为 `main`（对应平台 Base Branch / Default Branch 配置项）。
-- [x] C8/C9 首版已落地：新增 `tools/keygen.sh` 与 `tools/issue-license/issue-license.js`，可生成 RSA 密钥对并签发激活码。
-- [x] M4 首版已落地：新增 `scripts/build-mac.sh`，可生成可分发测试包（`tar.gz`）；本机安装 `create-dmg` 时可继续生成 `.dmg`。并补充 `runtime/get-machine-id.js` 与首次启动自动 `docker load images/*.tar.gz`。
-- [ ] M2 启动器开发（Swift/Platypus）进行中（当前先用 `Start.command` 作为可用启动入口）。
+- **Mac**：`eCTDTool-v1.0.0.dmg` → 拖入 Applications → 双击图标 → 直接出现原生窗口（VS Code / Typora 体验）
+- **Windows**：`eCTDTool-Setup-v1.0.0.exe` → 安装 → 开始菜单/桌面快捷方式 → 双击 → 直接出现原生窗口
+- **零前置依赖**：双击即可运行
+- **启动时间**：< 5 秒
+- **包体积**：150-250 MB
+- **数据目录**：Mac `~/Library/Application Support/eCTDTool/`、Windows `%APPDATA%\eCTDTool\`
 
-#### 1.0.1 P0 未修阻塞项（下次发版前必须清零）
+### 0.2 内部架构（用户完全不可见）
 
-> 2026-04-24 首次冷安装测试（用户自测 Juyuans-Mac-mini / Apple Silicon）中发现，以下问题导致首包无法开箱即用，需在下次构建前逐一修复并在 §1.9 检查表中复验通过。
-
-- [x] **P0-1 Redis `--requirepass` YAML 折叠解析 bug**（已在 `docker-compose.desktop.yml` 修复，用 `sh -c` 条件分支代替折叠字符串；2026-04-24 §1.9 B3 复验通过）
-- [x] **P0-2 Prisma migration 未自动执行**：2026-04-24 修复 — 新增 `backend/docker-entrypoint.sh`，启动前 `npx prisma migrate deploy`；`backend/Dockerfile` 改 `ENTRYPOINT` 走包装脚本，CMD 仍是 `node dist/src/main.js`。B3 复验：日志看到 `[entrypoint] prisma migrate deploy` → `[entrypoint] launching nest app`
-- [x] **P0-3 种子数据未自动执行**：2026-04-24 修复 — `entrypoint.sh` 在 migrate 后调用 `node dist/prisma/seed.js` + `node dist/prisma/seed-ctd.js`。这两个脚本本身就是幂等的（`seed.ts` 全 upsert，`seed-ctd.ts` 有 `existing > 0` 守卫），所以**每次启动都跑一遍是安全的，不需要标记文件**（"干净一点"方案）。B3 复验：首启日志看到 "Seed completed"、"229 nodes... Skipping" 表明幂等行为符合预期
-- [x] **P0-4 `/reference` 目录未随包分发**：2026-04-24 修复 — `scripts/build-mac.sh` 把 `reference/eCTD技术规范V1.1附件包/` + `现行申报资料要求与eCTD目录元素、CTD目录层级对应表.xlsx` 打入 `$WORK_DIR/reference/`（仅 ~1MB，不含 PDF 规范）；`Start.command` 首启 `cp -R "$BASE_DIR/reference/"* "$DATA_DIR/reference/"`。B3 复验：CV 运行时种子日志 "已解析 cv-application-type.xml: 4 条记录" 等 5 个 XML 解析成功，证明 `/reference` 挂载链路完整
-- [x] **P0-5 镜像仅 `linux/amd64`，Apple Silicon Mac 上依赖 Rosetta 模拟**：2026-04-24 部分修复 — `scripts/build-mac.sh` 默认 `--arch arm64`（Apple Silicon 原生），支持 `--arch amd64` 和 `--arch both`；包名加 `-arm64`/`-amd64` 后缀避免互相覆盖。**注意**：本机 docker 没有 buildx 子命令，真正双架构构建必须在装了 `docker buildx` 的构建机/CI 上做（先 `docker buildx build --platform linux/arm64 -t ectd-backend:latest --load` 把目标架构镜像 load 进本机 docker，再跑 `build-mac.sh --arch arm64`）。Windows 版暂不做，因此双架构需求大幅简化为"主推 arm64 + 兜底 amd64"
-- [x] **P0-6 Backend 无法通过 REDIS_PASSWORD 鉴权（NOAUTH）**：2026-04-24 复现根因 — **不是 Start.command/env 传递问题，是 backend 代码 bug**。`backend/src/common/redis-cache.service.ts:10` 构造 `new Redis({...})` 时漏传 `password` 字段（`app.module.ts` 里的 BullModule 是传了的，单 cache service 漏了）。修复后冷启 stack（`REDIS_PASSWORD=test_redis_secret_xyz`）日志再无 `NOAUTH` 警告，cache 正常工作
-- [x] **P0-7 Backend healthcheck 路径错误**（**B3 阶段新发现**）：`/api/health` 不存在（实际路径是 `/health`，因为 `main.ts` 注释说"No global prefix needed"），导致 backend 永远 unhealthy → frontend 永远启不来 → `dependency failed to start`。这是首次冷装的另一条隐藏根因。修复点：`backend/Dockerfile`、`docker-compose.desktop.yml`、`docker-compose.prod.yml`、`scripts/build-mac.sh` 全部把 `/api/health` 改 `/health`。B3 复验通过
-
-### 1.1 目标产物
-
-单个 `.dmg` 文件：`eCTDTool-Installer-v1.0.0.dmg`，挂载后包含：
-- `eCTDTool.app`（启动器）
-- `images/` 目录（5 个 Docker 镜像 .tar.gz，约 800 MB-1.2 GB）
-- `安装说明.pdf`
-- `Applications` 符号链接（拖拽安装）
-
-### 1.2 启动器（eCTDTool.app）
-
-用 **Swift + AppKit** 写一个极简原生壳（或用 Platypus 把 shell 脚本包成 .app，更快）。功能：
-
-1. 首次启动：
-   - 检查 Docker Desktop 是否已安装 → 否则弹窗引导下载安装
-   - `docker load` 加载 `images/*.tar.gz`
-   - 创建数据目录 `~/Library/Application Support/eCTDTool/{postgres,redis,minio,reference,logs}`
-   - 释放 `docker-compose.desktop.yml` 和 `.env` 到上述目录
-2. 每次启动：
-   - `docker compose -f ~/Library/Application\ Support/eCTDTool/docker-compose.desktop.yml up -d`
-   - 轮询 `http://localhost:<port>/api/health` 直到 ready
-   - `open http://localhost:<port>` 打开默认浏览器
-   - 菜单栏驻留一个图标（NSStatusItem）：状态/停止/查看日志/退出
-3. 退出时：`docker compose down`（容器停止，数据保留）
-
-### 1.3 机器指纹采集（macOS）
-
-```bash
-cpu_id=$(sysctl -n machdep.cpu.brand_string)
-board_serial=$(ioreg -l | awk '/IOPlatformSerialNumber/ { print $4 }' | tr -d '"')
-primary_mac=$(ifconfig en0 | awk '/ether/ {print $2}')
-fingerprint=$(echo -n "${cpu_id}${board_serial}${primary_mac}" | shasum -a 256 | cut -c1-16)
 ```
-后端 `license.service.ts` 启动时执行（用 `child_process.execSync`）；Apple Silicon 和 Intel 均适用。
+eCTDTool.app / eCTDTool.exe   (单图标，单 Electron 进程包装)
+├── Electron main process                ← 程序入口
+│   ├── fork() Node 子进程跑 NestJS      ← 监听 127.0.0.1:<random-port>
+│   ├── 创建 BrowserWindow               ← loadURL 加载前端 (与 backend 同源)
+│   ├── 单实例锁、系统托盘、菜单栏
+│   └── 机器指纹采集 + 通过环境变量注入 backend
+├── Electron renderer (内嵌 Chromium)
+│   └── React 前端（vite build 产物）
+├── 嵌入式 Node.js (electron 自带)
+│   └── NestJS 后端代码（业务模块 + License Guard + CTD 模板 + 验证引擎）
+├── better-sqlite3                       ← PostgreSQL 替代（同进程，零延迟）
+├── 本地文件系统                         ← MinIO 替代
+│   └── <userData>/files/<yyyymm>/<uuid>.<ext>
+└── 内存 lru-cache                       ← Redis cache 替代；BullMQ 队列改同步执行
+```
 
-### 1.4 端口冲突处理
+### 0.3 可复用的已落地模块
 
-- 默认端口：frontend `18080`、backend `13000`（避免与客户本机 80/3000 冲突）
-- 启动前 `lsof -i :18080` 检测，占用则递增尝试 18081/18082...
-- 最终端口写入 `~/Library/Application Support/eCTDTool/port.txt`，启动器据此打开浏览器
+以下模块已在仓库存在，本次升级**完全保留**，无需重写：
 
-### 1.5 签名与公证
-
-- **Apple Developer ID 代码签名**（Developer ID Application 证书）：`codesign --deep --force --sign "Developer ID Application: <公司名>" eCTDTool.app`
-- **Notarization**：`xcrun notarytool submit eCTDTool-v1.0.0.dmg --wait`
-- 未公证客户双击会报"无法验证开发者"，须右键→打开绕过；**建议尽早申请开发者账号**（99 USD/年）
-
-### 1.6 Mac 版交付步骤
-
-| # | 任务 | 工时 |
+| 模块 | 文件位置 | 处理 |
 |---|---|---|
-| M1 | 编写 `docker-compose.desktop.yml`（单机优化：关闭 MinIO 公开端口、精简 healthcheck、卷路径用 `~/Library/Application Support/eCTDTool`） | 0.5d |
-| M2 | 用 Platypus 或 Swift 写 `eCTDTool.app` 启动器（含菜单栏图标、首次初始化流程、端口自适应） | 2d |
-| M3 | 机器指纹脚本适配 macOS（C2 内的 platform switch） | 0.5d |
-| M4 | 编写 `build-mac.sh`：`docker save` → gzip → `create-dmg` 生成 DMG | 0.5d |
-| M5 | 申请 Apple Developer ID，配置签名 + 公证流水线 | 0.5d（申请后等 1-2 天审核） |
-| M6 | 一台干净 Mac（Intel + Apple Silicon 各一台）走完整流程：安装 → 激活 → 使用 → 过期 → 重激活 | 1d |
-| M7 | 编写 Mac 版《安装说明.pdf》（含截图） | 0.5d |
+| License Guard / Service / Controller | `backend/src/license/*` | **不改** |
+| 激活页 + 状态 banner | `frontend/src/pages/license/*` | **不改** |
+| 签发 CLI | `tools/issue-license/issue-license.js` | **不改** |
+| 密钥对生成 | `tools/keygen.sh` | **不改** |
+| RSA 公私钥 | `tools/issue-license/{public,private}.pem` | **不改**（公钥仍硬编码到后端） |
+| `License` 表 | `backend/prisma/schema.prisma` | 跟随 E1 双 provider 同步迁到 SQLite |
+| 机器指纹采集 | `backend/src/license/license.service.ts` | **小改**：来源切换为 Electron 注入的 `process.env.MACHINE_ID`，原 shell fallback 保留 |
 
-**Mac 版独立工时**：约 5.5 天（不含开发者账号审核等待）。
+`reference/eCTD技术规范V1.1附件包/` 与 `reference/现行申报资料要求与eCTD目录元素、CTD目录层级对应表.xlsx` 在打包时会被复制到 Electron resources，首启时释放到 `<userData>/reference/`。**不打包 PDF 规范文档**（用户不需要）。
 
-### 1.7 Cloud 平台分支设置修正（master → main）
+---
 
-若某云平台构建日志出现如下命令形态：
+## 1. 阶段拆解（Agent 执行计划）
 
+> Agent 严格按 **E1 → E9** 顺序执行；阶段间有依赖关系，跳跃执行会导致下一阶段验收失败。
+
+### 1.1 阶段总览
+
+| 阶段 | 标题 | 工时 | 依赖 |
+|---|---|---|---|
+| **E1** | Prisma 双 provider：PostgreSQL ⇄ SQLite | 1d | — |
+| **E2** | Redis 抽象 → in-memory + BullMQ 同步执行 | 2d | E1 |
+| **E3** | MinIO → 本地文件系统抽象 | 1d | E1 |
+| **E4** | NestJS 嵌入式启动改造（fork-friendly） | 1d | E1, E2, E3 |
+| **E5** | Electron main + preload 实现 | 1.5d | E4 |
+| **E6** | 前端 Electron 适配 | 0.5d | E5 |
+| **E7** | 激活码指纹采集本地化 | 0.5d | E5 |
+| **E8** | electron-builder 打包（Mac + Win） | 1d | E1-E7 |
+| **E9** | 冷装测试 + 签名公证 | 1d | E8 |
+
+合计：≈9 天单人工时。
+
+### 1.2 E1：Prisma 双 provider 适配（PostgreSQL ⇄ SQLite）
+
+**目标**：同一份业务代码通过环境变量 `DB_PROVIDER` 切换跑 PostgreSQL（开发期保留）或 SQLite（桌面版交付）。后续 1-2 个迭代后可收敛为只用 SQLite。
+
+**前置盘点**：执行前先 grep 找出所有 Json/复杂字段：
 ```bash
-git fetch origin --depth=100 master
+grep -nE "@db\.(Json|Text|VarChar)|Json\\?|Json $" backend/prisma/schema.prisma
 ```
 
-则说明该平台项目的默认分支仍配置为 `master`。需在平台项目设置中执行：
+**任务清单**：
 
-1. 打开仓库连接设置（Git Provider / Repository Settings）；
-2. 将 **Base Branch** 或 **Default Branch** 从 `master` 改为 `main`；
-3. 触发一次重新部署，确认拉取命令更新为 `git fetch origin --depth=100 main`。
+- [ ] **E1-1** 在 `backend/prisma/` 新增 `schema.sqlite.prisma`（不改原 schema，并存）：
+  - `datasource db { provider = "sqlite"; url = env("DATABASE_URL") }`
+  - 所有 `Json` 字段改为 `String`（在 service 层 JSON.stringify/parse；用 `Prisma.JsonValue` 类型注解保持类型安全）
+  - 移除 `@db.Text`、`@db.VarChar(n)`（SQLite 不区分长度）
+  - `String[]`（Postgres 数组）改为 `String`（JSON 序列化的数组）
+  - 复合索引 / 唯一约束保持不变（SQLite 都支持）
+- [ ] **E1-2** 创建 `backend/prisma/migrations.sqlite/` 目录，运行 `npx prisma migrate dev --schema=prisma/schema.sqlite.prisma --name init` 生成首版迁移；后续业务变更**两份 schema 同步迁移**（CI 加守卫脚本检查两份 schema 字段一致）
+- [ ] **E1-3** 在 `backend/package.json` 新增 npm scripts：
+  - `prisma:sqlite:migrate` → `prisma migrate deploy --schema=prisma/schema.sqlite.prisma`
+  - `prisma:sqlite:generate` → `prisma generate --schema=prisma/schema.sqlite.prisma`
+  - `prisma:check-parity` → 自定义 node 脚本，校验两份 schema 的 model/字段集合一致
+- [ ] **E1-4** 改造 `backend/src/prisma/prisma.service.ts`：根据 `process.env.DB_PROVIDER`（`postgres` | `sqlite`）import 不同的 PrismaClient（两份 generate 输出到不同目录，如 `node_modules/.prisma/client-pg` 和 `client-sqlite`）
+- [ ] **E1-5** Json 字段访问改造清单：
+  - 在 `backend/src/common/json-field.helper.ts` 新增 `parseJsonField<T>(raw: string | object)` / `serializeJsonField(value)` helper（双 provider 兼容：postgres 直传对象，sqlite 序列化）
+  - 改造涉及模块：`ctd-template`（`metadata`、`instanceKeyFields`、`defaultStfCategories`）、`validator`、`sequence`（信封元素）、`study`（StudyCategory 等）
+- [ ] **E1-6** 数据迁移工具（仅供开发自测，**不分发**）：`tools/db-migrate-pg-to-sqlite/index.ts` — 用 PrismaClient(pg) 读、PrismaClient(sqlite) 写
+- [ ] **E1-7** 单元测试：核心 service spec 用 `DB_PROVIDER=sqlite` 跑一遍（jest 用 `:memory:` SQLite）
 
-### 1.8 可下载测试包（当前交付形态）
+**DoD（验收）**：
+- `DB_PROVIDER=sqlite DATABASE_URL=file:./dev.db npm run start:dev` 启动成功
+- 跑通核心业务流：登录 → 创建项目 → 创建申请+序列 → 上传 PDF → 触发验证 → 导出 ZIP → ZIP 结构与 PG 版一致
+- `prisma:check-parity` 退出码 0
+- 所有原有 spec 在 `DB_PROVIDER=sqlite` 下也跑通
 
-当前仓库已支持先产出可下载测试包（非最终签名版 `.dmg`）：
+---
 
+### 1.3 E2：Redis 抽象 → in-memory + BullMQ 同步执行
+
+**目标**：彻底移除桌面版对 Redis 的运行时依赖；缓存改 in-memory；BullMQ 队列改同步执行（用户接受验证/导出 < 10s 同步等待）。
+
+**前置盘点**（执行前 grep）：
 ```bash
-scripts/build-mac.sh --version 0.1.0 --out-dir /tmp/ectd-release --skip-docker
+grep -rnE "ioredis|@nestjs/bull|BullModule|@InjectQueue|@Process" backend/src
 ```
 
-产物示例：
-- `/tmp/ectd-release/eCTDTool-mac-v0.1.0.tar.gz`
-- 包内包含 `Start.command`（启动入口）、`docker-compose.desktop.yml`、`.env.template`、`runtime/verify-license.js`
+**任务清单**：
 
-### 1.9 发布前冷安装验证检查表（每次发版必跑）
+- [ ] **E2-1** 抽象 cache 接口 `backend/src/common/cache/cache.interface.ts`：`get/set/del/wrap`
+- [ ] **E2-2** 实现 `MemoryCacheService`（基于 `lru-cache`）：`backend/src/common/cache/memory-cache.service.ts`
+- [ ] **E2-3** 改造现有 `backend/src/common/redis-cache.service.ts` 实现同一接口；保留作为开发期可选实现
+- [ ] **E2-4** 改造 `backend/src/app.module.ts`：根据 `process.env.CACHE_PROVIDER`（`redis` | `memory`，默认 `memory`）注入对应实现
+- [ ] **E2-5** BullMQ 队列盘点 + 改造（典型用途：验证、文档导出、可能的邮件通知）：
+  - 创建 `backend/src/common/queue/sync-queue.runner.ts`：`add(jobName, data)` → 直接 `await consumer.process(data)`，并通过 EventEmitter 推进度
+  - 改造涉及模块：`ValidationModule`、`ExportModule`、（如有）`NotificationModule`
+  - Producer 改为注入 `IQueue`（接口），由 `QUEUE_PROVIDER` 环境变量切换 BullMQ / Sync
+  - Consumer `@Process` 装饰器保留，但同步实现里用反射调用
+- [ ] **E2-6** 移除 `BullModule.forRoot` 在桌面版的注册（保留为可选注册）
+- [ ] **E2-7** 前端长任务交互调整：
+  - 同步等待 < 3s 的（验证）：直接 `await`，loading 旋钮
+  - 可能 > 3s 的（导出大序列）：后端走 SSE 或简单轮询返回进度，前端进度条；目标是用户至少看到"正在生成第 N/M 个 XML"
+- [ ] **E2-8** 性能验证：对 50 文件 / 5GB 大序列做一次完整导出，观察峰值内存与耗时（避免 in-process 同步处理 OOM）
 
-> **定位**：此检查表是打包 → 分发前的 **Release Gate**。任一条 `[ ]` 未打勾，`build-mac.sh` 产出的包**不得**交付客户。检查表按「源码侧 → 打包侧 → 冷装测试侧 → 客户侧」四段串联，前一段全通过才进下一段。
->
-> **"冷装测试"的严格定义**：在一台**从未跑过这个项目 Docker 的 Mac**（或把 Docker Desktop 的数据全部清掉 → 重建）上走完整流程。不能在构建机、开发机、或已经跑过某版的机器上测 —— 那些机器有缓存镜像、已建表的卷、本地 node_modules，会掩盖真实新客户首装问题。
+**DoD（验收）**：
+- `CACHE_PROVIDER=memory QUEUE_PROVIDER=sync npm run start:dev` 在不连 Redis 时能启动
+- 50 文件序列触发完整验证耗时 ≤ 10s 且前端不超时
+- 导出大序列峰值内存 < 1.5GB（避免桌面版被系统杀进程）
 
-#### A. 源码侧（打包前在 git 仓库上检查）
+---
 
-- [x] **A1** `docker-compose.desktop.yml` 里不留 `version: "3.8"` 顶层属性（compose v2 已废弃）— 2026-04-24 已删
-- [x] **A2** `docker-compose.desktop.yml` 的 redis/postgres/minio 命令**不含折叠字符串 + 环境变量混用**（见 P0-1 bug 教训；要么全写成 YAML 数组形式，要么用 `sh -c` 条件分支）— redis 用 `sh -c` 条件分支，postgres/minio 无折叠字符串
-- [x] **A3** `backend/Dockerfile` 的 `ENTRYPOINT`（或 `CMD` 包装脚本）**自动执行 `prisma migrate deploy`** 再 `exec node dist/src/main.js`；首次启动 seed 由 entrypoint 检测标记文件触发一次 — 2026-04-24 新增 `backend/docker-entrypoint.sh`；因 `seed.ts`(upsert) 和 `seed-ctd.ts`(`existing>0` 守卫) 本身幂等，entrypoint 每次启动都跑一遍 seed，不再需要标记文件
-- [x] **A4** `backend/prisma/schema.prisma` 的 `binaryTargets` 至少包含 `["native", "debian-openssl-3.0.x"]`（对应 `node:20-slim` 基镜像；换基镜像需同步更新）
-- [x] **A5** `scripts/build-mac.sh` 校验过 5 个必需镜像均已在本机存在（`docker image inspect` 逐一预检，缺一报错不往下走，避免 `reference does not exist` 打包残缺）— 2026-04-24 加入 `require_image` 预检
-- [x] **A6** `scripts/build-mac.sh` 把 `reference/eCTD技术规范V1.1附件包/`（含 DTD/XSL/受控词汇 XML）打入产物包（`COPY reference` 到 `$WORK_DIR/reference/`）— 仅打附件包 + CTD 对应表 xlsx，不含 PDF 规范
-- [x] **A7** `Start.command` 首次启动流程已覆盖：① `docker load images/*.tar.gz` ② `cp -R reference → DATA_DIR/reference` ③ 首次执行 seed 并写 `.seeded` 标记 ④ 端口占用自适应（`lsof -i :18080` 占用时递增）— seed 由 backend entrypoint 负责（幂等无标记），Start.command 覆盖 ①②④ 三项
-- [x] **A8** `docs/update_log.md` 最新一条记录与实际代码变更对齐（无"口头改了但 log 没记"的情况）
-- [x] **A9** **backend healthcheck 路径与 main.ts 实际暴露的健康端点一致**（防 P0-7 回归）：grep `api/health` 在 `backend/Dockerfile` / `docker-compose.*.yml` / `scripts/build-mac.sh` 应无残留，统一为 `/health`
+### 1.4 E3：MinIO → 本地文件系统抽象
 
-#### B. 打包侧（在构建机上跑 `build-mac.sh` 前后）
+**目标**：文件存储抽象化；桌面版用本地 FS，路径基于 Electron 的 `app.getPath('userData')/files/`。
 
-- [~] **B1** 构建机能同时产出 `linux/amd64` + `linux/arm64` 双架构的 `ectd-backend` / `ectd-frontend` 镜像（`docker buildx build --platform linux/amd64,linux/arm64`）；第三方镜像分别 `docker pull --platform` 两次保存。或按客户 Mac 架构出两份独立包（`-mac-intel.tar.gz` / `-mac-arm64.tar.gz`）— **本机 docker 不带 buildx 子命令**，2026-04-24 仅产出 amd64 单包通过 B2/B3。`build-mac.sh --arch arm64` 已就位，待装了 buildx 的构建机或 Mac 本机重跑产 arm64 包
-- [x] **B2** `docker save` 产物解压后能 `docker load` 成功（抽一个 tar.gz 在另一台机器 `docker load < xxx.tar.gz` 测试）— 2026-04-24 抽 `redis-7-alpine.tar.gz` 删 tag 后 `docker load` 回灌，image ID 与原始一致
-- [x] **B3** 构建机上**本地起一次完整 stack**（`docker compose -f docker-compose.desktop.yml up -d`）跑通 redis healthcheck —— 防止 P0-1 类 YAML/shell bug 再次到客户那里才发现 — 2026-04-24 在 `/tmp/ectd-desktop-test/` 起完整 stack，5 个容器全 healthy，登录页可达 (curl `http://localhost:18080/` → `nginx/1.27.5 200`)，并连带发现 P0-7 healthcheck 路径错误
-- [x] **B4** 包尺寸在预期区间（单包 `tar.gz` ≤ 1.5 GB；若超过说明某层镜像意外膨胀，需要追溯）— 2026-04-24 实测 `eCTDTool-mac-v0.2.0.tar.gz` = 592 MB（backend 镜像 399MB 占大头）
-- [x] **B5** 包的 SHA256 写入 `eCTDTool-mac-v{VERSION}.tar.gz.sha256` 同目录产出（客户下载后可 `shasum -a 256 -c` 核对）— `build-mac.sh` 已加 `shasum -a 256` / `sha256sum` 兜底逻辑；v0.2.0 sha256: `a38e17e51c0e7d4aa121debebfd85bd733b90ab59df61571e098097cf4ca0aad`
-- [x] **B6** 签发一张**测试激活码**（机器码用 `deadbeef00000000` 占位）并尝试用 `tools/runtime/verify-license.js` + `LICENSE_MACHINE_ID_OVERRIDE=deadbeef00000000` 校验通过，确认私钥/公钥对齐、签发链路完整 — 2026-04-24 通过 `[LICENSE] OK customer=冷装测试 expiresAt=2026-05-24`
+**任务清单**：
 
-#### C. 冷装测试侧（在一台"干净" Mac 上，**每次发版**必跑一次）
+- [ ] **E3-1** 抽取接口 `backend/src/files/storage.interface.ts`：
+  ```ts
+  interface IFileStorage {
+    upload(buffer: Buffer | Readable, key: string, mime: string): Promise<{ key: string; size: number }>;
+    download(key: string): Promise<Readable>;
+    delete(key: string): Promise<void>;
+    presignedUrl(key: string, ttlSec: number): Promise<string>;
+    exists(key: string): Promise<boolean>;
+  }
+  ```
+- [ ] **E3-2** 现有 MinIO 实现搬到 `backend/src/files/minio-storage.service.ts`（保留可用）
+- [ ] **E3-3** 新增 `backend/src/files/local-storage.service.ts`：
+  - 文件落盘：`<DATA_DIR>/files/<yyyymm>/<uuid>.<ext>`（按月分子目录避免单目录过多文件）
+  - `presignedUrl` 实现：生成短期 JWT (10 分钟) + 后端新增 `/files/serve/:token` 路由根据 token 鉴权后流式返回
+  - 流式上传：用 `fs.createWriteStream` 避免一次性 Buffer 占内存
+- [ ] **E3-4** Module 注入：根据 `STORAGE_PROVIDER`（`minio` | `local`）选择实现，默认 `local`
+- [ ] **E3-5** 数据目录路径来源：通过 `DATA_DIR` 环境变量传入，由 Electron main 启动 backend 时注入 `app.getPath('userData')`
+- [ ] **E3-6** 备份/恢复工具（仅供开发支援，**不分发**）：`tools/local-files/backup.ts`，把 `<DATA_DIR>/files/` + SQLite 文件打成 zip
 
-> 推荐维护 1 台 Apple Silicon + 1 台 Intel 共 2 台冷装机，每次把 Docker Desktop 的 "Settings → Troubleshoot → Clean / Purge data" 执行一次后开测。
+**DoD（验收）**：
+- `STORAGE_PROVIDER=local DATA_DIR=/tmp/ectd-test npm run start:dev` 启动后能正常上传/下载/删除
+- 100MB PDF 上传 → 下载 → 删除全链路通过
+- presigned URL 在 TTL 内可用，过期后返回 401
 
-**步骤 C1–C10 必须按顺序跑通，任一步骤失败则打回源码侧修复：**
+---
 
-- [ ] **C1 解压**：`tar -xzf eCTDTool-mac-v{VERSION}.tar.gz` 成功，目录结构符合预期（`images/` + `runtime/` + `Start.command` + `.env.template` + `docker-compose.desktop.yml` + `public.pem` + `reference/`）
-- [ ] **C2 Gatekeeper 绕过**：执行 `xattr -dr com.apple.quarantine ./eCTDTool-mac-v{VERSION}/` 后，双击 `Start.command` 不再弹"无法验证开发者"（长期解应走 Developer ID 签名 + 公证，M5 任务）
-- [ ] **C3 机器码采集**：`node runtime/get-machine-id.js` 输出 16 位 hex（Node 缺失时要 fail fast 并提示安装 Node.js LTS —— 如计划去 Node 依赖，则改为纯 shell 版后再来走此项）
-- [ ] **C4 激活码校验**：把测试激活码写入 `~/Library/Application Support/eCTDTool/license/license.txt`，`Start.command` 的 license 校验通过
-- [ ] **C5 镜像加载**：首次双击 `Start.command` 后 `docker images` 能看到全部 5 个镜像 tag；`.images_loaded` 标记文件已写入
-- [ ] **C6 栈启动**：`docker compose ps` 5 个服务在 90 秒内全部 `(healthy)`，无 `Restarting` 状态
-- [ ] **C7 Migration + Seed 幂等**：首次启动自动建表 + 种用户/CTD 模板/CV 成功；再次启动（`docker compose down && docker compose up -d`）不报唯一约束冲突、不覆盖用户自改数据
-- [ ] **C8 登录页可达**：浏览器打开 `http://localhost:18080`，能看到登录页（不是白屏/502）；用 `admin@ectd.com` / `admin123` 登录成功
-- [ ] **C9 业务主链路**：登录后能 ① 新建项目 ② 新建申请 + 序列 ③ 打开 CTD 目录左树至少看到模块 1-5 中 20+ 个叶节点 ④ 在某一叶节点上传一份 PDF ⑤ 触发验证不崩 ⑥ 导出 ZIP 包成功（`/sequences/:id/export/ectd-package`）
-- [ ] **C10 重启幂等**：`docker compose down && bash Start.command` 再次启动，所有数据保留（用户、上传文件、项目）；启动时间 < 30 秒（首次除外）
+### 1.5 E4：NestJS 嵌入式启动改造（fork-friendly）
 
-#### D. 客户侧（分发前）
+**目标**：让 NestJS 既能独立 listen 在固定端口（开发期），又能被 Electron `child_process.fork` 拉起 + 监听随机端口 + 把端口写到 stdout/IPC。
 
-- [ ] **D1** 客户 Mac 基线确认：macOS 12+、8GB+ 内存、50GB+ 可用空间、已装 Docker Desktop 最新稳定版（且已启动过一次，接受完许可）
-- [ ] **D2** 把"客户使用指南 PDF"（含解压 → 采集机器码 → 激活码安装 → 启动 → Gatekeeper 绕过 → 端口占用处理 → 日志位置 → 停止命令）**一并发给客户**，不要只发 `.tar.gz`
-- [ ] **D3** 客户机器码收到后，签发的激活码在 `expiresAt` 字段前至少留 1 个月冗余（避免客户收到时已快过期）
-- [ ] **D4** 建立激活码台账：`客户名 + 机器码 + 签发日期 + 到期日 + 私钥版本`（Excel 或 Airtable 皆可；丢失无法追溯换机续期）
+**任务清单**：
 
-#### E. 已知坑对照表（持续累加）
+- [ ] **E4-1** 改造 `backend/src/main.ts`：
+  - 默认监听端口从 `process.env.PORT || 3000` 改为 `process.env.PORT || 0`（0 表示系统分配随机端口）
+  - 启动后从 `app.getHttpServer().address().port` 取真实端口
+  - 通过 `process.send?.({ type: 'ready', port })` 发回父进程；同时 `console.log('READY ' + port)` 兜底（万一 fork 没建 IPC channel）
+  - 加 `SIGTERM` / `SIGINT` 处理：调用 `app.close()` 优雅关闭后退出
+  - 主流程加 try/catch：启动失败时 `process.send?.({ type: 'error', error: msg })` + `console.error('ERROR ' + msg)` 后退出码 1
+- [ ] **E4-2** 新增 backend 嵌入式构建产物 `backend/dist-embed/`：
+  - 用 `esbuild` 把 `dist/src/**` + 必要的 node_modules 打成 `backend.bundle.js`（单文件）
+  - 排除原生模块（`better-sqlite3`、`bcrypt` 等）：保留为 external，由 Electron 在运行时解析（要打入 Electron 应用包的 `node_modules` 副本）
+  - 排除 `@prisma/client`：放在 external，运行时从 unpacked 目录加载
+  - 预期产物体积 50-80 MB（不含 node_modules）
+- [ ] **E4-3** Prisma 资源打包：
+  - `backend/prisma/migrations.sqlite/` 整个目录复制到 `dist-embed/prisma/migrations/`
+  - `prisma generate --schema=prisma/schema.sqlite.prisma` 输出 client 也打入
+- [ ] **E4-4** 启动时自动 migrate：在 `bootstrap()` 最开头调用 `await runMigrations()`（用 `@prisma/migrate` 的 programmatic API 或 spawn `prisma migrate deploy` 子进程）
+- [ ] **E4-5** 启动时自动 seed（幂等）：检测到关键表为空时跑 `seed.ts` + `seed-ctd.ts`（沿用既有的 upsert / `existing > 0` 守卫保证幂等）
+- [ ] **E4-6** `backend/package.json` 新增 script：`build:embed` → tsc + esbuild 打 bundle + 复制 prisma 资源
 
-> 每次冷装测试或客户现场踩到的坑，记录到此表，并在源码侧加对应修复 / 检查项，避免同样的坑踩两次。
+**DoD（验收）**：
+- `node backend/dist-embed/backend.bundle.js` 直接能起，stdout 第一行打印 `READY <port>`
+- 在空数据目录下首启自动建表 + 种子数据
+- `kill -SIGTERM <pid>` 后进程在 5s 内优雅退出，无僵尸子进程
+
+---
+
+### 1.6 E5：Electron main + preload 实现
+
+**目标**：搭起 Electron 壳，能 fork backend、显示主窗口、加载前端、托盘菜单、单实例锁。
+
+**新建目录结构**：
+```
+desktop/
+├── package.json                  ← 声明 electron + electron-builder + ts
+├── tsconfig.json
+├── electron-builder.yml
+├── main/
+│   ├── index.ts                  ← Electron main entry
+│   ├── backend-process.ts        ← fork + 健康检测 + 优雅关闭
+│   ├── window.ts                 ← BrowserWindow 创建与生命周期
+│   ├── tray.ts                   ← 系统托盘
+│   ├── menu.ts                   ← 应用菜单（macOS 顶部栏 / Win 窗口菜单）
+│   ├── machine-id.ts             ← 指纹采集（详见 E7）
+│   ├── single-instance.ts        ← 单实例锁
+│   ├── data-dir.ts               ← 数据目录初始化、reference 解压
+│   └── logger.ts                 ← 日志写到 <userData>/logs/
+├── preload/
+│   └── index.ts                  ← contextBridge 暴露最小 IPC
+└── resources/
+    ├── icon.icns                 ← Mac 图标
+    ├── icon.ico                  ← Win 图标
+    ├── reference/                ← 打包时由 build 脚本复制 reference/eCTD技术规范V1.1附件包/
+    └── frontend/                 ← 打包时由 build 脚本复制 frontend/dist/
+```
+
+**任务清单**：
+
+- [ ] **E5-1** `desktop/package.json`：声明 `electron@^31`、`electron-builder@^24`、`typescript@^5`、`@types/node`；scripts: `dev`、`build:mac`、`build:win`、`build:all`
+- [ ] **E5-2** `main/single-instance.ts`：`app.requestSingleInstanceLock()` 失败时退出；命中第二实例时 focus 已有窗口
+- [ ] **E5-3** `main/data-dir.ts`：
+  - 初始化 `<userData>/{files,logs,license,reference}/`
+  - reference 释放：从 `process.resourcesPath/reference/` 复制到 `<userData>/reference/`，**判断条件用关键文件 sentinel `cv-application-type.xml` 是否存在**（不要用目录是否存在判断；docker bind mount 或子进程异常会创建空目录骗过判断）
+- [ ] **E5-4** `main/backend-process.ts`：
+  - `fork(path.join(process.resourcesPath, 'backend.bundle.js'), [], { env: { DB_PROVIDER:'sqlite', DATABASE_URL:'file:'+path.join(userData,'data.db'), CACHE_PROVIDER:'memory', QUEUE_PROVIDER:'sync', STORAGE_PROVIDER:'local', DATA_DIR:userData, MACHINE_ID, JWT_SECRET, JWT_EXPIRES_IN:'7d', JWT_REFRESH_EXPIRES_IN:'30d', NODE_ENV:'production', PORT:'0' } })`
+  - **完整列出所有 backend 读的环境变量**（参考 §2 A3，从 backend src grep `process.env.` 反推），缺失任一会导致运行时崩溃
+  - 监听 `message` 拿 `READY port`；超时 30s 报错弹窗给用户复制日志
+  - 监听 `exit` 异常退出时弹错误窗口 + 自动打开日志文件
+  - `gracefulShutdown(timeoutMs)`：先 IPC 通知，再 SIGTERM，3s 后还没退出 SIGKILL
+- [ ] **E5-5** `main/window.ts`：
+  - `new BrowserWindow({ width:1400, height:900, minWidth:1024, minHeight:700, webPreferences:{ preload, contextIsolation:true, nodeIntegration:false, sandbox:true } })`
+  - `win.loadURL('http://127.0.0.1:' + port)`
+  - macOS 关闭最后一个窗口不退出（`activate` 重建）
+  - 默认禁用 webview 创建外部 window，外链一律走 `shell.openExternal`
+- [ ] **E5-6** `main/menu.ts`：基础菜单（文件 / 编辑 / 视图 / 窗口 / 帮助）；macOS 自动加 app 菜单；隐藏开发者工具（生产 build）
+- [ ] **E5-7** `main/tray.ts`：托盘菜单（显示主窗口 / 打开数据目录 / 查看日志 / 关于 / 退出）
+- [ ] **E5-8** `main/logger.ts`：用 `electron-log` 把 main + backend stdout/stderr 统一写到 `<userData>/logs/main.log`，按日期切分；最近 7 天滚动保留
+- [ ] **E5-9** `preload/index.ts`：通过 `contextBridge.exposeInMainWorld('electronAPI', {...})` 暴露：
+  - `getMachineId()` → 当前指纹
+  - `getAppVersion()`、`getPlatform()`
+  - `openExternal(url)`、`showItemInFolder(path)`
+  - `openLogFile()` → 打开日志文件
+  - `openDataDir()` → 在 Finder/Explorer 打开数据目录
+
+**DoD（验收）**：
+- `cd desktop && npm run dev` 能开窗口、看到 React 前端登录页
+- 双开应用第二个实例不会重复启动 backend
+- Cmd+Q（Mac）/ 关窗（Win）后无残留 node 子进程（`pgrep -f backend.bundle` 应为空）
+- 日志文件可读，发生 backend 崩溃时弹窗指向日志路径
+
+---
+
+### 1.7 E6：前端 Electron 适配
+
+**任务清单**：
+
+- [ ] **E6-1** 前端探测 Electron：`window.electronAPI` 存在 → 桌面模式标志位放在 React Context
+- [ ] **E6-2** API base URL：原本写死的 `http://localhost:3000` 改为相对路径 `''`（前端走 backend 同源），由 Vite proxy / Nginx 配置剔除
+- [ ] **E6-3** 文件下载：保持 `<a href download>` 由 Chromium 处理；外链一律 `window.electronAPI.openExternal`
+- [ ] **E6-4** Web 版独有 UI 入口隐藏：「邀请协作者」、「分享链接」等按钮在桌面模式下隐藏（仅做条件渲染，不删代码）
+- [ ] **E6-5** 应用信息展示：「关于」页面显示 `getAppVersion()` 和 `getMachineId()`（机器指纹用于客户问询激活码时复制）
+- [ ] **E6-6** 编辑器（TipTap）的剪贴板/拖拽：在 Electron 中确认外部图片拖入能正常上传
+
+**DoD（验收）**：
+- 在 Electron 窗口内完成完整业务流，无外链跳出当前窗口
+- 「关于」页面机器指纹与 backend `/license/status` 返回一致
+
+---
+
+### 1.8 E7：激活码指纹采集本地化
+
+**目标**：从 backend 调 shell 命令改为 Electron main 用 Node API 采集，更可靠且首启即得。
+
+**任务清单**：
+
+- [ ] **E7-1** `desktop/main/machine-id.ts` 实现（跨平台）：
+  ```ts
+  // mac
+  const cpu = execSync('sysctl -n machdep.cpu.brand_string').toString().trim();
+  const board = execSync(`ioreg -l | awk '/IOPlatformSerialNumber/ {print $4}' | tr -d '"'`).toString().trim();
+  // win
+  const cpu = execSync('wmic cpu get ProcessorId /value').toString().match(/ProcessorId=(.+)/)?.[1]?.trim();
+  const board = execSync('wmic baseboard get SerialNumber /value').toString().match(/SerialNumber=(.+)/)?.[1]?.trim();
+  // 共用
+  const mac = Object.values(os.networkInterfaces()).flat()
+    .find((i: any) => i && !i.internal && i.mac && i.mac !== '00:00:00:00:00:00')?.mac ?? '';
+  const fp = sha256(cpu + board + mac).slice(0, 16);
+  ```
+- [ ] **E7-2** 缓存到 `<userData>/machine-id.txt`（首启写入后续读，避免硬件偶发抖动导致指纹漂移）
+- [ ] **E7-3** 启动 backend 时通过 `MACHINE_ID` 环境变量注入；同时通过 IPC 暴露 `electronAPI.getMachineId()` 供前端「关于」页显示
+- [ ] **E7-4** backend `license.service.ts` 改造：优先读 `process.env.MACHINE_ID`，缺失时再走原 fallback（保留向后兼容）
+- [ ] **E7-5** 复用既有 `tools/issue-license/issue-license.js`、`tools/keygen.sh`、已生成的密钥对 — **零改动**
+
+**DoD（验收）**：
+- 同一台机器多次启动指纹一致
+- `<userData>/machine-id.txt` 删除后下次启动重新采集，结果与之前相同
+- 复制 `<userData>/` 整体到另一台机器后启动，机器指纹会变（防迁移作弊）；激活码自动失效
+
+---
+
+### 1.9 E8：electron-builder 打包（Mac + Win）
+
+**任务清单**：
+
+- [ ] **E8-1** `desktop/electron-builder.yml`：
+  ```yaml
+  appId: com.<company>.ectd-tool
+  productName: eCTDTool
+  directories:
+    output: release
+  mac:
+    target: { target: dmg, arch: [arm64, x64] }
+    category: public.app-category.business
+    hardenedRuntime: true
+    gatekeeperAssess: false
+    entitlements: build/entitlements.mac.plist
+    notarize: { teamId: <TEAM_ID> }
+  win:
+    target: { target: nsis, arch: [x64] }
+    icon: resources/icon.ico
+    publisherName: <Company Legal Name>
+  nsis:
+    oneClick: false
+    perMachine: false
+    allowToChangeInstallationDirectory: true
+  extraResources:
+    - from: ../backend/dist-embed
+      to: backend
+    - from: resources/reference
+      to: reference
+    - from: ../tools/issue-license/public.pem
+      to: public.pem
+  asarUnpack:
+    - "**/*.node"
+    - "node_modules/better-sqlite3/**"
+    - "node_modules/@prisma/**"
+  ```
+- [ ] **E8-2** `scripts/build-electron.sh`（新增）：
+  ```bash
+  # 1) 后端嵌入式构建
+  cd backend && npm run build:embed
+  # 2) 前端构建
+  cd ../frontend && npm run build
+  # 3) 复制资源
+  cp -R ../frontend/dist ../desktop/resources/frontend
+  cp -R ../reference/eCTD技术规范V1.1附件包 ../desktop/resources/reference/
+  cp ../reference/现行申报资料要求与eCTD目录元素、CTD目录层级对应表.xlsx ../desktop/resources/reference/
+  # 4) Electron 打包
+  cd ../desktop && npm run build:$1   # mac | win | all
+  # 5) SHA256
+  shasum -a 256 release/*.dmg release/*.exe > release/SHA256SUMS.txt
+  ```
+- [ ] **E8-3** Mac 签名 + 公证流水线：
+  - Apple Developer ID Application 证书导入 keychain
+  - `electron-builder` 自动调用 `notarytool submit --wait`
+  - 失败时下载 notarization log 排查
+- [ ] **E8-4** Windows EV 代码签名：
+  - 接入 EV 代码签名证书（USB token 或 Azure Key Vault）
+  - `electron-builder.yml` 配置 `win.signtoolOptions`
+- [ ] **E8-5** 自动更新（P1，可选）：配置 `electron-updater` + 静态 `latest.yml` 托管位置；首版可不开启，留口子
+
+**DoD（验收）**：
+- 一行命令产出 `eCTDTool-v<ver>-mac-arm64.dmg` / `-mac-x64.dmg` / `-Setup-<ver>.exe`，体积都在 150-250MB 区间
+- SHA256SUMS.txt 同目录产出
+- 在另一台干净机器上能正常安装运行（不依赖构建机环境）
+
+---
+
+### 1.10 E9：冷装测试 + 签名公证
+
+**目标**：在干净 Mac + 干净 Windows 上完整跑一遍 §2 Release Gate，输出测试报告，全通过才能交付客户。
+
+**任务清单**：
+
+- [ ] **E9-1** 准备冷装机：
+  - Mac：从未跑过本项目 / 从未装过 Docker 的 macOS 12+ 机器，**Apple Silicon + Intel 各一**
+  - Windows：从未装过 Docker 的 Win10 21H2+ / Win11 各一
+- [ ] **E9-2** 严格按 §2 检查表执行；任一条 fail → 打回源码侧修复 → 重新出包
+- [ ] **E9-3** 业务主链路验证：登录 → 新建项目 → 新建申请+序列 → 上传 PDF → 触发验证 → 导出 ZIP → 用 ERIS 或同类工具校验 ZIP 结构合规
+- [ ] **E9-4** 重启幂等：关闭 → 再开 → 数据保留、不重复 seed、激活状态保留
+- [ ] **E9-5** 激活码全链路：未激活弹激活页 → 复制指纹 → 拿真实激活码激活成功 → 模拟过期（重签短期激活码）→ 业务 API 拒绝 → 重激活恢复
+- [ ] **E9-6** 卸载验证：
+  - Mac：拖到废纸篓后再装能恢复（数据目录默认保留）
+  - Windows：控制面板卸载，程序文件清干净 + `%APPDATA%\eCTDTool\` 默认保留
+- [ ] **E9-7** 输出《冷装测试报告》：用 §2 检查表做 checklist，附截图，归档到 `docs/release-notes/v<ver>-cold-install.md`
+
+---
+
+## 2. 冷装测试 Release Gate（每次发版必跑）
+
+> 四段式：**A 源码侧 → B 打包侧 → C 冷装机测试 → D 客户侧**。任一条 `[ ]` 未打勾，**不得**交付客户。
+
+### 2.1 A 段：源码侧（打包前 git 仓库自检）
+
+- [ ] **A1** `backend/prisma/schema.sqlite.prisma` 与 `schema.prisma` 的 model/字段集合一致（`prisma:check-parity` 退出码 0）
+- [ ] **A2** `desktop/main/backend-process.ts` 的 backend 健康端点轮询路径与 `backend/src/main.ts` 实际暴露的健康端点一致；**统一 `/health`** 不要带 `/api/` 前缀（健康检查路径不一致是导致 backend 永远 unhealthy → 主窗口拉不起的高频根因）
+- [ ] **A3** `desktop/main/backend-process.ts` 的 fork env 必须显式传入 backend 所有 `process.env.X`：
+  - 跑 `grep -rohE "process\.env\.[A-Z_]+" backend/src | sort -u`，比对 `backend-process.ts` env 字典必须全覆盖
+  - 缺失任一变量（典型如 `JWT_EXPIRES_IN`）会导致运行时崩溃，且只有走到具体业务路径才暴露
+- [ ] **A4** 路径含空格的处理：`app.getPath('userData')` 在 Mac 下含空格（`Application Support`），所有传给子进程的路径**只通过环境变量传**，绝不拼成 shell 字符串或写入 `.env` 文件不加引号
+- [ ] **A5** 幂等判断不依赖标记文件 / 空目录，必须查关键文件本身：
+  - reference 是否需要释放：判断 `<userData>/reference/cv-application-type.xml` 是否存在
+  - SQLite 是否需要 migrate：交给 `prisma migrate deploy` 自己幂等判断
+  - 是否需要 seed：查具体表是否有 row，不查标记文件
+  - 标记文件法的失败模式：用户清掉数据但保留标记 / 子进程异常创建空目录骗过判断
+- [ ] **A6** `better-sqlite3` 等原生模块预编译产物对齐目标平台/架构（Mac arm64 + x64 + Win x64 至少三套）
+- [ ] **A7** `desktop/electron-builder.yml` 的 `asarUnpack` 包含全部 `.node` + 原生 npm 模块
+- [ ] **A8** `docs/update_log.md` 最新一条与代码改动对齐
+- [ ] **A9** 后端日志关闭明文输出敏感信息（数据库连接串、激活码、JWT secret）
+
+### 2.2 B 段：打包侧（构建机上跑 build 前后）
+
+- [ ] **B1** 构建机能产出 mac-arm64 / mac-x64 / win-x64 三套 `better-sqlite3` 预编译产物（用 `prebuild-install` 或 `electron-builder` 自动）
+- [ ] **B2** 打包产物在干净路径下 `tar/dmg/exe` 解压/挂载/安装能成功；安装目录无残留临时文件
+- [ ] **B3** 构建机本地起一次 backend bundle 跑业务 smoke：`node desktop/build/backend.bundle.js` 启动后 curl `/health` 200，登录 API 通
+- [ ] **B4** 包大小：单平台 dmg/exe 在 150-250MB；超出则查哪一层意外膨胀（重点查 `node_modules` 重复打入）
+- [ ] **B5** SHA256 同目录产出 `eCTDTool-v<ver>-<platform>.{dmg,exe}.sha256` 与 `SHA256SUMS.txt`
+- [ ] **B6** 测试激活码签发链路：用 `tools/issue-license/issue-license.js` 签一张占位指纹激活码，启动 Electron 用 `MACHINE_ID_OVERRIDE=<占位指纹>` 校验通过
+
+### 2.3 C 段：冷装机测试（每版必跑）
+
+> "冷装机"严格定义：**从未跑过本项目的机器**。不能在构建机/开发机/已装过某版的机器上测——那些机器有缓存的 npm/原生模块/数据目录，会掩盖真实新客户首装问题。
+
+- [ ] **C1** 双击 `.dmg` → 拖入 Applications → 双击 `eCTDTool.app`：未公证版本会弹 Gatekeeper（公证后无）
+- [ ] **C2** 公证后双击直接出窗口，无任何系统警告
+- [ ] **C3** 启动时间 < 5s 出窗口（首次首启可放宽到 10s）
+- [ ] **C4** 首启自动建数据目录、复制 reference（sentinel 判断关键文件存在）、跑 migrate + seed
+- [ ] **C5** 激活页显示机器指纹 → 复制 → 用真实激活码激活成功 → 跳转主界面
+- [ ] **C6** 业务主链路：登录 → 项目 → 申请+序列 → 上传 PDF → 验证 → 导出 ZIP → 校验 ZIP 结构（含 `index.xml` + `cn-regional.xml` + `index-md5.txt` + 文件树）
+- [ ] **C7** Cmd+Q / 关窗口后无残留进程：`pgrep -f backend.bundle` 应为空
+- [ ] **C8** 重新双击启动，数据保留、激活状态保留、上传文件保留
+- [ ] **C9** 端口冲突场景：先开一个占用 18080 的进程，再启 eCTDTool —— 因为 backend 监听随机端口，本项**自动免疫**
+- [ ] **C10** 把整个 `<userData>` 复制到第二台机器，启动后激活码失效（指纹变更），符合预期；删除 `<userData>/machine-id.txt` 重启后指纹仍稳定
+
+### 2.4 D 段：客户侧（分发前最终确认）
+
+- [ ] **D1** 客户机器最低规格：Mac (macOS 12+, 8GB 内存, 20GB 可用) / Win (Win10 21H2+, 8GB 内存, 20GB 可用)
+- [ ] **D2** 《客户使用指南.pdf》一同发出（含安装、首次激活、数据备份、卸载、Gatekeeper/SmartScreen 绕过截图）
+- [ ] **D3** 激活码签发台账维护：`客户名 + 机器码 + 签发日 + 到期日 + 私钥版本`（Excel/Airtable）
+- [ ] **D4** 到期前 30 天主动联系客户提示续期；激活码至少留 1 个月冗余
+
+### 2.5 E 段：已知坑对照表（持续累加）
+
+每次冷装测试或客户现场踩到的坑记录到此表，并在 A/B/C/D 段加对应检查项，避免同样的坑踩两次。
 
 | # | 首次发现 | 现象 | 根因 | 修复所在项 |
 |---|---|---|---|---|
-| 1 | 2026-04-24 首次冷装 | `Error response from daemon: reference does not exist` | `ectd-backend:latest` / `ectd-frontend:latest` 从未被 build（prod compose 没有 image tag） | A5 / B1 |
-| 2 | 2026-04-24 首次冷装 | redis 启动即 crash，`requirepass "--appendonly" "yes" wrong number of arguments` | 空 REDIS_PASSWORD + YAML 折叠字符串把下一个 flag 吞成密码值 | A2 / B3 |
-| 3 | 2026-04-24 首次冷装 | `P2021: table public.controlled_vocabulary does not exist` backend 无限重启 | 首次启动未执行 `prisma migrate deploy`，DB 为空 | A3 / C7 |
-| 4 | 2026-04-24 首次冷装 | 登录后无 CTD 目录 / CV 错误 | 未跑 `seed-ctd.js` 和 `seed.js` | A3 / C9 |
-| 5 | 2026-04-24 首次冷装 | 双击 Start.command 弹 "apple could not verify...free of malware" 且只给 "Move to Trash / Done" 两选项 | macOS Sonoma+ Gatekeeper 收紧，未签名 `.command` 需要 `xattr -dr com.apple.quarantine` 或系统设置里"仍要打开" | C2（长期：M5 签名 + 公证） |
-| 6 | 2026-04-24 首次冷装 | `The requested image's platform (linux/amd64) does not match... (linux/arm64/v8)` 警告持续 | 镜像只有 amd64，Apple Silicon 走 Rosetta 模拟 | B1（multi-arch build） |
-| 7 | 2026-04-24 首次冷装 | backend log: `Redis connection error: NOAUTH Authentication required` | **(更新根因)** 不是 env 传递，是 `backend/src/common/redis-cache.service.ts` 的 `new Redis({...})` 漏传 `password` 字段（BullModule 传了，单 cache service 漏了） | P0-6（已修） |
-| 8 | 2026-04-24 B3 复验 | `dependency failed to start: container ectd-desktop-backend is unhealthy`，frontend 永远启不来 | `backend/Dockerfile` 和 compose 的 healthcheck 打 `/api/health`，但 `main.ts` 注释明确"No global prefix"，实际路径是 `/health` → 永远 unhealthy | P0-7（已修；A 段加 A9 防回归） |
-| 9 | 2026-04-24 客户冷装 v0.3.0 | `.env: line 8: Support/eCTDTool: No such file or directory` | `.env.template` 的 `DATA_DIR=/Users/.../Application Support/eCTDTool` 路径含空格但**没加引号**，bash `source` 把空格后半段当命令执行 | P0-8（已修：build-mac.sh 模板加双引号） |
-| 10 | 2026-04-24 客户冷装 v0.3.0 | backend `ENOENT: no such file or directory, open '/reference/eCTD技术规范V1.1附件包/...'` | Start.command 用 `[[ ! -d "$DATA_ROOT/reference" ]]` 判断是否需要拷贝；但 docker bind mount 在 host 路径不存在时会自动创建空目录，导致首次失败重跑时判断"已存在 → 跳过拷贝"，挂载空目录给容器 → CV 文件找不到 | P0-9（已修：改用关键文件 sentinel `cv-application-type.xml` 是否存在判断） |
-| 11 | 2026-04-24 客户冷装 v0.3.0 | 登录 500：`"expiresIn" should be a number of seconds or string representing a timespan` | `auth.module.ts` 和 `auth.service.ts` 读 `JWT_EXPIRES_IN` / `JWT_REFRESH_EXPIRES_IN`，但 `.env.template` 和 `docker-compose.desktop.yml.environment` 都**没声明这两个变量** → undefined → jsonwebtoken 拒签 | P0-10（已修：build-mac.sh `.env.template` + compose `environment` 都加上，默认 `7d` / `30d`） |
-| 12 | 2026-04-25 客户冷装 v0.4.0 | `Error pull access denied for ectd-backend, repository does not exist` | Start.command 用 `[[ ! -f "$LOAD_MARK_FILE" ]]` 判断是否需要 docker load；用户清掉本地 docker images 但保留了 DATA_ROOT 下的 `.images_loaded` 标记文件 → 跳过 load → compose 找不到本地镜像试图从 hub 拉。和 P0-9 reference 同型 sentinel-vs-真实状态错位 | P0-11（已修：判断条件改为 `docker image inspect` 5 个镜像是否真的存在，不依赖标记文件） |
+| — | — | — | — | （首次冷装后开始累加） |
 
 ---
 
-## 2. Windows 版执行计划（Windows 10/11 64-bit）
+## 3. 风险与回退
 
-### 2.1 目标产物
+### 3.1 已识别风险
 
-单个 `.exe` 安装包：`eCTDTool-Setup-v1.0.0.exe`（Inno Setup 或 NSIS 打包），安装后：
-- `C:\Program Files\eCTDTool\` ← 启动器和静态文件
-- `%APPDATA%\eCTDTool\` ← 数据目录（postgres/redis/minio 卷、日志、license）
-- 开始菜单快捷方式 + 桌面快捷方式
-
-### 2.2 启动器
-
-用 **C# WinForms / WPF**（或 Electron-builder 包一个极轻壳）。功能同 Mac 版：
-
-1. 首次启动：
-   - 检测 Docker Desktop（`where docker`）→ 无则打开 https://www.docker.com/products/docker-desktop/ 下载页引导
-   - 检测 WSL2 是否就绪（Windows Docker Desktop 依赖 WSL2）
-   - `docker load` 加载镜像
-   - 释放 `docker-compose.desktop.yml` 到 `%APPDATA%\eCTDTool\`
-2. 每次启动：
-   - `docker compose up -d` → 健康检查 → 调用默认浏览器打开 `http://localhost:<port>`
-   - 系统托盘图标（NotifyIcon）：状态/停止/日志/退出
-3. 退出时：`docker compose down`
-
-### 2.3 机器指纹采集（Windows）
-
-```powershell
-$cpu = (Get-CimInstance Win32_Processor).ProcessorId
-$board = (Get-CimInstance Win32_BaseBoard).SerialNumber
-$mac = (Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1).MacAddress
-$fp = [BitConverter]::ToString(
-  [System.Security.Cryptography.SHA256]::Create().ComputeHash(
-    [Text.Encoding]::UTF8.GetBytes("$cpu$board$mac")
-  )
-) -replace '-','' | ForEach-Object { $_.Substring(0,16).ToLower() }
-```
-后端 `license.service.ts` 通过 `child_process.execSync('powershell ...')` 调用；失败时回退到 `wmic cpu get ProcessorId`（Win10 仍支持，Win11 部分版本已移除）。
-
-### 2.4 端口冲突
-
-同 Mac 版：默认 `18080/13000`，`netstat -ano | findstr :18080` 检测，递增尝试。
-
-### 2.5 代码签名
-
-- **EV Code Signing 证书** 或 **OV Code Signing 证书**（建议 EV，可直接白名单，避免 SmartScreen 警告；约 300-500 USD/年）
-- `signtool sign /f <cert.pfx> /p <pwd> /tr http://timestamp.digicert.com /td sha256 /fd sha256 eCTDTool-Setup.exe`
-- 未签名首次运行会触发 SmartScreen，需用户点"更多信息 → 仍要运行"
-
-### 2.6 Windows 版交付步骤
-
-| # | 任务 | 工时 |
-|---|---|---|
-| W1 | `docker-compose.desktop.yml`（Windows 路径：`%APPDATA%\eCTDTool\volumes\...`，注意卷路径在 WSL2 下转义） | 0.5d |
-| W2 | C# WinForms 启动器（托盘图标、首次初始化、端口自适应、Docker 状态检测） | 2.5d |
-| W3 | PowerShell 指纹采集脚本 + Node 侧 fallback 逻辑 | 0.5d |
-| W4 | 编写 `build-win.ps1`：`docker save` → 7z 压缩 → Inno Setup 打包成 `.exe` | 0.5d |
-| W5 | 采购 Code Signing 证书，配置签名流水线 | 0.5d（证书采购 1-3 天到账） |
-| W6 | 在 Windows 10 + Windows 11 两台干净机器上完整走一遍：安装 → 激活 → 使用 → 过期 → 重激活 | 1d |
-| W7 | 编写 Windows 版《安装说明.pdf》（含 WSL2 启用步骤截图） | 0.5d |
-
-**Windows 版独立工时**：约 6 天（不含证书采购等待）。
-
----
-
-## 3. 客户交付与升级流程
-
-### 3.1 首次交付
-1. 客户告知操作系统（Mac / Windows）
-2. 发送对应 `.dmg` 或 `.exe` 安装包（网盘/邮件）+ 《安装说明.pdf》
-3. 客户安装 Docker Desktop → 双击启动 → 激活页显示机器指纹
-4. 客户把**机器指纹 + 客户名称**发你（微信截图/邮件）
-5. 你方执行：`node tools/issue-license/issue-license.js --customer="某药企" --machineId="a1b2c3d4e5f6g7h8" --days=365`
-6. 生成的激活码字符串发客户 → 客户粘贴 → 激活成功 → 开始使用
-
-### 3.2 一年到期续期
-
-**方式 A：仅发激活码（推荐）**
-- 客户激活码到期前 30 天收到 banner 提示，联系你方
-- 你方用同一机器指纹重签一份激活码（`--days=365`）
-- 客户粘贴新激活码 → 继续使用，**无需重装**
-
-**方式 B：重发软件包**
-- 若产品有功能更新，发新版 `.dmg`/`.exe` + 新激活码
-- 客户双击安装（同路径覆盖）；数据目录 `~/Library/Application Support/eCTDTool` 或 `%APPDATA%\eCTDTool\` 保留，不丢数据
-- 启动 → 粘贴新激活码 → 继续使用
-
-### 3.3 换机
-
-- 客户换电脑 → 新机器双击启动 → 激活页显示**新机器指纹**
-- 客户发新指纹给你 → 你方重签激活码
-- 旧机器上的激活码自动失效（指纹不匹配）
-- 数据迁移：客户自行复制 `~/Library/Application Support/eCTDTool`（Mac）或 `%APPDATA%\eCTDTool`（Windows）整个目录到新机器对应位置即可
-
----
-
-## 4. 开发排期（建议顺序）
-
-| 周 | Mac 线 | Windows 线 | 共用 |
+| # | 风险 | 等级 | 缓解 |
 |---|---|---|---|
-| W1 | — | — | C1–C10 全部共用部分（License 模块、签发 CLI、镜像构建脚本） |
-| W2 | M1–M3 | W1（可并行） | — |
-| W3 | M4–M5 | W2–W3 | — |
-| W4 | M6–M7 | W4–W5 | — |
-| W5 | 客户 Mac 试用 | W6–W7 | — |
-| W6 | — | 客户 Windows 试用 | 回归修复 |
+| R1 | Prisma SQLite 在大表 Json 字段查询性能不佳 | 中 | 业务上 Json 主要存配置/元数据，单序列最多几百行；性能退化时启用 SQLite JSON1 扩展或抽字段 |
+| R2 | BullMQ 改同步后，导出大序列 > 30s 用户感觉卡 | 中 | 用 SSE 推进度；极端场景退一步用 Node `worker_threads` 跑 CPU 密集任务 |
+| R3 | `better-sqlite3` 在客户特殊 macOS / Windows 版本上加载失败 | 低 | electron-builder 默认走预编译 + `electron-rebuild` 兜底；预编译三平台都打 |
+| R4 | 客户 IT 限制无法运行未签名 .exe / .app | **高** | E8-3 / E8-4 投资 Apple Developer ID + EV 代码证书是必经之路；未签前提供绕过文档（Mac `xattr -dr com.apple.quarantine`、Win 右键属性勾选解除阻止） |
+| R5 | 双 schema 长期维护成本 | 中 | Web 版已确认废弃，过渡期保留双 provider 仅为不打乱开发；E1 完成后 1-2 个迭代收敛为只用 SQLite |
+| R6 | 同步执行模式下 backend 单进程 OOM | 中 | E2-8 在大序列场景做内存峰值实测；流式处理大文件不要一次性 buffer |
 
-**总工时估算**：单人约 3 周（共用 3 天 + Mac 5.5 天 + Windows 6 天，加上集成联调和文档 buffer）。
-两人并行（一人 Mac 一人 Windows）可压缩到 2 周。
+### 3.2 回退方案
 
----
-
-## 5. 待确认事项
-
-- [ ] 客户用 Mac 还是 Windows？或两个都要？（决定是否两条线并行）
-- [ ] 是否采购代码签名证书（Apple Developer + Windows EV）？不采购则客户需手动绕过系统安全提示
-- [ ] 默认浏览器打开还是内嵌 WebView（Electron/WebView2）？**建议默认浏览器**，成本低且无需打包 Chromium，体积减少 150 MB+
-- [ ] 数据备份策略：是否在启动器里加"一键导出数据"按钮（打包 `postgres` + `minio` 卷为 `.zip`）？
+- E1 持久层迁移**最关键**，建议在动 Electron 之前先单独把 SQLite 跑通（保留 PG 不动，新增 SQLite 测通即可继续 E2）
+- 如某阶段被卡超过 2 天，先把已完成阶段的产出合并到主分支，作为部分可用版本，避免长分支漂移
+- License 模块、密钥对、签发 CLI 已经存在且独立可用，回退不影响授权链路
 
 ---
 
-## 6. 产出里程碑（L 级别参照 CLAUDE.md §8）
+## 4. 进度追踪
 
-- **L1**：共用 License 模块完成，Web 版已通过激活码控制
-- **L2**：Mac 版 DMG 在干净机器上完成"安装 → 激活 → 使用 → 过期 → 重激活"全链路
-- **L3**：Windows 版 EXE 同 L2；两个版本功能与 Web 版一致性回归通过
-- **L4**：首个客户实际收到安装包并完成激活使用
+> Agent 完成阶段时勾选并同步 `docs/update_log.md`。
+
+- [ ] E1 持久层迁移完成
+- [ ] E2 Redis 抽象 + BullMQ 同步执行完成
+- [ ] E3 文件存储抽象完成
+- [ ] E4 嵌入式 NestJS 启动改造完成
+- [ ] E5 Electron 壳完成
+- [ ] E6 前端 Electron 适配完成
+- [ ] E7 指纹本地化完成
+- [ ] E8 electron-builder 打包脚本完成
+- [ ] E9 冷装测试通过 + 首版 dmg/exe 交付客户
