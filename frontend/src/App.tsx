@@ -6,6 +6,8 @@ import zhCN from 'antd/locale/zh_CN';
 import BasicLayout from './layouts/BasicLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import LoginPage from './pages/auth/LoginPage';
+import ActivationPage from './pages/license/ActivationPage';
+import { EnvironmentProvider } from './contexts/EnvironmentContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,6 +26,7 @@ const ProjectDetailPage = lazy(() => import('./pages/project/ProjectDetailPage')
 const ApplicationDetailPage = lazy(() => import('./pages/application/ApplicationDetailPage'));
 const EditorPage = lazy(() => import('./pages/editor/EditorPage'));
 const NotificationListPage = lazy(() => import('./pages/notification/NotificationListPage'));
+const AboutPage = lazy(() => import('./pages/about/AboutPage'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -35,10 +38,21 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
     <ConfigProvider locale={zhCN}>
+      <EnvironmentProvider>
       <BrowserRouter>
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            {/* Activation must be reachable while logged in but unactivated;
+                ProtectedRoute lets it through when path === '/activation' */}
+            <Route
+              path="/activation"
+              element={
+                <ProtectedRoute>
+                  <ActivationPage />
+                </ProtectedRoute>
+              }
+            />
             {/* Editor page — full-screen, no BasicLayout wrapper */}
             <Route
               path="/sequences/:seqId"
@@ -69,12 +83,14 @@ function App() {
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
               <Route path="/projects/:id/applications/:appId" element={<ApplicationDetailPage />} />
               <Route path="/notifications" element={<NotificationListPage />} />
+              <Route path="/about" element={<AboutPage />} />
             </Route>
             <Route path="/" element={<Navigate to="/projects" replace />} />
             <Route path="*" element={<Navigate to="/projects" replace />} />
           </Routes>
         </Suspense>
       </BrowserRouter>
+      </EnvironmentProvider>
     </ConfigProvider>
     </QueryClientProvider>
   );

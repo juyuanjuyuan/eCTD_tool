@@ -7,9 +7,11 @@ import {
   UserOutlined,
   SettingOutlined,
   LogoutOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../stores/useAuthStore';
 import NotificationCenter from '../components/NotificationCenter';
+import LicenseBanner from '../components/LicenseBanner';
 
 const { Header, Sider, Content } = Layout;
 
@@ -28,6 +30,12 @@ const BasicLayout: React.FC = () => {
 
   const userMenuItems = [
     { key: 'profile', icon: <UserOutlined />, label: user?.name || '' },
+    {
+      key: 'about',
+      icon: <InfoCircleOutlined />,
+      label: '关于 / 激活信息',
+      onClick: () => navigate('/about'),
+    },
     {
       key: 'logout',
       icon: <LogoutOutlined />,
@@ -65,6 +73,7 @@ const BasicLayout: React.FC = () => {
             gap: 16,
           }}
         >
+          <LicenseBanner />
           <NotificationCenter />
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
             <Space style={{ cursor: 'pointer' }}>

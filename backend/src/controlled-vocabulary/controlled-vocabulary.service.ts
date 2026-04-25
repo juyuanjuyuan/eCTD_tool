@@ -24,10 +24,22 @@ export class ControlledVocabularyService implements OnModuleInit {
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
   });
-  private readonly cvBasePath = path.resolve(
-    process.cwd(),
-    '../reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包',
-  );
+  // Resolution order:
+  //   1. process.env.REFERENCE_DIR (Electron main injects this from <userData>/reference/)
+  //   2. ../reference/... relative to backend's cwd (dev path, run-from-backend)
+  // If neither resolves to an existing dir we skip seeding and log a warning;
+  // the customer-side embedded build is expected to populate via a pre-seeded
+  // first-run.db snapshot rather than parsing XMLs at runtime.
+  private readonly cvBasePath = (() => {
+    const fromEnv = process.env.REFERENCE_DIR;
+    if (fromEnv) {
+      return path.join(fromEnv, '附件1-2：受控词汇文件包');
+    }
+    return path.resolve(
+      process.cwd(),
+      '../reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包',
+    );
+  })();
 
   constructor(
     private prisma: PrismaService,
@@ -43,6 +55,15 @@ export class ControlledVocabularyService implements OnModuleInit {
     const existingCount = await this.prisma.controlledVocabulary.count();
     if (existingCount > 0) {
       this.logger.log('受控词汇数据已存在，跳过初始化');
+      return;
+    }
+
+    if (!fs.existsSync(this.cvBasePath)) {
+      this.logger.warn(
+        `受控词汇 reference 目录不存在 (${this.cvBasePath}); 跳过 XML 解析。` +
+          ` 桌面/embedded 构建应通过预生成的 first-run.db 填充该表。` +
+          ` 设置 REFERENCE_DIR 环境变量指向 reference 目录可启用 XML 解析。`,
+      );
       return;
     }
 

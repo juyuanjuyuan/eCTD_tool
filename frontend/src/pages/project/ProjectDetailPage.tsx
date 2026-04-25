@@ -36,6 +36,7 @@ import { cvApi } from '../../services/cv';
 import { userApi, type UserSearchResult } from '../../services/user';
 import { dashboardApi, type ProjectProgress, type MemberWorkload } from '../../services/dashboard';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { useEnvironment } from '../../contexts/EnvironmentContext';
 import type {
   Project,
   ProjectMember,
@@ -54,6 +55,7 @@ const ProjectDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
+  const { isDesktop } = useEnvironment();
   const [project, setProject] = useState<(Project & { members: ProjectMember[] }) | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [invitations, setInvitations] = useState<ProjectInvitation[]>([]);
@@ -497,12 +499,14 @@ const ProjectDetailPage: React.FC = () => {
                       >
                         添加成员
                       </Button>
-                      <Button
-                        icon={<MailOutlined />}
-                        onClick={() => setInviteModalOpen(true)}
-                      >
-                        邮箱邀请
-                      </Button>
+                      {!isDesktop && (
+                        <Button
+                          icon={<MailOutlined />}
+                          onClick={() => setInviteModalOpen(true)}
+                        >
+                          邮箱邀请
+                        </Button>
+                      )}
                       <Button
                         icon={<SwapOutlined />}
                         onClick={() => setTransferModalOpen(true)}

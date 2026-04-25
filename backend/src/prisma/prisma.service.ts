@@ -45,13 +45,34 @@ export class PrismaService
 
     if (dbProvider === 'sqlite') {
       // Lazy-load SQLite client to avoid hard build-time dependency when running PG only.
+      // Resolution order:
+      //   1. PRISMA_SQLITE_CLIENT_PATH (set by Electron main / embedded build)
+      //   2. Sibling `../generated/prisma-sqlite` (dev: src/prisma/.. → src/generated/...)
+      //   3. Sibling `./generated/prisma-sqlite` (embedded build: dist-embed/backend.bundle.js + dist-embed/generated/...)
       let PrismaSqliteClient: new (...args: any[]) => AnyPrismaClient;
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        ({ PrismaClient: PrismaSqliteClient } = require('../generated/prisma-sqlite'));
-      } catch (error) {
-        this.logger.error('SQLite Prisma client not found. Run: npm run prisma:sqlite:generate');
-        throw error;
+      const candidates = [
+        process.env.PRISMA_SQLITE_CLIENT_PATH,
+        '../generated/prisma-sqlite',
+        './generated/prisma-sqlite',
+      ].filter(Boolean) as string[];
+
+      let lastError: unknown;
+      for (const candidate of candidates) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          ({ PrismaClient: PrismaSqliteClient } = require(candidate));
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      if (!PrismaSqliteClient!) {
+        this.logger.error(
+          `SQLite Prisma client not found in any of: ${candidates.join(', ')}. ` +
+            `Run: npm run prisma:sqlite:generate`,
+        );
+        throw lastError ?? new Error('SQLite Prisma client missing');
       }
       this.sqliteClient = new PrismaSqliteClient({
         datasources: {

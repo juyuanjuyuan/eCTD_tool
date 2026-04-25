@@ -8,6 +8,15 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy, ICacheS
   private client: Redis;
 
   onModuleInit() {
+    // When CACHE_PROVIDER!=redis the PrismaModule injects MemoryCacheService
+    // instead of this service, but Nest still constructs (and inits) every
+    // declared provider. Skip the Redis connect to avoid noisy retry logs in
+    // desktop / sqlite mode where there is no Redis to begin with.
+    if ((process.env.CACHE_PROVIDER || 'memory') !== 'redis') {
+      this.logger.log('CACHE_PROVIDER!=redis, skipping Redis client init');
+      return;
+    }
+
     this.client = new Redis({
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT || '6379', 10),

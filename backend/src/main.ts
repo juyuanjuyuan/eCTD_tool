@@ -6,6 +6,10 @@ import * as winston from 'winston';
 import { AppModule } from './app.module';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { runSqliteMigrations } from './embedded/sqlite-migrator';
+import { autoSeedIfEmpty } from './embedded/auto-seed';
+import { resolveDatabaseFile, resolveMigrationsDir } from './embedded/embedded-paths';
+import { PrismaService } from './prisma/prisma.service';
 
 function createWinstonLogger() {
   const logLevel = process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
@@ -61,14 +65,78 @@ function createWinstonLogger() {
   });
 }
 
+/** Embedded mode: backend is forked by Electron main; report ready via IPC + stdout. */
+function isEmbedded(): boolean {
+  return process.env.EMBEDDED === 'true';
+}
+
+function reportReady(port: number) {
+  // Always print a stdout line — works even without an IPC channel (tests / standalone exec)
+  console.log(`READY ${port}`);
+  if (typeof process.send === 'function') {
+    try {
+      process.send({ type: 'ready', port });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function reportError(err: unknown) {
+  const msg = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+  console.error(`ERROR ${msg}`);
+  if (typeof process.send === 'function') {
+    try {
+      process.send({ type: 'error', error: msg });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function maybeRunMigrationsAndSeed() {
+  // Auto-migrate is the default in embedded mode. In dev we expect the user to
+  // run `prisma migrate dev` manually, so we only enable when explicitly asked.
+  const shouldMigrate =
+    process.env.AUTO_MIGRATE === 'true' || (isEmbedded() && process.env.AUTO_MIGRATE !== 'false');
+
+  if (!shouldMigrate) return;
+  if (process.env.DB_PROVIDER !== 'sqlite') {
+    Logger.log('AUTO_MIGRATE=true but DB_PROVIDER!=sqlite, skipping', 'Bootstrap');
+    return;
+  }
+
+  const migrationsDir = resolveMigrationsDir();
+  const databaseFile = resolveDatabaseFile();
+
+  // Prisma resolves a relative file: URL against the schema file's directory.
+  // After `build:embed`, the schema lives in dist-embed/generated/prisma-sqlite/,
+  // which is NOT where the customer's data file lives. Force an absolute URL so
+  // both the migrator and the Prisma client point to the same place.
+  process.env.DATABASE_URL = `file:${databaseFile}`;
+
+  Logger.log(`Running SQLite migrations from ${migrationsDir} → ${databaseFile}`, 'Bootstrap');
+  runSqliteMigrations({ migrationsDir, databaseFile });
+}
+
+async function maybeAutoSeed(app: any) {
+  const shouldSeed =
+    process.env.AUTO_SEED === 'true' || (isEmbedded() && process.env.AUTO_SEED !== 'false');
+  if (!shouldSeed) return;
+
+  const prisma = app.get(PrismaService);
+  await autoSeedIfEmpty({ prisma });
+}
+
 async function bootstrap() {
+  await maybeRunMigrationsAndSeed();
+
   const app = await NestFactory.create(AppModule, {
     logger: createWinstonLogger(),
   });
 
-  // Global API prefix
-  // Controllers already include 'api/v1' in their paths
-  // No global prefix needed to avoid double '/api/api/v1'
+  // Graceful shutdown — Nest hooks into SIGTERM/SIGINT once enableShutdownHooks() is called.
+  app.enableShutdownHooks();
 
   // CORS
   const allowedOrigins = process.env.CORS_ORIGINS
@@ -117,8 +185,38 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, document);
   }
 
-  const port = process.env.PORT ?? 3000;
-  await app.listen(port);
-  Logger.log(`Application running on port ${port}`, 'Bootstrap');
+  // Port: default 3000 in dev, 0 (random) when embedded so multiple installs don't conflict.
+  const portFromEnv = process.env.PORT;
+  const requestedPort =
+    portFromEnv !== undefined ? Number(portFromEnv) : isEmbedded() ? 0 : 3000;
+
+  await app.listen(requestedPort);
+
+  await maybeAutoSeed(app);
+
+  const server = app.getHttpServer();
+  const address = server.address();
+  const actualPort =
+    typeof address === 'object' && address ? address.port : Number(requestedPort);
+
+  Logger.log(`Application running on port ${actualPort}`, 'Bootstrap');
+  reportReady(actualPort);
+
+  const shutdown = async (signal: string) => {
+    Logger.log(`Received ${signal}, shutting down gracefully`, 'Bootstrap');
+    try {
+      await app.close();
+    } catch (err) {
+      Logger.error(`Error during shutdown: ${err}`, 'Bootstrap');
+    } finally {
+      process.exit(0);
+    }
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
-bootstrap();
+
+bootstrap().catch((err) => {
+  reportError(err);
+  process.exit(1);
+});
