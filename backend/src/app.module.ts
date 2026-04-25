@@ -24,6 +24,7 @@ import { NotificationModule } from './notification/notification.module';
 import { CollaborationModule } from './collaboration/collaboration.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { HealthModule } from './health/health.module';
+import { LicenseModule } from './license/license.module';
 
 const queueProvider = process.env.QUEUE_PROVIDER || 'sync';
 const bullRootImports =
@@ -45,6 +46,7 @@ const bullRootImports =
     ...bullRootImports,
     PrismaModule,
     HealthModule,
+    LicenseModule,
     AuthModule,
     UserModule,
     ProjectModule,
