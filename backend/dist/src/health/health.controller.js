@@ -13,6 +13,7 @@ exports.HealthController = void 0;
 const common_1 = require("@nestjs/common");
 const terminus_1 = require("@nestjs/terminus");
 const prisma_service_1 = require("../prisma/prisma.service");
+const public_decorator_1 = require("../license/public.decorator");
 let HealthController = class HealthController {
     health;
     prisma;
@@ -38,6 +39,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], HealthController.prototype, "check", null);
 exports.HealthController = HealthController = __decorate([
+    (0, public_decorator_1.Public)(),
     (0, common_1.Controller)('health'),
     __metadata("design:paramtypes", [terminus_1.HealthCheckService,
         prisma_service_1.PrismaService])

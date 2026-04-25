@@ -6,8 +6,8 @@ export declare class SequenceService {
     private cvService;
     constructor(prisma: PrismaService, cvService: ControlledVocabularyService);
     create(regulatoryActivityId: string, dto: CreateSequenceDto): Promise<{
-        id: string;
         description: string;
+        id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
@@ -30,8 +30,8 @@ export declare class SequenceService {
             relatedSequence: string;
         };
         isNewRa: boolean;
-        id: string;
         description: string;
+        id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
@@ -45,8 +45,8 @@ export declare class SequenceService {
         contactEmail: string;
     }>;
     findAllByRegulatoryActivity(regulatoryActivityId: string): Promise<{
-        id: string;
         description: string;
+        id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
@@ -81,8 +81,8 @@ export declare class SequenceService {
             relatedSequence: string;
         };
     } & {
-        id: string;
         description: string;
+        id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
@@ -96,8 +96,8 @@ export declare class SequenceService {
         contactEmail: string;
     }>;
     update(id: string, dto: UpdateSequenceDto): Promise<{
-        id: string;
         description: string;
+        id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
@@ -111,8 +111,8 @@ export declare class SequenceService {
         contactEmail: string;
     }>;
     remove(id: string): Promise<{
-        id: string;
         description: string;
+        id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;

@@ -11,14 +11,15 @@ export declare class StudyController {
             id: string;
             sortOrder: number;
             name: string;
-            studyId: string;
             value: string;
+            studyId: string;
             infoType: string;
         }[];
         documents: ({
             fileAttachment: {
                 id: string;
                 createdAt: Date;
+                sequenceNodeId: string;
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
@@ -29,21 +30,20 @@ export declare class StudyController {
                 fileSize: bigint;
                 md5Checksum: string;
                 isReference: boolean;
-                uploadedBy: string | null;
-                sequenceNodeId: string;
                 referenceFileId: string | null;
+                uploadedBy: string | null;
             };
         } & {
             id: string;
             sortOrder: number;
-            fileAttachmentId: string;
             studyId: string;
+            fileAttachmentId: string;
             fileTag: string;
             fileTagInfoType: string;
         })[];
     } & {
-        ctdSectionNumber: string;
         id: string;
+        ctdSectionNumber: string;
         createdAt: Date;
         updatedAt: Date;
         sequenceId: string;
@@ -61,14 +61,15 @@ export declare class StudyController {
             id: string;
             sortOrder: number;
             name: string;
-            studyId: string;
             value: string;
+            studyId: string;
             infoType: string;
         }[];
         documents: ({
             fileAttachment: {
                 id: string;
                 createdAt: Date;
+                sequenceNodeId: string;
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
@@ -79,21 +80,20 @@ export declare class StudyController {
                 fileSize: bigint;
                 md5Checksum: string;
                 isReference: boolean;
-                uploadedBy: string | null;
-                sequenceNodeId: string;
                 referenceFileId: string | null;
+                uploadedBy: string | null;
             };
         } & {
             id: string;
             sortOrder: number;
-            fileAttachmentId: string;
             studyId: string;
+            fileAttachmentId: string;
             fileTag: string;
             fileTagInfoType: string;
         })[];
     } & {
-        ctdSectionNumber: string;
         id: string;
+        ctdSectionNumber: string;
         createdAt: Date;
         updatedAt: Date;
         sequenceId: string;
@@ -108,22 +108,23 @@ export declare class StudyController {
     })[]>;
     getOne(id: string): Promise<{
         sequenceNode: {
-            ctdSectionNumber: string;
             id: string;
+            ctdSectionNumber: string;
             title: string;
         };
         categories: {
             id: string;
             sortOrder: number;
             name: string;
-            studyId: string;
             value: string;
+            studyId: string;
             infoType: string;
         }[];
         documents: ({
             fileAttachment: {
                 id: string;
                 createdAt: Date;
+                sequenceNodeId: string;
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
@@ -134,21 +135,20 @@ export declare class StudyController {
                 fileSize: bigint;
                 md5Checksum: string;
                 isReference: boolean;
-                uploadedBy: string | null;
-                sequenceNodeId: string;
                 referenceFileId: string | null;
+                uploadedBy: string | null;
             };
         } & {
             id: string;
             sortOrder: number;
-            fileAttachmentId: string;
             studyId: string;
+            fileAttachmentId: string;
             fileTag: string;
             fileTagInfoType: string;
         })[];
     } & {
-        ctdSectionNumber: string;
         id: string;
+        ctdSectionNumber: string;
         createdAt: Date;
         updatedAt: Date;
         sequenceId: string;
@@ -166,14 +166,15 @@ export declare class StudyController {
             id: string;
             sortOrder: number;
             name: string;
-            studyId: string;
             value: string;
+            studyId: string;
             infoType: string;
         }[];
         documents: ({
             fileAttachment: {
                 id: string;
                 createdAt: Date;
+                sequenceNodeId: string;
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
@@ -184,21 +185,20 @@ export declare class StudyController {
                 fileSize: bigint;
                 md5Checksum: string;
                 isReference: boolean;
-                uploadedBy: string | null;
-                sequenceNodeId: string;
                 referenceFileId: string | null;
+                uploadedBy: string | null;
             };
         } & {
             id: string;
             sortOrder: number;
-            fileAttachmentId: string;
             studyId: string;
+            fileAttachmentId: string;
             fileTag: string;
             fileTagInfoType: string;
         })[];
     } & {
-        ctdSectionNumber: string;
         id: string;
+        ctdSectionNumber: string;
         createdAt: Date;
         updatedAt: Date;
         sequenceId: string;
@@ -216,14 +216,15 @@ export declare class StudyController {
             id: string;
             sortOrder: number;
             name: string;
-            studyId: string;
             value: string;
+            studyId: string;
             infoType: string;
         }[];
         documents: ({
             fileAttachment: {
                 id: string;
                 createdAt: Date;
+                sequenceNodeId: string;
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
@@ -234,21 +235,20 @@ export declare class StudyController {
                 fileSize: bigint;
                 md5Checksum: string;
                 isReference: boolean;
-                uploadedBy: string | null;
-                sequenceNodeId: string;
                 referenceFileId: string | null;
+                uploadedBy: string | null;
             };
         } & {
             id: string;
             sortOrder: number;
-            fileAttachmentId: string;
             studyId: string;
+            fileAttachmentId: string;
             fileTag: string;
             fileTagInfoType: string;
         })[];
     } & {
-        ctdSectionNumber: string;
         id: string;
+        ctdSectionNumber: string;
         createdAt: Date;
         updatedAt: Date;
         sequenceId: string;
@@ -270,14 +270,15 @@ export declare class StudyController {
             id: string;
             sortOrder: number;
             name: string;
-            studyId: string;
             value: string;
+            studyId: string;
             infoType: string;
         }[];
         documents: ({
             fileAttachment: {
                 id: string;
                 createdAt: Date;
+                sequenceNodeId: string;
                 xmlLang: string;
                 originalName: string;
                 storedName: string;
@@ -288,21 +289,20 @@ export declare class StudyController {
                 fileSize: bigint;
                 md5Checksum: string;
                 isReference: boolean;
-                uploadedBy: string | null;
-                sequenceNodeId: string;
                 referenceFileId: string | null;
+                uploadedBy: string | null;
             };
         } & {
             id: string;
             sortOrder: number;
-            fileAttachmentId: string;
             studyId: string;
+            fileAttachmentId: string;
             fileTag: string;
             fileTagInfoType: string;
         })[];
     } & {
-        ctdSectionNumber: string;
         id: string;
+        ctdSectionNumber: string;
         createdAt: Date;
         updatedAt: Date;
         sequenceId: string;

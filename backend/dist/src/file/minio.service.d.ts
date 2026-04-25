@@ -1,22 +1,23 @@
 import { OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Readable } from 'stream';
-export declare class MinioService implements OnModuleInit {
-    private config;
+import { IFileStorage } from './storage.interface';
+export declare class MinioService implements OnModuleInit, IFileStorage {
+    private readonly config;
     private readonly logger;
-    private client;
-    private presignClient;
-    private bucket;
+    private readonly delegate;
+    private readonly providerName;
     constructor(config: ConfigService);
     onModuleInit(): Promise<void>;
-    uploadFile(objectName: string, buffer: Buffer, contentType?: string): Promise<string>;
-    uploadFileStream(objectName: string, stream: Readable, fileSize: number, contentType?: string): Promise<string>;
-    getFile(objectName: string): Promise<Buffer>;
-    getFileStream(objectName: string): Promise<Readable>;
-    fileExists(objectName: string): Promise<boolean>;
-    deleteFile(objectName: string): Promise<void>;
-    getPresignedDownloadUrl(objectName: string, expirySeconds?: number): Promise<string>;
-    getPresignedPreviewUrl(objectName: string, expirySeconds?: number): Promise<string>;
+    getDelegate(): IFileStorage;
+    isLocal(): boolean;
+    uploadFile(key: string, buffer: Buffer, contentType?: string): Promise<string>;
+    uploadFileStream(key: string, stream: Readable, fileSize: number, contentType?: string): Promise<string>;
+    getFile(key: string): Promise<Buffer>;
+    getFileStream(key: string): Promise<Readable>;
+    fileExists(key: string): Promise<boolean>;
+    deleteFile(key: string): Promise<void>;
+    getPresignedDownloadUrl(key: string, expirySeconds?: number): Promise<string>;
+    getPresignedPreviewUrl(key: string, expirySeconds?: number): Promise<string>;
     calculateMd5(buffer: Buffer): string;
-    private streamToBuffer;
 }

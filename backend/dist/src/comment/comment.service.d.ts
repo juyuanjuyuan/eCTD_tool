@@ -14,8 +14,8 @@ export declare class CommentService {
         createdAt: Date;
         userId: string;
         content: string;
-        sequenceNodeId: string;
         mentions: import("@prisma/client/runtime/library").JsonValue | null;
+        sequenceNodeId: string;
     }>;
     getComments(nodeId: string): Promise<{
         replies: ({
@@ -29,8 +29,8 @@ export declare class CommentService {
             createdAt: Date;
             userId: string;
             content: string;
-            sequenceNodeId: string;
             mentions: import("@prisma/client/runtime/library").JsonValue | null;
+            sequenceNodeId: string;
         })[];
         user: {
             id: string;
@@ -41,8 +41,8 @@ export declare class CommentService {
         createdAt: Date;
         userId: string;
         content: string;
-        sequenceNodeId: string;
         mentions: import("@prisma/client/runtime/library").JsonValue | null;
+        sequenceNodeId: string;
     }[]>;
     deleteComment(commentId: string, userId: string, userRole: string): Promise<{
         message: string;

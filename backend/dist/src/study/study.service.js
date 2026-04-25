@@ -16,6 +16,7 @@ const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const controlled_vocabulary_service_1 = require("../controlled-vocabulary/controlled-vocabulary.service");
 const study_tagging_file_service_1 = require("../ectd/services/study-tagging-file.service");
+const json_field_helper_1 = require("../common/json-field.helper");
 let StudyService = StudyService_1 = class StudyService {
     prisma;
     cvService;
@@ -296,7 +297,7 @@ let StudyService = StudyService_1 = class StudyService {
             where: { ctdSectionNumber },
             select: { defaultStfCategories: true },
         });
-        const defaults = node?.defaultStfCategories;
+        const defaults = (0, json_field_helper_1.parseJsonField)(node?.defaultStfCategories, null);
         if (Array.isArray(defaults)) {
             for (const def of defaults) {
                 if (def.required && !categoryNames.has(def.name)) {

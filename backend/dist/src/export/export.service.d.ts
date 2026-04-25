@@ -1,4 +1,3 @@
-import type { Queue } from 'bull';
 import { PrismaService } from '../prisma/prisma.service';
 import { WordExportService } from './word-export.service';
 import { PDFExportService } from './pdf-export.service';
@@ -21,7 +20,7 @@ export declare class ExportService {
     private pdfCompliance;
     private exportQueue;
     private minioService?;
-    constructor(prisma: PrismaService, wordExport: WordExportService, pdfExport: PDFExportService, pdfCompliance: PDFComplianceService, exportQueue: Queue, minioService?: MinioService | undefined);
+    constructor(prisma: PrismaService, wordExport: WordExportService, pdfExport: PDFExportService, pdfCompliance: PDFComplianceService, exportQueue: any, minioService?: MinioService | undefined);
     exportWordSingle(nodeId: string, headerText?: string): Promise<ExportResult>;
     exportPdfSingle(nodeId: string, headerText?: string): Promise<ExportResult>;
     exportWordBatch(sequenceId: string, nodeIds: string[], headerText?: string): Promise<{

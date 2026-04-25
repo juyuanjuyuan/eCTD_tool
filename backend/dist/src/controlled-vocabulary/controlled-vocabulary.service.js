@@ -58,7 +58,13 @@ let ControlledVocabularyService = ControlledVocabularyService_1 = class Controll
         ignoreAttributes: false,
         attributeNamePrefix: '@_',
     });
-    cvBasePath = path.resolve(process.cwd(), '../reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包');
+    cvBasePath = (() => {
+        const fromEnv = process.env.REFERENCE_DIR;
+        if (fromEnv) {
+            return path.join(fromEnv, '附件1-2：受控词汇文件包');
+        }
+        return path.resolve(process.cwd(), '../reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包');
+    })();
     constructor(prisma, cache) {
         this.prisma = prisma;
         this.cache = cache;
@@ -71,6 +77,12 @@ let ControlledVocabularyService = ControlledVocabularyService_1 = class Controll
         const existingCount = await this.prisma.controlledVocabulary.count();
         if (existingCount > 0) {
             this.logger.log('受控词汇数据已存在，跳过初始化');
+            return;
+        }
+        if (!fs.existsSync(this.cvBasePath)) {
+            this.logger.warn(`受控词汇 reference 目录不存在 (${this.cvBasePath}); 跳过 XML 解析。` +
+                ` 桌面/embedded 构建应通过预生成的 first-run.db 填充该表。` +
+                ` 设置 REFERENCE_DIR 环境变量指向 reference 目录可启用 XML 解析。`);
             return;
         }
         this.logger.log('开始解析受控词汇文件...');

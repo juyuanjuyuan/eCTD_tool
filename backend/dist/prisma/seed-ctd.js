@@ -33,12 +33,19 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.runCtdSeed = runCtdSeed;
 const client_1 = require("@prisma/client");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const fast_xml_parser_1 = require("fast-xml-parser");
 const stf_default_categories_js_1 = require("./seeds/stf-default-categories.js");
-const prisma = new client_1.PrismaClient();
+let prisma;
+function serializeJsonField(value) {
+    if (process.env.DB_PROVIDER === 'sqlite' && value !== null && typeof value === 'object') {
+        return JSON.stringify(value);
+    }
+    return value;
+}
 const XML_DIR = path.resolve(process.cwd(), '../reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包');
 function parseXmlFile(filename) {
     const filePath = path.join(XML_DIR, filename);
@@ -363,7 +370,7 @@ async function seedTemplateNodes() {
                 where: { elementName },
                 data: {
                     isRepeatable: true,
-                    instanceKeyFields: keys,
+                    instanceKeyFields: serializeJsonField(keys),
                 },
             });
             backfilledRepeatable += result.count;
@@ -399,11 +406,9 @@ async function seedTemplateNodes() {
                 requiresStf: nodeRequiresStf,
                 requiresESeal: node.requiresESeal,
                 allowsExtension: node.allowsExtension,
-                defaultStfCategories: defaultStfCategoriesValue,
+                defaultStfCategories: serializeJsonField(defaultStfCategoriesValue ?? null),
                 isRepeatable: node.isRepeatable,
-                instanceKeyFields: node.instanceKeyFields
-                    ? node.instanceKeyFields
-                    : undefined,
+                instanceKeyFields: serializeJsonField(node.instanceKeyFields ?? null),
                 sortOrder: node.sortOrder,
             },
         });
@@ -480,18 +485,26 @@ async function seedCompletenessRules(nameToId) {
     }
     console.log(`✓ Seeded ${ruleCount} completeness rules.`);
 }
-async function main() {
+async function runCtdSeed(client) {
+    prisma = client;
     console.log('=== CTD Template Seed ===');
     const nameToId = await seedTemplateNodes();
     await seedCompletenessRules(nameToId);
     console.log('=== CTD Template Seed Complete ===');
 }
-main()
-    .catch((e) => {
-    console.error('Seed failed:', e);
-    process.exit(1);
-})
-    .finally(async () => {
-    await prisma.$disconnect();
-});
+async function cliMain() {
+    prisma = new client_1.PrismaClient();
+    try {
+        await runCtdSeed(prisma);
+    }
+    finally {
+        await prisma.$disconnect();
+    }
+}
+if (require.main === module) {
+    cliMain().catch((e) => {
+        console.error('Seed failed:', e);
+        process.exit(1);
+    });
+}
 //# sourceMappingURL=seed-ctd.js.map

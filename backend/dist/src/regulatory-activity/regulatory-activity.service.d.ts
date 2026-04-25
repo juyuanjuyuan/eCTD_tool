@@ -37,8 +37,8 @@ export declare class RegulatoryActivityService {
             productTypeCode: string;
         };
         sequences: {
-            id: string;
             description: string;
+            id: string;
             status: import("@prisma/client").$Enums.SequenceStatus;
             createdAt: Date;
             updatedAt: Date;

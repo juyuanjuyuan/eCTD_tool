@@ -46,121 +46,88 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.MinioService = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
-const Minio = __importStar(require("minio"));
 const crypto = __importStar(require("crypto"));
+const local_storage_1 = require("./local-storage");
+const minio_storage_1 = require("./minio-storage");
 let MinioService = MinioService_1 = class MinioService {
     config;
     logger = new common_1.Logger(MinioService_1.name);
-    client;
-    presignClient;
-    bucket;
+    delegate;
+    providerName;
     constructor(config) {
         this.config = config;
-        this.bucket = this.config.get('MINIO_BUCKET', 'ectd-files');
-        const endpoint = this.config.get('MINIO_ENDPOINT', 'localhost');
-        const port = this.config.get('MINIO_PORT', 9000);
-        const accessKey = this.config.get('MINIO_ACCESS_KEY', 'ectd_minio');
-        const secretKey = this.config.get('MINIO_SECRET_KEY', 'ectd_minio_password');
-        this.client = new Minio.Client({
-            endPoint: endpoint,
-            port,
-            useSSL: false,
-            accessKey,
-            secretKey,
-        });
-        const publicUrl = this.config.get('MINIO_PUBLIC_URL', '');
-        if (publicUrl) {
-            const url = new URL(publicUrl);
-            this.presignClient = new Minio.Client({
-                endPoint: url.hostname,
-                port: parseInt(url.port, 10) || (url.protocol === 'https:' ? 443 : 80),
-                useSSL: url.protocol === 'https:',
-                accessKey,
-                secretKey,
+        const provider = (process.env.STORAGE_PROVIDER || 'local').toLowerCase();
+        if (provider === 'minio') {
+            this.providerName = 'minio';
+            this.delegate = new minio_storage_1.MinioStorage({
+                endpoint: this.config.get('MINIO_ENDPOINT', 'localhost'),
+                port: this.config.get('MINIO_PORT', 9000),
+                accessKey: this.config.get('MINIO_ACCESS_KEY', 'ectd_minio'),
+                secretKey: this.config.get('MINIO_SECRET_KEY', 'ectd_minio_password'),
+                bucket: this.config.get('MINIO_BUCKET', 'ectd-files'),
+                publicUrl: this.config.get('MINIO_PUBLIC_URL', ''),
             });
         }
         else {
-            this.presignClient = this.client;
+            this.providerName = 'local';
+            const dataDir = process.env.DATA_DIR || this.config.get('DATA_DIR') || '';
+            if (!dataDir) {
+                throw new Error('STORAGE_PROVIDER=local requires DATA_DIR (Electron main injects this).');
+            }
+            const presignSecret = process.env.STORAGE_PRESIGN_SECRET ||
+                this.config.get('STORAGE_PRESIGN_SECRET') ||
+                process.env.JWT_SECRET ||
+                this.config.get('JWT_SECRET') ||
+                '';
+            if (!presignSecret) {
+                throw new Error('STORAGE_PROVIDER=local requires STORAGE_PRESIGN_SECRET or JWT_SECRET.');
+            }
+            this.delegate = new local_storage_1.LocalStorage({
+                dataDir,
+                publicBaseUrl: process.env.PUBLIC_BASE_URL ||
+                    this.config.get('PUBLIC_BASE_URL', ''),
+                presignSecret,
+            });
         }
+        this.logger.log(`Storage provider: ${this.providerName}`);
     }
     async onModuleInit() {
-        try {
-            const exists = await this.client.bucketExists(this.bucket);
-            if (!exists) {
-                await this.client.makeBucket(this.bucket);
-                this.logger.log(`Bucket "${this.bucket}" created`);
-            }
-            else {
-                this.logger.log(`Bucket "${this.bucket}" ready`);
-            }
-        }
-        catch (err) {
-            this.logger.error(`MinIO initialization failed: ${err}`);
+        if (this.providerName === 'minio' && 'init' in this.delegate) {
+            await this.delegate.init();
         }
     }
-    async uploadFile(objectName, buffer, contentType) {
-        const md5 = crypto.createHash('md5').update(buffer).digest('hex');
-        const metaData = {};
-        if (contentType) {
-            metaData['Content-Type'] = contentType;
-        }
-        await this.client.putObject(this.bucket, objectName, buffer, buffer.length, metaData);
-        this.logger.log(`Uploaded: ${objectName} (${buffer.length} bytes, MD5: ${md5})`);
-        return md5;
+    getDelegate() {
+        return this.delegate;
     }
-    async uploadFileStream(objectName, stream, fileSize, contentType) {
-        const metaData = {};
-        if (contentType) {
-            metaData['Content-Type'] = contentType;
-        }
-        const { PassThrough } = await import('stream');
-        const passThrough = new PassThrough();
-        const hash = crypto.createHash('md5');
-        passThrough.on('data', (chunk) => {
-            hash.update(chunk);
-        });
-        stream.pipe(passThrough);
-        await this.client.putObject(this.bucket, objectName, passThrough, fileSize, metaData);
-        const md5 = hash.digest('hex');
-        this.logger.log(`Uploaded (stream): ${objectName} (${fileSize} bytes, MD5: ${md5})`);
-        return md5;
+    isLocal() {
+        return this.providerName === 'local';
     }
-    async getFile(objectName) {
-        const stream = await this.client.getObject(this.bucket, objectName);
-        return this.streamToBuffer(stream);
+    uploadFile(key, buffer, contentType) {
+        return this.delegate.uploadFile(key, buffer, contentType);
     }
-    async getFileStream(objectName) {
-        return this.client.getObject(this.bucket, objectName);
+    uploadFileStream(key, stream, fileSize, contentType) {
+        return this.delegate.uploadFileStream(key, stream, fileSize, contentType);
     }
-    async fileExists(objectName) {
-        try {
-            await this.client.statObject(this.bucket, objectName);
-            return true;
-        }
-        catch {
-            return false;
-        }
+    getFile(key) {
+        return this.delegate.getFile(key);
     }
-    async deleteFile(objectName) {
-        await this.client.removeObject(this.bucket, objectName);
-        this.logger.log(`Deleted: ${objectName}`);
+    getFileStream(key) {
+        return this.delegate.getFileStream(key);
     }
-    async getPresignedDownloadUrl(objectName, expirySeconds = 3600) {
-        return this.presignClient.presignedGetObject(this.bucket, objectName, expirySeconds);
+    fileExists(key) {
+        return this.delegate.fileExists(key);
     }
-    async getPresignedPreviewUrl(objectName, expirySeconds = 3600) {
-        return this.presignClient.presignedGetObject(this.bucket, objectName, expirySeconds, { 'response-content-disposition': 'inline' });
+    deleteFile(key) {
+        return this.delegate.deleteFile(key);
+    }
+    getPresignedDownloadUrl(key, expirySeconds = 3600) {
+        return this.delegate.getPresignedDownloadUrl(key, expirySeconds);
+    }
+    getPresignedPreviewUrl(key, expirySeconds = 3600) {
+        return this.delegate.getPresignedPreviewUrl(key, expirySeconds);
     }
     calculateMd5(buffer) {
         return crypto.createHash('md5').update(buffer).digest('hex');
-    }
-    streamToBuffer(stream) {
-        return new Promise((resolve, reject) => {
-            const chunks = [];
-            stream.on('data', (chunk) => chunks.push(chunk));
-            stream.on('end', () => resolve(Buffer.concat(chunks)));
-            stream.on('error', reject);
-        });
     }
 };
 exports.MinioService = MinioService;

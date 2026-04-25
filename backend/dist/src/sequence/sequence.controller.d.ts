@@ -4,8 +4,8 @@ export declare class SequenceController {
     private readonly sequenceService;
     constructor(sequenceService: SequenceService);
     create(raId: string, dto: CreateSequenceDto): Promise<{
-        id: string;
         description: string;
+        id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
@@ -19,8 +19,8 @@ export declare class SequenceController {
         contactEmail: string;
     }>;
     findAll(raId: string): Promise<{
-        id: string;
         description: string;
+        id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
@@ -55,8 +55,8 @@ export declare class SequenceController {
             relatedSequence: string;
         };
     } & {
-        id: string;
         description: string;
+        id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
@@ -70,8 +70,8 @@ export declare class SequenceController {
         contactEmail: string;
     }>;
     update(id: string, dto: UpdateSequenceDto): Promise<{
-        id: string;
         description: string;
+        id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;
@@ -85,8 +85,8 @@ export declare class SequenceController {
         contactEmail: string;
     }>;
     remove(id: string): Promise<{
-        id: string;
         description: string;
+        id: string;
         status: import("@prisma/client").$Enums.SequenceStatus;
         createdAt: Date;
         updatedAt: Date;

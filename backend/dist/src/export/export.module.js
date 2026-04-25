@@ -16,22 +16,27 @@ const word_export_service_1 = require("./word-export.service");
 const pdf_export_service_1 = require("./pdf-export.service");
 const pdf_compliance_service_1 = require("./pdf-compliance.service");
 const file_module_1 = require("../file/file.module");
+const sync_queue_runner_1 = require("../common/queue/sync-queue.runner");
+const bull_queue_adapter_1 = require("../common/queue/bull-queue.adapter");
+const queueProvider = process.env.QUEUE_PROVIDER || 'sync';
+const bullQueueImports = queueProvider === 'bull'
+    ? [
+        bull_1.BullModule.registerQueue({
+            name: 'export',
+            defaultJobOptions: {
+                removeOnComplete: 100,
+                removeOnFail: 50,
+                attempts: 1,
+            },
+        }),
+    ]
+    : [];
 let ExportModule = class ExportModule {
 };
 exports.ExportModule = ExportModule;
 exports.ExportModule = ExportModule = __decorate([
     (0, common_1.Module)({
-        imports: [
-            bull_1.BullModule.registerQueue({
-                name: 'export',
-                defaultJobOptions: {
-                    removeOnComplete: 100,
-                    removeOnFail: 50,
-                    attempts: 1,
-                },
-            }),
-            file_module_1.FileModule,
-        ],
+        imports: [...bullQueueImports, file_module_1.FileModule],
         controllers: [export_controller_1.ExportController],
         providers: [
             export_service_1.ExportService,
@@ -39,6 +44,26 @@ exports.ExportModule = ExportModule = __decorate([
             word_export_service_1.WordExportService,
             pdf_export_service_1.PDFExportService,
             pdf_compliance_service_1.PDFComplianceService,
+            {
+                provide: 'EXPORT_QUEUE',
+                useFactory: (exportProcessor, bullQueue) => {
+                    const provider = process.env.QUEUE_PROVIDER || 'sync';
+                    if (provider === 'sync') {
+                        return new sync_queue_runner_1.SyncQueueRunner({
+                            'word-batch': async (data, job) => exportProcessor.handleWordBatch({ data, id: job.id, progress: job.progress }),
+                            'pdf-batch': async (data, job) => exportProcessor.handlePdfBatch({ data, id: job.id, progress: job.progress }),
+                        });
+                    }
+                    if (!bullQueue) {
+                        throw new Error('Bull queue not initialized. Set QUEUE_PROVIDER=sync or configure BullModule.');
+                    }
+                    return new bull_queue_adapter_1.BullQueueAdapter(bullQueue);
+                },
+                inject: [
+                    export_processor_1.ExportProcessor,
+                    { token: (0, bull_1.getQueueToken)('export'), optional: true },
+                ],
+            },
         ],
         exports: [export_service_1.ExportService, pdf_compliance_service_1.PDFComplianceService],
     })

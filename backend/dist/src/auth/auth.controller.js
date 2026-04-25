@@ -18,6 +18,7 @@ const auth_service_1 = require("./auth.service");
 const dto_1 = require("./dto");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
 const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
+const public_decorator_1 = require("../license/public.decorator");
 let AuthController = class AuthController {
     authService;
     constructor(authService) {
@@ -67,6 +68,7 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], AuthController.prototype, "getProfile", null);
 exports.AuthController = AuthController = __decorate([
+    (0, public_decorator_1.Public)(),
     (0, common_1.Controller)('api/v1/auth'),
     __metadata("design:paramtypes", [auth_service_1.AuthService])
 ], AuthController);

@@ -15,6 +15,7 @@ const prisma_service_1 = require("../prisma/prisma.service");
 const redis_cache_service_1 = require("../common/redis-cache.service");
 const client_1 = require("@prisma/client");
 const crypto_1 = require("crypto");
+const json_field_helper_1 = require("../common/json-field.helper");
 const EXTENSION_NODE_DEFS = {
     '3.2.R.1': { titleZh: '3.2.R.1工艺验证', titleEn: 'Process Validation' },
     '3.2.R.2': { titleZh: '3.2.R.2批记录', titleEn: 'Batch Records' },
@@ -479,7 +480,7 @@ let CtdTemplateService = class CtdTemplateService {
         const sequence = await this.prisma.sequence.findUnique({ where: { id: sequenceId } });
         if (!sequence)
             throw new common_1.NotFoundException(`序列 ${sequenceId} 不存在`);
-        const keyFields = template.instanceKeyFields ?? [];
+        const keyFields = (0, json_field_helper_1.parseJsonField)(template.instanceKeyFields, []);
         const attrs = dto;
         const filledKeys = keyFields.filter((k) => typeof attrs[k] === 'string' && attrs[k].trim());
         if (filledKeys.length === 0) {
@@ -645,10 +646,10 @@ let CtdTemplateService = class CtdTemplateService {
             },
         });
         const rules = candidateRules.filter((r) => {
-            const seqTypes = r.sequenceTypeCodes ?? [];
+            const seqTypes = (0, json_field_helper_1.parseJsonField)(r.sequenceTypeCodes, []);
             if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType))
                 return false;
-            const productTypes = r.productTypeCodes ?? [];
+            const productTypes = (0, json_field_helper_1.parseJsonField)(r.productTypeCodes, []);
             if (productTypes.length > 0 && productTypeCode && !productTypes.includes(productTypeCode))
                 return false;
             return true;
@@ -783,10 +784,10 @@ let CtdTemplateService = class CtdTemplateService {
             },
         });
         const rules = candidateRules.filter((r) => {
-            const seqTypes = r.sequenceTypeCodes ?? [];
+            const seqTypes = (0, json_field_helper_1.parseJsonField)(r.sequenceTypeCodes, []);
             if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType))
                 return false;
-            const productTypes = r.productTypeCodes ?? [];
+            const productTypes = (0, json_field_helper_1.parseJsonField)(r.productTypeCodes, []);
             if (productTypes.length > 0 && productTypeCode && !productTypes.includes(productTypeCode))
                 return false;
             return true;

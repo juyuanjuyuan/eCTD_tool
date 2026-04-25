@@ -10,6 +10,7 @@ exports.FileModule = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_module_1 = require("../prisma/prisma.module");
 const file_controller_1 = require("./file.controller");
+const file_serve_controller_1 = require("./file-serve.controller");
 const file_service_1 = require("./file.service");
 const minio_service_1 = require("./minio.service");
 const file_name_normalizer_service_1 = require("./file-name-normalizer.service");
@@ -20,7 +21,7 @@ exports.FileModule = FileModule;
 exports.FileModule = FileModule = __decorate([
     (0, common_1.Module)({
         imports: [prisma_module_1.PrismaModule],
-        controllers: [file_controller_1.FileController],
+        controllers: [file_controller_1.FileController, file_serve_controller_1.FileServeController],
         providers: [
             file_service_1.FileService,
             minio_service_1.MinioService,

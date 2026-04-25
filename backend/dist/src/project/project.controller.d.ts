@@ -4,8 +4,8 @@ export declare class ProjectController {
     private readonly projectService;
     constructor(projectService: ProjectService);
     create(dto: CreateProjectDto, userId: string): Promise<{
-        id: string;
         description: string | null;
+        id: string;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;
@@ -23,8 +23,8 @@ export declare class ProjectController {
                 name: string;
             };
         } & {
-            id: string;
             description: string | null;
+            id: string;
             name: string;
             status: import("@prisma/client").$Enums.ProjectStatus;
             createdAt: Date;
@@ -58,8 +58,8 @@ export declare class ProjectController {
             projectId: string;
         })[];
     } & {
-        id: string;
         description: string | null;
+        id: string;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;
@@ -67,8 +67,8 @@ export declare class ProjectController {
         createdBy: string;
     }>;
     update(id: string, dto: UpdateProjectDto, userId: string): Promise<{
-        id: string;
         description: string | null;
+        id: string;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;
@@ -76,8 +76,8 @@ export declare class ProjectController {
         createdBy: string;
     }>;
     archive(id: string, userId: string): Promise<{
-        id: string;
         description: string | null;
+        id: string;
         name: string;
         status: import("@prisma/client").$Enums.ProjectStatus;
         createdAt: Date;
@@ -159,9 +159,9 @@ export declare class ProjectController {
         role: import("@prisma/client").$Enums.ProjectMemberRole;
         createdAt: Date;
         projectId: string;
-        invitedBy: string;
         token: string;
         expiresAt: Date;
+        invitedBy: string;
     }[]>;
     cancelInvitation(id: string, invitationId: string, userId: string): Promise<{
         id: string;
@@ -170,9 +170,9 @@ export declare class ProjectController {
         status: import("@prisma/client").$Enums.InvitationStatus;
         createdAt: Date;
         projectId: string;
-        invitedBy: string;
         token: string;
         expiresAt: Date;
+        invitedBy: string;
     }>;
 }
 export declare class InvitationController {

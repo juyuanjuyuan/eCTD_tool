@@ -17,9 +17,14 @@ let RedisCacheService = RedisCacheService_1 = class RedisCacheService {
     logger = new common_1.Logger(RedisCacheService_1.name);
     client;
     onModuleInit() {
+        if ((process.env.CACHE_PROVIDER || 'memory') !== 'redis') {
+            this.logger.log('CACHE_PROVIDER!=redis, skipping Redis client init');
+            return;
+        }
         this.client = new ioredis_1.default({
             host: process.env.REDIS_HOST || 'localhost',
             port: parseInt(process.env.REDIS_PORT || '6379', 10),
+            password: process.env.REDIS_PASSWORD || undefined,
             lazyConnect: true,
         });
         this.client.on('error', (err) => {
@@ -63,6 +68,15 @@ let RedisCacheService = RedisCacheService_1 = class RedisCacheService {
         }
         catch {
         }
+    }
+    async wrap(key, factory, ttlSeconds = 3600) {
+        const cached = await this.get(key);
+        if (cached !== null) {
+            return cached;
+        }
+        const value = await factory();
+        await this.set(key, value, ttlSeconds);
+        return value;
     }
     async delPattern(pattern) {
         if (!this.isConnected)

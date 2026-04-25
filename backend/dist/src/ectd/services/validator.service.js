@@ -13,6 +13,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ValidatorService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../../prisma/prisma.service");
+const json_field_helper_1 = require("../../common/json-field.helper");
 const md5_service_1 = require("./md5.service");
 const client_1 = require("@prisma/client");
 const VALID_EXTENSIONS = new Set(['pdf', 'xml', 'xpt', 'txt', 'xsl']);
@@ -1231,10 +1232,10 @@ let ValidatorService = ValidatorService_1 = class ValidatorService {
         const seqType = sequence.sequenceTypeCode;
         const productType = app.productTypeCode;
         const rules = candidateRules.filter((r) => {
-            const seqTypes = r.sequenceTypeCodes ?? [];
+            const seqTypes = (0, json_field_helper_1.parseJsonField)(r.sequenceTypeCodes, []);
             if (seqTypes.length > 0 && seqType && !seqTypes.includes(seqType))
                 return false;
-            const productTypes = r.productTypeCodes ?? [];
+            const productTypes = (0, json_field_helper_1.parseJsonField)(r.productTypeCodes, []);
             if (productTypes.length > 0 && productType && !productTypes.includes(productType))
                 return false;
             return true;

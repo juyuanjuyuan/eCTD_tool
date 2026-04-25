@@ -14,7 +14,6 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ExportService = void 0;
 const common_1 = require("@nestjs/common");
-const bull_1 = require("@nestjs/bull");
 const prisma_service_1 = require("../prisma/prisma.service");
 const word_export_service_1 = require("./word-export.service");
 const pdf_export_service_1 = require("./pdf-export.service");
@@ -144,7 +143,7 @@ let ExportService = class ExportService {
 exports.ExportService = ExportService;
 exports.ExportService = ExportService = __decorate([
     (0, common_1.Injectable)(),
-    __param(4, (0, bull_1.InjectQueue)('export')),
+    __param(4, (0, common_1.Inject)('EXPORT_QUEUE')),
     __param(5, (0, common_1.Optional)()),
     __param(5, (0, common_1.Inject)(minio_service_1.MinioService)),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,

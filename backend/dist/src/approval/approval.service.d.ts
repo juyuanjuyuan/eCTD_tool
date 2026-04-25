@@ -3,9 +3,14 @@ export declare class ApprovalService {
     private readonly prisma;
     constructor(prisma: PrismaService);
     submitForApproval(nodeId: string, userId: string): Promise<{
-        ctdSectionNumber: string;
-        id: string;
+        substance: string | null;
+        manufacturer: string | null;
+        productName: string | null;
+        dosageForm: string | null;
+        indication: string | null;
         elementName: string;
+        id: string;
+        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;
@@ -15,11 +20,6 @@ export declare class ApprovalService {
         title: string;
         operation: import("@prisma/client").$Enums.LeafOperation | null;
         isRequired: boolean;
-        substance: string | null;
-        manufacturer: string | null;
-        productName: string | null;
-        dosageForm: string | null;
-        indication: string | null;
         instanceIndex: number;
         instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
@@ -30,9 +30,14 @@ export declare class ApprovalService {
         rejectionReason: string | null;
     }>;
     approveNode(nodeId: string, approverId: string): Promise<{
-        ctdSectionNumber: string;
-        id: string;
+        substance: string | null;
+        manufacturer: string | null;
+        productName: string | null;
+        dosageForm: string | null;
+        indication: string | null;
         elementName: string;
+        id: string;
+        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;
@@ -42,11 +47,6 @@ export declare class ApprovalService {
         title: string;
         operation: import("@prisma/client").$Enums.LeafOperation | null;
         isRequired: boolean;
-        substance: string | null;
-        manufacturer: string | null;
-        productName: string | null;
-        dosageForm: string | null;
-        indication: string | null;
         instanceIndex: number;
         instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
@@ -57,9 +57,14 @@ export declare class ApprovalService {
         rejectionReason: string | null;
     }>;
     rejectNode(nodeId: string, approverId: string, reason: string): Promise<{
-        ctdSectionNumber: string;
-        id: string;
+        substance: string | null;
+        manufacturer: string | null;
+        productName: string | null;
+        dosageForm: string | null;
+        indication: string | null;
         elementName: string;
+        id: string;
+        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;
@@ -69,11 +74,6 @@ export declare class ApprovalService {
         title: string;
         operation: import("@prisma/client").$Enums.LeafOperation | null;
         isRequired: boolean;
-        substance: string | null;
-        manufacturer: string | null;
-        productName: string | null;
-        dosageForm: string | null;
-        indication: string | null;
         instanceIndex: number;
         instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
@@ -84,9 +84,14 @@ export declare class ApprovalService {
         rejectionReason: string | null;
     }>;
     unlockApproval(nodeId: string): Promise<{
-        ctdSectionNumber: string;
-        id: string;
+        substance: string | null;
+        manufacturer: string | null;
+        productName: string | null;
+        dosageForm: string | null;
+        indication: string | null;
         elementName: string;
+        id: string;
+        ctdSectionNumber: string;
         isLeaf: boolean;
         sortOrder: number;
         parentId: string | null;
@@ -96,11 +101,6 @@ export declare class ApprovalService {
         title: string;
         operation: import("@prisma/client").$Enums.LeafOperation | null;
         isRequired: boolean;
-        substance: string | null;
-        manufacturer: string | null;
-        productName: string | null;
-        dosageForm: string | null;
-        indication: string | null;
         instanceIndex: number;
         instanceLabel: string | null;
         approvalStatus: import("@prisma/client").$Enums.ApprovalStatus;
@@ -120,8 +120,8 @@ export declare class ApprovalService {
         requiredApproved: number;
         allRequiredApproved: boolean;
         nodes: {
-            ctdSectionNumber: string;
             id: string;
+            ctdSectionNumber: string;
             status: import("@prisma/client").$Enums.SequenceNodeStatus;
             title: string;
             isRequired: boolean;

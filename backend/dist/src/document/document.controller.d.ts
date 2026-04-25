@@ -8,8 +8,8 @@ export declare class DocumentController {
         createdAt: Date;
         updatedAt: Date;
         createdBy: string | null;
-        version: number;
         nodeId: string;
+        version: number;
         contentJson: import("@prisma/client/runtime/library").JsonValue | null;
         contentHtml: string | null;
         contentText: string | null;
@@ -35,8 +35,8 @@ export declare class DocumentController {
         createdAt: Date;
         updatedAt: Date;
         createdBy: string | null;
-        version: number;
         nodeId: string;
+        version: number;
         contentJson: import("@prisma/client/runtime/library").JsonValue | null;
         contentHtml: string | null;
         contentText: string | null;
@@ -79,8 +79,8 @@ export declare class DocumentController {
         createdAt: Date;
         updatedAt: Date;
         createdBy: string | null;
-        version: number;
         nodeId: string;
+        version: number;
         contentJson: import("@prisma/client/runtime/library").JsonValue | null;
         contentHtml: string | null;
         contentText: string | null;

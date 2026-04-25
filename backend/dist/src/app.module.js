@@ -33,6 +33,19 @@ const notification_module_1 = require("./notification/notification.module");
 const collaboration_module_1 = require("./collaboration/collaboration.module");
 const dashboard_module_1 = require("./dashboard/dashboard.module");
 const health_module_1 = require("./health/health.module");
+const license_module_1 = require("./license/license.module");
+const queueProvider = process.env.QUEUE_PROVIDER || 'sync';
+const bullRootImports = queueProvider === 'bull'
+    ? [
+        bull_1.BullModule.forRoot({
+            redis: {
+                host: process.env.REDIS_HOST || 'localhost',
+                port: parseInt(process.env.REDIS_PORT || '6379', 10),
+                password: process.env.REDIS_PASSWORD || undefined,
+            },
+        }),
+    ]
+    : [];
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -40,15 +53,10 @@ exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
         imports: [
             config_1.ConfigModule.forRoot({ isGlobal: true }),
-            bull_1.BullModule.forRoot({
-                redis: {
-                    host: process.env.REDIS_HOST || 'localhost',
-                    port: parseInt(process.env.REDIS_PORT || '6379', 10),
-                    password: process.env.REDIS_PASSWORD || undefined,
-                },
-            }),
+            ...bullRootImports,
             prisma_module_1.PrismaModule,
             health_module_1.HealthModule,
+            license_module_1.LicenseModule,
             auth_module_1.AuthModule,
             user_module_1.UserModule,
             project_module_1.ProjectModule,
