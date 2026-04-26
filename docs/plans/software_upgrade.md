@@ -383,6 +383,10 @@ desktop/
   - Windows：控制面板卸载，程序文件清干净 + `%APPDATA%\eCTDTool\` 默认保留
 - [ ] **E9-7** 输出《冷装测试报告》：用 §2 检查表做 checklist，附截图，归档到 `docs/release-notes/v<ver>-cold-install.md`
 
+**E9 冷装暴露的 P0 修复（2026-04-26）**：
+
+- [x] **E9-H1** 修复 `dmg` 启动后立即崩溃 `Cannot find module '@prisma/client' / .prisma/client/default / @prisma/client/runtime/library.js`。**根因**：`scripts/build-embed.js` 把 `@prisma/client` 标 external 后**未把对应 npm 包复制到 `dist-embed/node_modules/`**，`electron-builder` 只搬 `dist-embed/`，所以装好的 `Resources/backend/node_modules/@prisma/...` 是空的；同时全仓 32 个文件 `import { Role/LeafOperation/Prisma } from '@prisma/client'`（运行时值），加 `prisma.service.ts:8 extends PrismaPostgresClient`，使得 bundle 必须能 `require('@prisma/client')`。**修复**：① `build-embed.js` 新增 `copyPrismaPackage()` + `shouldCopyPrismaFile()`，把 `node_modules/@prisma/client` 与 `node_modules/.prisma/client` 按白名单复制到 `dist-embed/node_modules/` 并过滤 `.map`/`.d.ts`/`.mjs`/`README` 等非运行时文件；② `prisma/schema.prisma` 与 `prisma/schema.sqlite.prisma` 把 `binaryTargets` 扩展为 `["native","debian-openssl-3.0.x","darwin","darwin-arm64","windows"]`，确保 Mac 构建机也能下载到 darwin-arm64 query engine `.node`，否则即便修了 `require` 也会在第一次 SQLite 查询时 dlopen 失败；③ `generated/prisma-sqlite/` 的复制也接入同一过滤器去掉无用文件。沙箱 smoke：`node dist-embed/backend.bundle.js` → 自动迁移 + Nest 全模块装配 + `READY <port>` 一气呵成，复现路径不再触发。
+
 ---
 
 ## 2. 冷装测试 Release Gate（每次发版必跑）

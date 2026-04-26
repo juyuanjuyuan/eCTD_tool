@@ -30,8 +30,14 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-echo "==> [1/6] backend: prisma generate + build:embed"
+echo "==> [1/6] backend: prisma generate (postgres + sqlite) + build:embed"
 pushd backend > /dev/null
+# Both clients need to be regenerated on the build host so cross-platform
+# query engine .node binaries (darwin / darwin-arm64 / windows) end up in
+# node_modules/.prisma/client/ and src/generated/prisma-sqlite/.
+# Without this, binaryTargets changes in schema.*.prisma have no effect on
+# what gets shipped — only the engine for the build host platform is present.
+npx prisma generate
 npm run prisma:sqlite:generate
 npm run build:embed
 popd > /dev/null

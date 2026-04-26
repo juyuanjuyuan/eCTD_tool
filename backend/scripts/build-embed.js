@@ -100,12 +100,31 @@ async function main() {
   // PrismaService probes `./generated/prisma-sqlite` relative to bundle location.
   const generated = path.join(ROOT, 'src', 'generated', 'prisma-sqlite');
   if (fs.existsSync(generated)) {
-    copyDir(generated, path.join(OUT_DIR, 'generated', 'prisma-sqlite'));
+    copyDir(generated, path.join(OUT_DIR, 'generated', 'prisma-sqlite'), {
+      filter: shouldCopyPrismaFile,
+    });
   } else {
     console.warn(
       `[build-embed] warning: ${generated} missing — run "npm run prisma:sqlite:generate" first`,
     );
   }
+
+  // Ship `@prisma/client` and the postgres-side generated `.prisma/client` into
+  // dist-embed/node_modules/. The esbuild bundle keeps `@prisma/client` external,
+  // so at runtime Node resolves `require("@prisma/client")` against this folder.
+  // The whole codebase (32 files) imports enums like Role/LeafOperation from
+  // @prisma/client as runtime values, so this is a hard dependency even when
+  // the active provider is SQLite.
+  copyPrismaPackage(
+    path.join(ROOT, 'node_modules', '@prisma', 'client'),
+    path.join(OUT_DIR, 'node_modules', '@prisma', 'client'),
+    '@prisma/client',
+  );
+  copyPrismaPackage(
+    path.join(ROOT, 'node_modules', '.prisma', 'client'),
+    path.join(OUT_DIR, 'node_modules', '.prisma', 'client'),
+    '.prisma/client',
+  );
 
   fs.writeFileSync(
     path.join(OUT_DIR, 'package.json'),
@@ -132,20 +151,58 @@ async function main() {
   console.log('[build-embed] done.');
 }
 
-function copyDir(src, dest) {
+function copyDir(src, dest, options = {}) {
   if (!fs.existsSync(src)) {
     throw new Error(`copyDir: source missing ${src}`);
   }
+  const filter = options.filter || (() => true);
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const s = path.join(src, entry.name);
     const d = path.join(dest, entry.name);
     if (entry.isDirectory()) {
-      copyDir(s, d);
+      if (!filter(s, entry)) continue;
+      copyDir(s, d, options);
     } else {
+      if (!filter(s, entry)) continue;
       fs.copyFileSync(s, d);
     }
   }
+}
+
+// Skip files that are not needed at runtime to keep the desktop bundle small.
+// We must keep: *.js, package.json, *.node (engine binaries), *.wasm (wasm engine).
+function shouldCopyPrismaFile(absPath, dirent) {
+  const name = dirent.name;
+  if (dirent.isDirectory()) {
+    // Skip nested junk dirs that some package versions ship.
+    if (name === '__tests__' || name === 'test' || name === 'tests') return false;
+    return true;
+  }
+  // Drop sourcemaps, type defs, ESM duplicates, docs.
+  if (name.endsWith('.map')) return false;
+  if (name.endsWith('.d.ts') || name.endsWith('.d.mts') || name.endsWith('.d.cts')) return false;
+  if (name.endsWith('.mjs')) return false; // CJS bundle never imports the ESM build
+  if (/^(README|LICENSE|CHANGELOG)(\.|$)/i.test(name)) return false;
+  // Edge / browser / react-native variants are never loaded by Node main process.
+  if (name === 'edge.js' || name === 'edge-esm.js') return false;
+  if (name === 'index-browser.js') return false;
+  if (name === 'react-native.js') return false;
+  if (name === 'wasm-edge-light-loader.mjs' || name === 'wasm-worker-loader.mjs') return false;
+  return true;
+}
+
+function copyPrismaPackage(src, dest, label) {
+  if (!fs.existsSync(src)) {
+    throw new Error(
+      `[build-embed] required package missing: ${label} at ${src}. ` +
+        `Run "npm install" and "npx prisma generate" in backend/ first.`,
+    );
+  }
+  // Wipe an existing dest so removed-from-source files don't linger across builds.
+  fs.rmSync(dest, { recursive: true, force: true });
+  copyDir(src, dest, { filter: shouldCopyPrismaFile });
+  console.log(`[build-embed] shipped ${label} → ${path.relative(ROOT, dest)}`);
 }
 
 main().catch((err) => {
