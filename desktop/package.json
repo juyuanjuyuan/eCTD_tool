@@ -15,6 +15,7 @@
     "build:all": "npm run build:ts && electron-builder -mwl"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
     "@types/node": "^22.10.7",
     "electron": "^31.7.6",
     "electron-builder": "^24.13.3",

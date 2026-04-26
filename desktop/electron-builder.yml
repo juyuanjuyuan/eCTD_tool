@@ -54,11 +54,7 @@ asarUnpack:
   - "node_modules/electron-log/**"
 
 mac:
-  target:
-    - target: dmg
-      arch:
-        - arm64
-        - x64
+  target: dmg   # arch is driven by the electron-builder CLI flag (--arm64 / --x64)
   category: public.app-category.business
 #  icon: ./resources/icon.icns
   hardenedRuntime: true

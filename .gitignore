@@ -8,6 +8,7 @@ backend/dist-embed/
 backend/src/generated/
 backend/prisma/first-run.db
 backend/prisma/test.db
+backend/node_modules/
 desktop/node_modules/
 desktop/dist/
 desktop/release/

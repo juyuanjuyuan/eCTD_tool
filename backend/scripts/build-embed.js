@@ -5,19 +5,16 @@
  *
  * Output layout under `backend/dist-embed/`:
  *
- *   backend.bundle.js           ← single-file ESM bundle of NestJS + business code
+ *   backend.bundle.js           ← single-file CJS bundle of NestJS + business code
  *   prisma/
  *     migrations.sqlite/        ← copied from prisma/migrations.sqlite/
- *     generated/prisma-sqlite/  ← copied from src/generated/prisma-sqlite/
- *   package.json                ← minimal manifest with native deps for asar unpack
+ *   generated/
+ *     prisma-sqlite/            ← copied from src/generated/prisma-sqlite/
+ *   node_modules/               ← full copy of backend/node_modules/ minus dev-only deps
+ *   package.json                ← minimal manifest (main: backend.bundle.js)
  *
- * Native modules (better-sqlite3, bcrypt, @prisma/client engines) are NOT bundled;
- * they remain `external` and are loaded from the sibling `node_modules/` in the
- * Electron app package. electron-builder's `asarUnpack` keeps their `.node` binaries
- * outside the asar archive so dlopen can find them.
- *
- * Usage:
- *   node scripts/build-embed.js
+ * Native modules (better-sqlite3, bcrypt, prisma engines, etc.) remain `external`
+ * for esbuild and are loaded from `dist-embed/node_modules/` at runtime.
  */
 const path = require('path');
 const fs = require('fs');
@@ -28,22 +25,22 @@ const TSC_OUT = path.join(ROOT, 'dist');
 const SRC_ENTRY = path.join(TSC_OUT, 'src', 'main.js');
 const OUT_DIR = path.join(ROOT, 'dist-embed');
 const OUT_BUNDLE = path.join(OUT_DIR, 'backend.bundle.js');
+const OUT_NM = path.join(OUT_DIR, 'node_modules');
+const SRC_NM = path.join(ROOT, 'node_modules');
 
 const NATIVE_EXTERNALS = [
   'better-sqlite3',
   'bcrypt',
   '@prisma/client',
   '@prisma/engines',
-  // NestJS optional peer deps that pull native or class-validator-style features at runtime
   '@nestjs/microservices',
   '@nestjs/websockets',
   'class-transformer',
   'class-validator',
-  'minio', // dynamic require of platform modules
+  'minio',
   'fast-xml-parser',
   'puppeteer',
   'puppeteer-core',
-  // @nestjs/terminus dynamically requires ORM-specific health indicators we don't use.
   '@mikro-orm/core',
   '@nestjs/mongoose',
   '@nestjs/sequelize',
@@ -52,11 +49,47 @@ const NATIVE_EXTERNALS = [
   '@nestjs/typeorm/dist/common/typeorm.utils',
 ];
 
+// Top-level directory names under node_modules/ to delete after the full copy.
+// Anything matching exactly is removed.
+const PRUNE_TOPLEVEL_EXACT = new Set([
+  'esbuild',
+  'jest',
+  'ts-jest',
+  'ts-node',
+  'prettier',
+  'prisma',                // CLI package — runtime only needs @prisma/client + @prisma/engines
+  'typescript',
+  'supertest',
+  'tsconfig-paths',
+  'source-map-support',
+  'ts-loader',
+  'globals',
+  'typescript-eslint',
+]);
+
+// Top-level directory names matching any of these prefixes are removed.
+// (Catches eslint, eslint-config-prettier, eslint-plugin-prettier, etc.)
+const PRUNE_TOPLEVEL_PREFIX = ['eslint'];
+
+// Whole scope directories to wipe under node_modules/.
+const PRUNE_SCOPES_FULL = new Set([
+  '@types',
+  '@typescript-eslint',
+  '@eslint',
+  '@eslint-community',
+  '@humanfs',
+  '@humanwhocodes',
+]);
+
+// Specific packages under a scope to delete (scope itself is preserved).
+const PRUNE_SCOPED = {
+  '@nestjs': new Set(['cli', 'schematics', 'testing']),
+};
+
 async function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   // Step 1 — compile with tsc so decorator metadata (reflect-metadata) is emitted.
-  // esbuild does not implement `emitDecoratorMetadata`, and NestJS DI relies on it.
   if (!fs.existsSync(SRC_ENTRY) || process.env.SKIP_TSC !== 'true') {
     console.log('[build-embed] running tsc...');
     const { execSync } = require('child_process');
@@ -82,8 +115,6 @@ async function main() {
     external: NATIVE_EXTERNALS,
     metafile: true,
     logLevel: 'info',
-    // No TS transform here — entry is already JS produced by tsc with
-    // emitDecoratorMetadata. esbuild only does the bundling step.
   });
 
   fs.writeFileSync(
@@ -96,36 +127,23 @@ async function main() {
     path.join(OUT_DIR, 'prisma', 'migrations.sqlite'),
   );
 
-  // Place the generated SQLite client where the bundled require() can find it.
-  // PrismaService probes `./generated/prisma-sqlite` relative to bundle location.
+  // PrismaService probes `./generated/prisma-sqlite` relative to the bundle.
   const generated = path.join(ROOT, 'src', 'generated', 'prisma-sqlite');
   if (fs.existsSync(generated)) {
-    copyDir(generated, path.join(OUT_DIR, 'generated', 'prisma-sqlite'), {
-      filter: shouldCopyPrismaFile,
-    });
+    fs.rmSync(path.join(OUT_DIR, 'generated', 'prisma-sqlite'), { recursive: true, force: true });
+    copyDir(generated, path.join(OUT_DIR, 'generated', 'prisma-sqlite'));
   } else {
     console.warn(
       `[build-embed] warning: ${generated} missing — run "npm run prisma:sqlite:generate" first`,
     );
   }
 
-  // Ship `@prisma/client` and the postgres-side generated `.prisma/client` into
-  // dist-embed/node_modules/. The esbuild bundle keeps `@prisma/client` external,
-  // so at runtime Node resolves `require("@prisma/client")` against this folder.
-  // The whole codebase (32 files) imports enums like Role/LeafOperation from
-  // @prisma/client as runtime values, so this is a hard dependency even when
-  // the active provider is SQLite.
-  copyPrismaPackage(
-    path.join(ROOT, 'node_modules', '@prisma', 'client'),
-    path.join(OUT_DIR, 'node_modules', '@prisma', 'client'),
-    '@prisma/client',
-  );
-  copyPrismaPackage(
-    path.join(ROOT, 'node_modules', '.prisma', 'client'),
-    path.join(OUT_DIR, 'node_modules', '.prisma', 'client'),
-    '.prisma/client',
-  );
+  shipNodeModules();
 
+  // `dependencies` listing is required so @electron/rebuild can discover
+  // native modules to rebuild against Electron's Node ABI.
+  // Pin to "*" because the actual versions are whatever was copied from
+  // backend/node_modules/ — we are NOT going to npm install in dist-embed.
   fs.writeFileSync(
     path.join(OUT_DIR, 'package.json'),
     JSON.stringify(
@@ -140,8 +158,9 @@ async function main() {
           return acc;
         }, {}),
         comment:
-          'Generated by scripts/build-embed.js. Native deps remain external; ' +
-          'install/copy them into the Electron app package.',
+          'Generated by scripts/build-embed.js. node_modules/ is a pruned copy ' +
+          'of backend/node_modules/. Do not run npm install against this folder; ' +
+          'dependencies listing is here only so @electron/rebuild can walk the tree.',
       },
       null,
       2,
@@ -151,58 +170,83 @@ async function main() {
   console.log('[build-embed] done.');
 }
 
-function copyDir(src, dest, options = {}) {
+function copyDir(src, dest) {
   if (!fs.existsSync(src)) {
     throw new Error(`copyDir: source missing ${src}`);
   }
-  const filter = options.filter || (() => true);
-  fs.mkdirSync(dest, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, entry.name);
-    const d = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      if (!filter(s, entry)) continue;
-      copyDir(s, d, options);
-    } else {
-      if (!filter(s, entry)) continue;
-      fs.copyFileSync(s, d);
-    }
-  }
+  fs.cpSync(src, dest, { recursive: true, dereference: false });
 }
 
-// Skip files that are not needed at runtime to keep the desktop bundle small.
-// We must keep: *.js, package.json, *.node (engine binaries), *.wasm (wasm engine).
-function shouldCopyPrismaFile(absPath, dirent) {
-  const name = dirent.name;
-  if (dirent.isDirectory()) {
-    // Skip nested junk dirs that some package versions ship.
-    if (name === '__tests__' || name === 'test' || name === 'tests') return false;
-    return true;
-  }
-  // Drop sourcemaps, type defs, ESM duplicates, docs.
-  if (name.endsWith('.map')) return false;
-  if (name.endsWith('.d.ts') || name.endsWith('.d.mts') || name.endsWith('.d.cts')) return false;
-  if (name.endsWith('.mjs')) return false; // CJS bundle never imports the ESM build
-  if (/^(README|LICENSE|CHANGELOG)(\.|$)/i.test(name)) return false;
-  // Edge / browser / react-native variants are never loaded by Node main process.
-  if (name === 'edge.js' || name === 'edge-esm.js') return false;
-  if (name === 'index-browser.js') return false;
-  if (name === 'react-native.js') return false;
-  if (name === 'wasm-edge-light-loader.mjs' || name === 'wasm-worker-loader.mjs') return false;
-  return true;
-}
-
-function copyPrismaPackage(src, dest, label) {
-  if (!fs.existsSync(src)) {
+// Full-copy backend/node_modules/ → dist-embed/node_modules/ then prune dev-only.
+// Strategy chosen over an explicit allow-list because transitive deps are too
+// numerous and easy to miss; over-shipping is preferable to a runtime crash.
+function shipNodeModules() {
+  if (!fs.existsSync(SRC_NM)) {
     throw new Error(
-      `[build-embed] required package missing: ${label} at ${src}. ` +
-        `Run "npm install" and "npx prisma generate" in backend/ first.`,
+      `[build-embed] missing ${SRC_NM} — run "npm install" in backend/ first.`,
     );
   }
-  // Wipe an existing dest so removed-from-source files don't linger across builds.
-  fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(src, dest, { filter: shouldCopyPrismaFile });
-  console.log(`[build-embed] shipped ${label} → ${path.relative(ROOT, dest)}`);
+  console.log(`[build-embed] copying node_modules (this can take a minute)…`);
+  fs.rmSync(OUT_NM, { recursive: true, force: true });
+  copyDir(SRC_NM, OUT_NM);
+
+  let pruned = 0;
+  for (const entry of fs.readdirSync(OUT_NM, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const name = entry.name;
+    const abs = path.join(OUT_NM, name);
+
+    if (name.startsWith('@')) {
+      if (PRUNE_SCOPES_FULL.has(name)) {
+        fs.rmSync(abs, { recursive: true, force: true });
+        pruned++;
+        continue;
+      }
+      const scoped = PRUNE_SCOPED[name];
+      if (scoped) {
+        for (const sub of fs.readdirSync(abs)) {
+          if (scoped.has(sub)) {
+            fs.rmSync(path.join(abs, sub), { recursive: true, force: true });
+            pruned++;
+          }
+        }
+      }
+      continue;
+    }
+
+    if (PRUNE_TOPLEVEL_EXACT.has(name)) {
+      fs.rmSync(abs, { recursive: true, force: true });
+      pruned++;
+      continue;
+    }
+    if (PRUNE_TOPLEVEL_PREFIX.some((p) => name.startsWith(p))) {
+      fs.rmSync(abs, { recursive: true, force: true });
+      pruned++;
+      continue;
+    }
+  }
+
+  // Sanity: critical runtime modules must still be present.
+  const required = [
+    '@prisma/client/package.json',
+    '@prisma/client/runtime/library.js',
+    '@prisma/client/default.js',
+    '.prisma/client/index.js',
+    '@prisma/engines/package.json',
+    'better-sqlite3/package.json',
+    'bcrypt/package.json',
+    '@nestjs/core/package.json',
+    'class-validator/package.json',
+    'class-transformer/package.json',
+  ];
+  const missing = required.filter((rel) => !fs.existsSync(path.join(OUT_NM, rel)));
+  if (missing.length) {
+    throw new Error(
+      `[build-embed] runtime modules missing after prune: ${missing.join(', ')}`,
+    );
+  }
+
+  console.log(`[build-embed] node_modules ready (${pruned} dev-only entries pruned)`);
 }
 
 main().catch((err) => {

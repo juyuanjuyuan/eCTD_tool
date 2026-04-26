@@ -3,6 +3,8 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
+import * as path from 'path';
+import * as fs from 'fs';
 import { AppModule } from './app.module';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -34,11 +36,16 @@ function createWinstonLogger() {
     }),
   ];
 
-  // File transport in production
+  // File transport in production. In embedded/desktop mode the process cwd
+  // may be the .app bundle (read-only), so anchor logs under DATA_DIR when set.
   if (isProduction) {
+    const logDir = process.env.DATA_DIR
+      ? path.join(process.env.DATA_DIR, 'backend-logs')
+      : 'logs';
+    fs.mkdirSync(logDir, { recursive: true });
     transports.push(
       new winston.transports.File({
-        filename: 'logs/error.log',
+        filename: path.join(logDir, 'error.log'),
         level: 'error',
         maxsize: 10 * 1024 * 1024, // 10MB
         maxFiles: 5,
@@ -48,7 +55,7 @@ function createWinstonLogger() {
         ),
       }),
       new winston.transports.File({
-        filename: 'logs/combined.log',
+        filename: path.join(logDir, 'combined.log'),
         maxsize: 10 * 1024 * 1024,
         maxFiles: 10,
         format: winston.format.combine(

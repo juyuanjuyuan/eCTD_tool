@@ -31,6 +31,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 echo "==> [1/6] backend: prisma generate (postgres + sqlite) + build:embed"
+# Ensure backend/node_modules native binaries match the system Node ABI before
+# firstrun-db runs in [2/6]. A previous run of @electron/rebuild may have left
+# Electron-ABI prebuilds here, which breaks node-side scripts. This rebuild is
+# fast (uses prebuild-install cache) and is a no-op if already correct.
+pushd backend > /dev/null
+npm rebuild better-sqlite3 bcrypt 2>&1 | tail -10 || true
+popd > /dev/null
 pushd backend > /dev/null
 # Both clients need to be regenerated on the build host so cross-platform
 # query engine .node binaries (darwin / darwin-arm64 / windows) end up in
@@ -49,11 +56,31 @@ node scripts/build-firstrun-db.js
 mv -f prisma/first-run.db dist-embed/first-run.db
 popd > /dev/null
 
-echo "==> [2.5/6] backend: install native modules for embed"
-pushd backend/dist-embed > /dev/null
-npm install --omit=dev
-cp -R ../node_modules/.prisma ./node_modules/
-popd > /dev/null
+echo "==> [2.5/6] rebuild native modules against Electron ABI"
+# Pick the arch the dmg/installer is being built for. Native .node files
+# compiled against system Node (NODE_MODULE_VERSION 127) won't load inside
+# Electron's child_process.fork (which uses Electron's Node ABI, currently
+# NODE_MODULE_VERSION 125 for Electron 31). @electron/rebuild compiles
+# better-sqlite3 / bcrypt against the right ABI for the target arch.
+case "$target" in
+  mac:arm64)  rebuild_arch=arm64 ;;
+  mac:x64)    rebuild_arch=x64   ;;
+  win)        rebuild_arch=x64   ;;
+  mac|all)
+    echo "target=$target rebuilds only host arch; multi-arch not supported in single pass" >&2
+    rebuild_arch="$(uname -m)"
+    [[ "$rebuild_arch" == "x86_64" ]] && rebuild_arch=x64
+    ;;
+  *) rebuild_arch="$(uname -m)"; [[ "$rebuild_arch" == "x86_64" ]] && rebuild_arch=x64 ;;
+esac
+electron_version=$(node -p "require('$ROOT/desktop/node_modules/electron/package.json').version")
+echo "    rebuilding for electron=$electron_version arch=$rebuild_arch"
+"$ROOT/desktop/node_modules/.bin/electron-rebuild" \
+  --module-dir "$ROOT/backend/dist-embed" \
+  --version "$electron_version" \
+  --arch "$rebuild_arch" \
+  --only better-sqlite3,bcrypt \
+  --force
 
 echo "==> [3/6] frontend: vite production build"
 pushd frontend > /dev/null
@@ -88,8 +115,12 @@ case "$target" in
 esac
 popd > /dev/null
 
-echo "==> [6/6] SHA256 sums"
 RELEASE_DIR="$ROOT/desktop/release"
+
+echo "==> [5.5/6] post-build verify"
+bash "$ROOT/scripts/postbuild-verify.sh" "$RELEASE_DIR"
+
+echo "==> [6/6] SHA256 sums"
 if [[ -d "$RELEASE_DIR" ]]; then
   pushd "$RELEASE_DIR" > /dev/null
   rm -f SHA256SUMS.txt
