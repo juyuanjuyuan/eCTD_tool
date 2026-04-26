@@ -149,6 +149,14 @@ export class StudyController {
     },
     @Body('onConflict') onConflict?: ImportOnConflict,
   ) {
+    // Recover UTF-8 filenames from multer's latin-1-decoded originalname.
+    const fix = (f?: Express.Multer.File) => {
+      if (f?.originalname) {
+        f.originalname = Buffer.from(f.originalname, 'latin1').toString('utf8');
+      }
+    };
+    uploaded?.xml?.forEach(fix);
+    uploaded?.files?.forEach(fix);
     const xmlFile = uploaded?.xml?.[0];
     if (!xmlFile) {
       throw new BadRequestException('缺少 xml 字段（STF XML 文件）');

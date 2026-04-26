@@ -19,6 +19,21 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { FileService } from './file.service';
 import { CreateFileReferenceDto, UpdateExportNameDto } from './dto';
 
+/**
+ * multer (and busboy under it) decode the multipart `filename` field as
+ * latin-1 by default. UTF-8 filenames sent by browsers (e.g. `测试.pdf`)
+ * therefore arrive with each UTF-8 byte interpreted as a separate latin-1
+ * character (e.g. `测试` → `æµè¯•`). Re-encode to recover the original.
+ *
+ * This is a no-op for ASCII filenames so it's safe to apply unconditionally.
+ */
+function fixOriginalName(file: Express.Multer.File | undefined) {
+  if (!file?.originalname) return;
+  // Heuristic: if the string is already valid utf-8 chars (no high bytes
+  // misinterpreted as latin-1), Buffer round-trip is harmless.
+  file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+}
+
 @Controller('api/v1')
 @UseGuards(JwtAuthGuard)
 export class FileController {
@@ -40,6 +55,7 @@ export class FileController {
     @Req() req: any,
   ) {
     if (!file) throw new BadRequestException('未上传文件');
+    fixOriginalName(file);
     return this.fileService.uploadFile(nodeId, file, req.user?.id);
   }
 
@@ -59,6 +75,7 @@ export class FileController {
     @Req() req: any,
   ) {
     if (!files || files.length === 0) throw new BadRequestException('未上传文件');
+    files.forEach(fixOriginalName);
     return this.fileService.uploadFiles(nodeId, files, req.user?.id);
   }
 
@@ -82,6 +99,8 @@ export class FileController {
     @Req() req: any,
   ) {
     if (!chunk) throw new BadRequestException('未上传分片');
+    // Chunked upload sends the original filename via @Body, which goes through
+    // multer's URL-decoder and is already utf-8 — no fix needed for fileName.
     return this.fileService.handleChunk(nodeId, {
       uploadId,
       chunkIndex: parseInt(chunkIndex, 10),
@@ -203,6 +222,7 @@ export class FileController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('未上传图片');
+    fixOriginalName(file);
     return this.fileService.uploadEditorImage(seqId, file);
   }
 }

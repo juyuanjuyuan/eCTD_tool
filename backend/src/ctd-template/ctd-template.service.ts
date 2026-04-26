@@ -378,7 +378,27 @@ export class CtdTemplateService {
     // Build tree
     const nodeMap = new Map<string, any>();
     for (const node of allNodes) {
-      nodeMap.set(node.id, { ...node, children: [] });
+      // SQLite mode stores templateNode.instanceKeyFields as a JSON string.
+      // Parse before shipping so the frontend (AddInstanceModal `keys.map(...)`)
+      // never sees a raw string (would throw `o.map is not a function`).
+      const tn = (node as any).templateNode;
+      const normalizedTemplateNode = tn
+        ? {
+            ...tn,
+            instanceKeyFields:
+              tn.instanceKeyFields == null
+                ? null
+                : parseJsonField<string[]>(
+                    tn.instanceKeyFields as string | string[],
+                    [],
+                  ),
+          }
+        : tn;
+      nodeMap.set(node.id, {
+        ...node,
+        templateNode: normalizedTemplateNode,
+        children: [],
+      });
     }
 
     const roots: any[] = [];

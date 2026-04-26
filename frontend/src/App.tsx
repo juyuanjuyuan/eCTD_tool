@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import zhCN from 'antd/locale/zh_CN';
 import BasicLayout from './layouts/BasicLayout';
 import ProtectedRoute from './components/ProtectedRoute';
+import ErrorBoundary from './components/ErrorBoundary';
 import LoginPage from './pages/auth/LoginPage';
 import ActivationPage from './pages/license/ActivationPage';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
@@ -40,6 +41,7 @@ function App() {
     <ConfigProvider locale={zhCN}>
       <EnvironmentProvider>
       <BrowserRouter>
+        <ErrorBoundary>
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
@@ -89,6 +91,7 @@ function App() {
             <Route path="*" element={<Navigate to="/projects" replace />} />
           </Routes>
         </Suspense>
+        </ErrorBoundary>
       </BrowserRouter>
       </EnvironmentProvider>
     </ConfigProvider>

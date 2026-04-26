@@ -34,7 +34,16 @@ export default function AddInstanceModal({ open, seqId, template, onClose, onAdd
   }, [open, form]);
 
   if (!template) return null;
-  const keys = template.instanceKeyFields ?? [];
+  // Defensive: backend may ship instanceKeyFields as a JSON string (SQLite mode
+  // historically did this). Coerce to array so `.map` below never crashes with
+  // "o.map is not a function". Backend now also normalizes — keep this as a belt.
+  const rawKeys = template.instanceKeyFields as unknown;
+  let keys: string[] = [];
+  if (Array.isArray(rawKeys)) {
+    keys = rawKeys as string[];
+  } else if (typeof rawKeys === 'string') {
+    try { const parsed = JSON.parse(rawKeys); if (Array.isArray(parsed)) keys = parsed; } catch { /* keep [] */ }
+  }
 
   const handleOk = async () => {
     try {

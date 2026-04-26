@@ -101,9 +101,13 @@ const RichEditor: React.FC<RichEditorProps> = ({
     }
   }, [editable, editor]);
 
-  if (!editor) return null;
+  // All hooks below MUST stay above the `if (!editor) return null` early return.
+  // useEditor() returns null on first render then the instance on the next —
+  // any hook below the null guard would change in count between those two
+  // renders and trip Rules of Hooks → component unmount → white screen (H8).
 
   const handleInsertImage = useCallback(() => {
+    if (!editor) return;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/png,image/jpeg,image/gif,image/svg+xml';
@@ -179,13 +183,15 @@ const RichEditor: React.FC<RichEditorProps> = ({
     setCrossRefTarget(null);
   }, [editor, crossRefTarget]);
 
-  const charCount = editor.storage.characterCount?.characters() || 0;
-  const wordCount = editor.storage.characterCount?.words() || 0;
-
   const memoizedEditorContent = useMemo(
-    () => <EditorContent editor={editor} className="editor-content" />,
+    () => (editor ? <EditorContent editor={editor} className="editor-content" /> : null),
     [editor],
   );
+
+  if (!editor) return null;
+
+  const charCount = editor.storage.characterCount?.characters() || 0;
+  const wordCount = editor.storage.characterCount?.words() || 0;
 
   return (
     <div className="rich-editor">

@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MinioService } from './minio.service';
 import { FileNameNormalizerService } from './file-name-normalizer.service';
 import { PDFComplianceService } from '../export/pdf-compliance.service';
+import { parseJsonField } from '../common/json-field.helper';
 import type { ComplianceStatus } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -788,10 +789,27 @@ export class FileService {
    */
   private serializeAttachment(attachment: any) {
     const { fileSize, pdfAnalysis, ...rest } = attachment;
+    let serializedAnalysis: any = undefined;
+    if (pdfAnalysis) {
+      // SQLite mode stores complianceDetails as a JSON string. Parse before
+      // shipping so the frontend's `.errors.map(...)` and `.warnings.map(...)`
+      // never see a raw string (would throw `o.map is not a function`).
+      const parsedDetails = parseJsonField<{ errors?: unknown[]; warnings?: unknown[] }>(
+        pdfAnalysis.complianceDetails as string | object | null,
+        {},
+      );
+      serializedAnalysis = {
+        ...pdfAnalysis,
+        complianceDetails: {
+          errors: Array.isArray(parsedDetails?.errors) ? parsedDetails.errors : [],
+          warnings: Array.isArray(parsedDetails?.warnings) ? parsedDetails.warnings : [],
+        },
+      };
+    }
     return {
       ...rest,
       fileSize: fileSize?.toString() || '0',
-      pdfAnalysis: pdfAnalysis || undefined,
+      pdfAnalysis: serializedAnalysis,
     };
   }
 

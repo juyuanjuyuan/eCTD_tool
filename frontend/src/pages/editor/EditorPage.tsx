@@ -286,27 +286,7 @@ const EditorPage: React.FC = () => {
     }
   }, [seqId, selectedNode?.id, setSelectedNode]);
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f0f2f5' }}>
-        <Spin size="large" />
-      </div>
-    );
-  }
-
-  if (!sequence) {
-    return <Result status="404" title="序列不存在" subTitle="请检查链接是否正确，或返回序列列表" />;
-  }
-
-  const appInfo = sequence.regulatoryActivity?.application;
-  const isBiological = appInfo?.productTypeCode === 'cnprt2';
-  const approval = selectedNode?.isLeaf && selectedNode.approvalStatus !== 'DRAFT'
-    ? approvalConfig[selectedNode.approvalStatus]
-    : null;
-  const canSubmit = selectedNode?.isLeaf
-    && (selectedNode.approvalStatus === 'DRAFT' || selectedNode.approvalStatus === 'REJECTED')
-    && selectedNode.status !== 'EMPTY';
-
+  // Must stay above the early returns below — Rules of Hooks (H8 fix).
   const collectLeafNodeIds = useCallback((root: SequenceNode | null, tree: SequenceNode[]): string[] => {
     if (!root) return [];
     const leaves: string[] = [];
@@ -335,6 +315,27 @@ const EditorPage: React.FC = () => {
     findTargetAndCollect(tree);
     return leaves;
   }, []);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f0f2f5' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!sequence) {
+    return <Result status="404" title="序列不存在" subTitle="请检查链接是否正确，或返回序列列表" />;
+  }
+
+  const appInfo = sequence.regulatoryActivity?.application;
+  const isBiological = appInfo?.productTypeCode === 'cnprt2';
+  const approval = selectedNode?.isLeaf && selectedNode.approvalStatus !== 'DRAFT'
+    ? approvalConfig[selectedNode.approvalStatus]
+    : null;
+  const canSubmit = selectedNode?.isLeaf
+    && (selectedNode.approvalStatus === 'DRAFT' || selectedNode.approvalStatus === 'REJECTED')
+    && selectedNode.status !== 'EMPTY';
 
   // Render the center content based on active tab
   const renderCenterContent = () => {

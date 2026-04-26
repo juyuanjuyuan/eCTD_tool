@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload,
   Table,
@@ -85,6 +85,8 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadingFileName, setUploadingFileName] = useState('');
+  const fakeProgressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [complianceModalOpen, setComplianceModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<FileAttachment | null>(null);
   const [refModalOpen, setRefModalOpen] = useState(false);
@@ -108,25 +110,74 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
     loadFiles();
   }, [loadFiles]);
 
+  // Minimum visible duration for the upload status panel. Under local-storage
+  // (Electron desktop) uploads finish in tens of milliseconds — without an
+  // animated floor the dragger flickers and user perceives "nothing happened".
+  // 2500ms is long enough that even a distracted user can't miss it.
+  const MIN_UPLOAD_VISIBLE_MS = 2500;
+
+  const stopFakeProgress = useCallback(() => {
+    if (fakeProgressTimerRef.current) {
+      clearInterval(fakeProgressTimerRef.current);
+      fakeProgressTimerRef.current = null;
+    }
+  }, []);
+
   const handleUpload: UploadProps['customRequest'] = async (options) => {
     const { file, onSuccess, onError } = options;
+    const f = file as File;
     setUploading(true);
     setUploadProgress(0);
-    try {
-      await fileApi.upload(nodeId, file as File, (percent) => {
-        setUploadProgress(percent);
+    setUploadingFileName(f.name);
+    const startedAt = Date.now();
+    // Smooth fake-progress animation so localhost uploads still show motion.
+    // Real onUploadProgress (axios) overrides this if it fires meaningful values.
+    stopFakeProgress();
+    fakeProgressTimerRef.current = setInterval(() => {
+      setUploadProgress((p) => {
+        if (p >= 90) return p;            // hold at 90 until real success
+        const step = p < 50 ? 6 : p < 80 ? 3 : 1;
+        return Math.min(90, p + step);
       });
-      message.success('文件上传成功');
+    }, 80);
+    try {
+      const newFile = await fileApi.upload(nodeId, f, (percent) => {
+        // Real progress only takes over if it's higher than current fake value.
+        setUploadProgress((p) => Math.max(p, Math.min(90, percent)));
+      });
+      // Ensure the panel is visible long enough to be perceptible.
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < MIN_UPLOAD_VISIBLE_MS) {
+        await new Promise((r) => setTimeout(r, MIN_UPLOAD_VISIBLE_MS - elapsed));
+      }
+      stopFakeProgress();
+      setUploadProgress(100);
+      message.success(`${f.name} 上传成功`);
       onSuccess?.({});
+      // Optimistic insert — the new attachment appears in the list immediately
+      // without waiting for the loadFiles() round-trip. Dedupe by id in case
+      // loadFiles races and returns it too.
+      if (newFile && (newFile as any).id) {
+        setFiles((prev) => {
+          if (prev.some((p) => p.id === (newFile as any).id)) return prev;
+          return [newFile as any, ...prev];
+        });
+      }
+      // Hold the 100% bar briefly so the user sees the completion state.
+      await new Promise((r) => setTimeout(r, 350));
       loadFiles();
     } catch (err: any) {
+      stopFakeProgress();
       message.error(err.message || '上传失败');
       onError?.(err);
     } finally {
       setUploading(false);
       setUploadProgress(0);
+      setUploadingFileName('');
     }
   };
+
+  useEffect(() => () => stopFakeProgress(), [stopFakeProgress]);
 
   const handleDelete = async (fileId: string) => {
     try {
@@ -335,42 +386,68 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
 
   return (
     <div>
-      {/* Upload area */}
-      <Upload.Dragger
-        customRequest={handleUpload}
-        beforeUpload={beforeUpload}
-        showUploadList={false}
-        multiple={false}
-        disabled={uploading}
-        style={{
-          marginBottom: 16,
-          padding: '20px 0',
-          borderRadius: 8,
-          background: '#fafafa',
-        }}
-      >
-        <div style={{ padding: '8px 0' }}>
-          <CloudUploadOutlined style={{ fontSize: 36, color: '#1890ff', marginBottom: 12 }} />
-          <p style={{ margin: '0 0 4px', fontSize: 15, color: '#262626' }}>
-            点击或拖拽文件到此区域上传
-          </p>
-          <p style={{ margin: 0, fontSize: 13, color: '#8c8c8c' }}>
-            支持格式: {ALLOWED_EXTENSIONS.join('  ')}，单文件最大 500MB（XPT 4GB）
-          </p>
-          <p style={{ margin: '6px 0 0', fontSize: 13, color: '#ff4d4f', fontWeight: 500 }}>
-            请将文件改成英文名称
-          </p>
-        </div>
-      </Upload.Dragger>
-
-      {/* Upload progress */}
-      {uploading && (
-        <Progress
-          percent={uploadProgress}
-          strokeColor="#1890ff"
-          style={{ marginBottom: 16 }}
-        />
-      )}
+      {/* Upload area — Dragger is ALWAYS mounted (avoids antd Upload internal
+          state churn from unmount-during-upload) and the progress panel is
+          rendered as an overlay on top via absolute positioning. */}
+      <div style={{ position: 'relative', marginBottom: 16 }}>
+        <Upload.Dragger
+          customRequest={handleUpload}
+          beforeUpload={beforeUpload}
+          showUploadList={false}
+          multiple={false}
+          disabled={uploading}
+          style={{
+            padding: '20px 0',
+            borderRadius: 8,
+            background: '#fafafa',
+          }}
+        >
+          <div style={{ padding: '8px 0' }}>
+            <CloudUploadOutlined style={{ fontSize: 36, color: '#1890ff', marginBottom: 12 }} />
+            <p style={{ margin: '0 0 4px', fontSize: 15, color: '#262626' }}>
+              点击或拖拽文件到此区域上传
+            </p>
+            <p style={{ margin: 0, fontSize: 13, color: '#8c8c8c' }}>
+              支持格式: {ALLOWED_EXTENSIONS.join('  ')}，单文件最大 500MB（XPT 4GB）
+            </p>
+            <p style={{ margin: '6px 0 0', fontSize: 13, color: '#ff4d4f', fontWeight: 500 }}>
+              请将文件改成英文名称
+            </p>
+          </div>
+        </Upload.Dragger>
+        {uploading && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: 8,
+              background: 'rgba(230, 244, 255, 0.97)',
+              border: '1px dashed #1890ff',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'stretch',
+              justifyContent: 'center',
+              padding: '16px 24px',
+              zIndex: 5,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+              <CloudUploadOutlined
+                style={{ fontSize: 22, color: '#1890ff', marginRight: 10 }}
+                spin={uploadProgress < 100}
+              />
+              <Text style={{ fontSize: 14, fontWeight: 500, color: '#0958d9' }}>
+                {uploadProgress < 100 ? '正在上传' : '上传完成'}：{uploadingFileName}
+              </Text>
+            </div>
+            <Progress
+              percent={uploadProgress}
+              strokeColor="#1890ff"
+              status={uploadProgress < 100 ? 'active' : 'success'}
+            />
+          </div>
+        )}
+      </div>
 
       {/* Actions bar */}
       <div style={{
