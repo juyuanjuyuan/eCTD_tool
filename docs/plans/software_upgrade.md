@@ -514,9 +514,9 @@ desktop/
 - [x] E6 前端 Electron 适配完成（沙箱可达部分；Electron 真机内观感留 E5 一并验收）
 - [x] E7 指纹本地化完成（沙箱可达部分；同机一致性 / 跨机变化在真机验证）
 - [x] E8 electron-builder 打包脚本完成（出 dmg/exe + SHA256SUMS 待真机；签名/公证留证书到位后切换）
-- [ ] E7 指纹本地化完成
-- [ ] E8 electron-builder 打包脚本完成
-- [ ] E9 冷装测试通过 + 首版 dmg/exe 交付客户
+- [x] E7 指纹本地化完成（真机 `4a3228a7bd40b33e` 同机一致 + 用于激活码签发，2026-04-26）
+- [x] E8 electron-builder 打包脚本完成（mac:arm64 dmg 283 MB 出货 + SHA256SUMS 一致，2026-04-26）
+- [x] E9 冷装测试通过 + 首版 dmg/exe 交付客户（mac:arm64 dmg 真机端到端冒烟过 + license 激活流程通，2026-04-26；windows nsis 待 Windows 构建机）
 
 ---
 
@@ -528,3 +528,82 @@ desktop/
 - **H2/H3/H4（commit 1c60b277, 2026-04-26）** dist-embed 打包策略釜底抽薪重写 + Electron ABI rebuild + winston 日志路径修复。详见 update_log.md。
 - **H5（2026-04-26）** macOS dock 激活时 `TypeError: Object has been destroyed`。**根因**：`mainWindow` BrowserWindow 关闭后 JS 引用未置空，`activate` 处理器对已销毁对象调 `.show()/.focus()`。**修复**：`desktop/main/index.ts` 的 `activate` 改为先 `isDestroyed()` 守卫，新增 `attachWindowLifecycle(win)` 在 `closed` 时把 `mainWindow` 置 null；boot 路径里每次 `createMainWindow` 后立即挂 lifecycle。**冒烟**：测试机关窗 → dock 重开新窗口正常，main.log 无异常。
 - **H6（2026-04-26）** 窗口打开后看到 `{"code":404,"message":"Cannot GET /","path":"/"}`。**根因**：electron 窗口加载 `http://127.0.0.1:<port>/`，但 NestJS 没装静态文件中间件，前端 `frontend/dist` 也没打进 `.app`，根路径走到 NestJS 内置 NotFoundException 被 `AllExceptionsFilter` 包成 JSON。**修复（4 处协同）**：①`backend/src/main.ts` 用 `NestExpressApplication` 类型 + `app.useStaticAssets(publicDir, {index:false})`；publicDir 解析按 `STATIC_DIR` env > `EMBEDDED==='true' ? __dirname/public : __dirname/../public` 区分 bundled/dev（esbuild 不重写 `__dirname`，单一 `../public` 会指向不同目录）；不存在则告警跳过避免 dev 报错。②新增 `backend/src/spa/{spa.module,spa.controller}.ts`：SpaController 用 `@Get('*')` 兜底，`@Public()` 跳过 LicenseGuard（激活页本身是 SPA 一部分），排除 `/api/`、`/health`、`/api/docs`、`/socket.io` 前缀返回结构与 `AllExceptionsFilter` 一致的 404 JSON。③`backend/src/app.module.ts` 把 `SpaModule` 放 `imports` 数组**最后一项**——NestJS 路由按模块拓扑序+模块内 controller 序注册，AppModule 自身 controllers 与子模块 controllers 的相对顺序是 implementation detail，仅靠"controller 数组最后位置"不稳；用末位 import 才能保证 `@Get('*')` 注册在所有真路由后。④`backend/scripts/build-embed.js` 加 `shipFrontendDist()`：`cpSync ../frontend/dist → dist-embed/public/`，缺 index.html 则 throw（强迫先跑 vite build）；`scripts/postbuild-verify.sh` 必需文件追加 `public/index.html`、`public/assets/` 目录、assets 内 `*.js >= 1`（防 vite build 出空目录或 cpSync 中断）。**沙箱冒烟**（`/tmp/ectd-smoke` 干净 datadir 跑 bundled backend）：`/` HTTP 200 1001B text/html、`/projects/123` deep-link 同 index.html、`/api/v1/nonexistent` 404 JSON（结构同 filter）、`/health` 200、`/api/v1/license/status` 200 `activated:false machineId:4a3228a7bd40b33e`、`/assets/*.js` 200。dmg 真机冒烟待构建机执行。
+
+---
+
+## 6. E9 真机端到端冒烟收尾（2026-04-26，mac:arm64）
+
+> H5 + H6 修完后第一次真机端到端冒烟，覆盖打包→冷装→启动→静态资源→API→license 激活全链路。这一轮过了就允许首版 dmg 出货给客户。
+
+### 6.1 构建产物
+- `desktop/release/eCTDTool-1.0.0-arm64.dmg` 283 MB（apfs，未公证；macOS 14+ 装机首次开需手工 `xattr -dr com.apple.quarantine` 或开 `gatekeeper` 例外，等 Apple Developer ID 证书到位后切签名+公证）
+- `desktop/release/SHA256SUMS.txt` 1 行
+- `scripts/postbuild-verify.sh` 在 `[5.5/6]` 通过（含 H6 新增的 `public/index.html`、`public/assets/` 目录、`*.js >= 1`）
+
+### 6.2 安装与启动
+- `cp -R "/Volumes/eCTDTool 1.0.0/eCTDTool.app" /Applications/`、`xattr -dr com.apple.quarantine`、`open`
+- 后端 fork 起来：`/Applications/eCTDTool.app/Contents/Frameworks/eCTDTool Helper.app/Contents/MacOS/eCTDTool Helper /Applications/.../backend.bundle.js`
+- userData 实际目录是 `~/Library/Application Support/ectd-desktop/`（不是 `eCTDTool/`，注意排查时别看错）
+- main.log 关键行：
+  - `Mapped {/api/v1/license/status, GET} route` … 全部业务 controller 注册
+  - `_RoutesResolver SpaController {/}` + `Mapped {/*, GET} route` ← **H6 落地证据**
+  - `Database connection established (provider=sqlite)`
+  - `Nest application successfully started`、`READY 55043`、`backend ready on http://127.0.0.1:55043 (pid 28880)`
+  - `loading window URL: http://127.0.0.1:55043`
+
+### 6.3 端到端 HTTP 冒烟矩阵
+
+| 路由 | 期望 | 实测 | 含义 |
+|------|------|------|------|
+| `GET /` | 200 SPA HTML | 200 1001B `text/html` | useStaticAssets `index:false` + SpaController 兜底链路通 |
+| `GET /projects/123`（deep-link 刷新场景） | 同一 index.html | 200 1001B（diff -q 一致） | SPA 路由刷新不会被后端当 404 |
+| `GET /assets/<hashed>.js` | 200 JS | 200 2998B `text/javascript` | Express 静态中间件先于 Nest router，绕过 LicenseGuard 拿到资源 |
+| `GET /health` | 200 | 200，`database.status=up` | `PrismaHealthIndicator $queryRaw` → better-sqlite3 dlopen 真通 |
+| `GET /api/v1/license/status` | 200 未激活 | 200，`activated:false machineId:4a3228a7bd40b33e enforced:true` | LicenseService → Prisma `findFirst(license)` 通 |
+| `POST /api/v1/auth/login` admin@ectd.com/admin123 | 200 + JWT | 200，`role:ADMIN` + `accessToken/refreshToken` | bcrypt dlopen + JWT 签发 + 自动 seed 出来的默认 admin 用户可登录 |
+| `POST /api/v1/license/activate` (Bearer) | 201 activated | 201，`activated:true customer:Test-Smoke-2026-04-26 expiresAt:2027-04-26 daysRemaining:365 valid:true` | RSA 验签（public.pem 从 `extraResources` 加载）+ DB 写入 license 表通 |
+| `GET /api/v1/license/status`（激活后再查） | 200 已激活 | 200，`activated:true ...` | license 持久化跨请求生效 |
+| `GET /api/v1/projects` (Bearer) | 200 列表 | 200，`items:[] total:0` 空列表 | LicenseGuard 放行 + JwtAuthGuard 放行 + 业务 controller 跑通，整条业务 API 链就绪 |
+
+### 6.4 H1-H6 全景回顾（为什么这轮要修这么多）
+
+E9 阶段连续 6 个 hotfix 都是**「dev 装机能跑、客户机冷装就崩」**这一类问题，本质是 dev 隐式靠了一堆构建机环境假设，打包阶段没把它们物化进 dmg。逐条根因如下：
+
+- **H1 客户机崩 `Cannot find module '@prisma/client/runtime/library.js'`**
+  - 根因：esbuild 把 `@prisma/client` 标 external 后，运行时还要去 `node_modules/` 找；`scripts/build-embed.js` 没把 `@prisma/client` + `.prisma/client` 复制进 `dist-embed/node_modules/`，且 `prisma/schema.prisma binaryTargets` 只有 host 平台，darwin/win 引擎二进制根本没下载。
+  - 教训：**只要标 external 就必须自己负责把它放进产物**；多平台引擎要在 schema 里显式列出 binaryTargets。
+
+- **H2 客户机崩 `runtime/library.js` 又随机丢失**（H1 修了但还崩）
+  - 根因 1：H1 用的白名单复制器把 `.mjs` 一刀切，但 `@prisma/client` 的 `package.json#exports` 里 `default` 入口指向 `library.mjs`，CJS 运行时也会 stat 该文件。
+  - 根因 2：`build-electron.sh [2.5/6]` 当时为了"补齐运行时"在 dist-embed 内 `npm install --omit=dev`，反而**覆盖**了 H1 复制好的成果，prebuild 文件随机丢。
+  - 修复：白名单换黑名单——整包 `cpSync` backend/node_modules → dist-embed/node_modules，再按 prune 列表删 dev-only；删掉 `npm install` 那步。
+  - 教训：**白名单 brittle**，每次 Prisma 升级都可能漏；黑名单壮实但要配 sanity check 兜底（`required = [...]` 缺一个就 throw）。
+
+- **H3 backend fork 崩 `NODE_MODULE_VERSION 127 vs 125`**
+  - 根因：Electron 31 child fork 用 Electron 自带 Node ABI 125；构建机 npm install 拉的是系统 Node 22 的 ABI 127 prebuild。两个 ABI 互不兼容。
+  - 修复：加 `@electron/rebuild` devDep；`build-electron.sh [2.5/6]` 按 build target arch 重 build native 模块；同时在 `[1/6]` 开头先 `npm rebuild` 把 backend/node_modules 拉回 Node ABI（不然 firstrun-db 步骤跑不起来——它走的是构建机 Node）。
+  - 教训：**Electron 不是 Node**，凡是要被 fork 的 native 模块必须按 Electron 的 Node 版本 rebuild；构建期会出现 host Node 与 Electron Node 来回切的需求，要双向兼容。
+
+- **H4 backend 启动崩 `ENOENT mkdir 'logs'`**
+  - 根因：winston `File` transport 用相对路径 `'logs/error.log'`，Electron fork 的 cwd 是 `.app/Contents/Resources/`（只读），mkdir 必败。
+  - 修复：`createWinstonLogger()` 检测 `DATA_DIR` 注入时切 `${DATA_DIR}/backend-logs/`，先 `fs.mkdirSync(..., {recursive: true})` 再交 winston。
+  - 教训：**dev 默认 cwd 是项目根（可写）**，但打包后 cwd 经常落到只读目录；任何 fs 写路径都要锚到一个明确可写的 DATA_DIR，不能依赖 cwd。
+
+- **H5 macOS dock 激活崩 `TypeError: Object has been destroyed`**
+  - 根因：用户点窗口红 X 关窗时，Electron 销毁底层 native window，但 main 持有的 `BrowserWindow` JS 对象仍可达；老 `activate` 处理器用 `if (mainWindow === null)` 判 falsy，对销毁后但仍可达的对象判定为 truthy → 调 `.show()/.focus()` 命中 IPC 死对象。
+  - 修复：`activate` 改用 `isDestroyed()` 守卫；`attachWindowLifecycle()` 在 `closed` 事件里把 `mainWindow` 置 null。
+  - 教训：**在 Electron 里"对象存在 ≠ 对象可用"**；`null` 检查不够，必须 `isDestroyed()`。
+
+- **H6 窗口打开看到 `Cannot GET /` JSON**
+  - 根因：dev 期前端跑在 vite dev server，后端只跑 API；打包时前端 `frontend/dist` 完全没进 `.app`，后端也没装静态中间件。`http://127.0.0.1:<port>/` 命中 NestJS 内置 NotFoundException → 全局 `AllExceptionsFilter` 包成 JSON。
+  - 修复（4 处协同）：① `useStaticAssets`（带 `{index:false}` 让 `/` 不被静态层吃）；② SpaController `@Get('*')` 兜底，`@Public()` 跳 LicenseGuard（激活页本身是 SPA 一部分），API 前缀返回结构同 filter 的 404 JSON；③ SpaModule 放 `AppModule.imports` **最后一项**（NestJS 路由按模块拓扑序+模块内 controller 序，imports 末位才稳）；④ build-embed `shipFrontendDist` 把 `frontend/dist → dist-embed/public/`，postbuild-verify 加 `public/index.html` + `assets/` + `*.js>=1`。
+  - 教训：**dev 双 server 架构（vite + nest）打包后必须收成单 server**；catch-all 路由的注册位置不能靠"应该是最后吧"，得靠 NestJS 文档化的契约（imports 末位）。
+
+### 6.5 共性教训（写给后续团队）
+
+1. **沙箱跑通 ≠ 客户机跑通**。E9 阶段 H1-H6 都是 dev 期沙箱过、真机崩；任何带 native binding / 文件系统假设 / 进程模型 / 路径推断的改动都必须真机验证一次。
+2. **多次小迭代比一次大改稳**。本轮 6 个 hotfix 拆 3 个 commit，每次都能精确定位；如果一次性堆改改一发，回滚成本高。
+3. **postbuild-verify 是阻断闸，不是"建议检查"**。每修一个根因都同步往 `postbuild-verify.sh` 里加新断言；下一次类似回归会在出货前红，不会到客户机。
+4. **dev 隐式假设要显式化**：cwd 假设 → DATA_DIR、Node 版本假设 → @electron/rebuild、白名单假设 → 黑名单 + sanity check、SPA 服务假设 → useStaticAssets + 兜底 controller。
+5. **NestJS 路由顺序是契约不是巧合**：catch-all 必须放 imports 末位，依赖注册顺序的代码要写注释说明为什么。
+6. **license 激活链路（machineId → 签发 → 验签 → DB 写入 → 跨请求持久化）**全程依赖原生模块（bcrypt、better-sqlite3、prisma engine）+ 文件系统（public.pem 从 extraResources）+ 配置注入（EMBEDDED env），任意一环挂都会显形为模糊的"激活失败"——要分层冒烟，每一层独立验证再合并。
