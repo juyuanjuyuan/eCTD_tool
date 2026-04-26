@@ -517,3 +517,14 @@ desktop/
 - [ ] E7 指纹本地化完成
 - [ ] E8 electron-builder 打包脚本完成
 - [ ] E9 冷装测试通过 + 首版 dmg/exe 交付客户
+
+---
+
+## 5. E9 真机冒烟历次 hotfix
+
+> 依次修复客户机/构建机崩溃。每条记录最小可复现 + 根因 + 落地修改。最新在底。
+
+- **H1（commit 25cd69f0）** Prisma client 没随 bundle 出货 → 加 `copyPrismaPackage()` 白名单复制 + `binaryTargets` 五平台。
+- **H2/H3/H4（commit 1c60b277, 2026-04-26）** dist-embed 打包策略釜底抽薪重写 + Electron ABI rebuild + winston 日志路径修复。详见 update_log.md。
+- **H5（2026-04-26）** macOS dock 激活时 `TypeError: Object has been destroyed`。**根因**：`mainWindow` BrowserWindow 关闭后 JS 引用未置空，`activate` 处理器对已销毁对象调 `.show()/.focus()`。**修复**：`desktop/main/index.ts` 的 `activate` 改为先 `isDestroyed()` 守卫，新增 `attachWindowLifecycle(win)` 在 `closed` 时把 `mainWindow` 置 null；boot 路径里每次 `createMainWindow` 后立即挂 lifecycle。**冒烟**：测试机关窗 → dock 重开新窗口正常，main.log 无异常。
+- **H6（2026-04-26）** 窗口打开后看到 `{"code":404,"message":"Cannot GET /","path":"/"}`。**根因**：electron 窗口加载 `http://127.0.0.1:<port>/`，但 NestJS 没装静态文件中间件，前端 `frontend/dist` 也没打进 `.app`，根路径走到 NestJS 内置 NotFoundException 被 `AllExceptionsFilter` 包成 JSON。**修复（4 处协同）**：①`backend/src/main.ts` 用 `NestExpressApplication` 类型 + `app.useStaticAssets(publicDir, {index:false})`；publicDir 解析按 `STATIC_DIR` env > `EMBEDDED==='true' ? __dirname/public : __dirname/../public` 区分 bundled/dev（esbuild 不重写 `__dirname`，单一 `../public` 会指向不同目录）；不存在则告警跳过避免 dev 报错。②新增 `backend/src/spa/{spa.module,spa.controller}.ts`：SpaController 用 `@Get('*')` 兜底，`@Public()` 跳过 LicenseGuard（激活页本身是 SPA 一部分），排除 `/api/`、`/health`、`/api/docs`、`/socket.io` 前缀返回结构与 `AllExceptionsFilter` 一致的 404 JSON。③`backend/src/app.module.ts` 把 `SpaModule` 放 `imports` 数组**最后一项**——NestJS 路由按模块拓扑序+模块内 controller 序注册，AppModule 自身 controllers 与子模块 controllers 的相对顺序是 implementation detail，仅靠"controller 数组最后位置"不稳；用末位 import 才能保证 `@Get('*')` 注册在所有真路由后。④`backend/scripts/build-embed.js` 加 `shipFrontendDist()`：`cpSync ../frontend/dist → dist-embed/public/`，缺 index.html 则 throw（强迫先跑 vite build）；`scripts/postbuild-verify.sh` 必需文件追加 `public/index.html`、`public/assets/` 目录、assets 内 `*.js >= 1`（防 vite build 出空目录或 cpSync 中断）。**沙箱冒烟**（`/tmp/ectd-smoke` 干净 datadir 跑 bundled backend）：`/` HTTP 200 1001B text/html、`/projects/123` deep-link 同 index.html、`/api/v1/nonexistent` 404 JSON（结构同 filter）、`/health` 200、`/api/v1/license/status` 200 `activated:false machineId:4a3228a7bd40b33e`、`/assets/*.js` 200。dmg 真机冒烟待构建机执行。

@@ -11,6 +11,7 @@
  *   generated/
  *     prisma-sqlite/            ← copied from src/generated/prisma-sqlite/
  *   node_modules/               ← full copy of backend/node_modules/ minus dev-only deps
+ *   public/                     ← copied from ../frontend/dist/ (built SPA)
  *   package.json                ← minimal manifest (main: backend.bundle.js)
  *
  * Native modules (better-sqlite3, bcrypt, prisma engines, etc.) remain `external`
@@ -139,6 +140,7 @@ async function main() {
   }
 
   shipNodeModules();
+  shipFrontendDist();
 
   // `dependencies` listing is required so @electron/rebuild can discover
   // native modules to rebuild against Electron's Node ABI.
@@ -247,6 +249,28 @@ function shipNodeModules() {
   }
 
   console.log(`[build-embed] node_modules ready (${pruned} dev-only entries pruned)`);
+}
+
+// Copy `../frontend/dist/` (vite build output) into `dist-embed/public/`. The
+// embedded backend serves this directory via `app.useStaticAssets()` and falls
+// back to `public/index.html` for any non-API GET (SpaController). The
+// frontend MUST be built (`npm --prefix frontend run build`) before this runs.
+function shipFrontendDist() {
+  const frontendDist = path.resolve(ROOT, '..', 'frontend', 'dist');
+  const outPublic = path.join(OUT_DIR, 'public');
+  if (!fs.existsSync(frontendDist)) {
+    throw new Error(
+      `[build-embed] frontend dist missing at ${frontendDist} — run "npm --prefix frontend run build" first`,
+    );
+  }
+  if (!fs.existsSync(path.join(frontendDist, 'index.html'))) {
+    throw new Error(
+      `[build-embed] ${frontendDist}/index.html missing — frontend build is incomplete`,
+    );
+  }
+  fs.rmSync(outPublic, { recursive: true, force: true });
+  copyDir(frontendDist, outPublic);
+  console.log(`[build-embed] frontend dist staged → ${outPublic}`);
 }
 
 main().catch((err) => {

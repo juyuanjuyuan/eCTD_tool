@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { WinstonModule } from 'nest-winston';
@@ -138,12 +139,35 @@ async function maybeAutoSeed(app: any) {
 async function bootstrap() {
   await maybeRunMigrationsAndSeed();
 
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: createWinstonLogger(),
   });
 
   // Graceful shutdown — Nest hooks into SIGTERM/SIGINT once enableShutdownHooks() is called.
   app.enableShutdownHooks();
+
+  // Static SPA. Resolution differs between dev (tsc → backend/dist/src/main.js)
+  // and embedded (esbuild → dist-embed/backend.bundle.js) — esbuild does NOT
+  // rewrite __dirname, so a single `../public` would point to two different
+  // directories. EMBEDDED is set by the Electron main process when forking.
+  const publicDir =
+    process.env.STATIC_DIR ||
+    (process.env.EMBEDDED === 'true'
+      ? path.join(__dirname, 'public')           // dist-embed/public/
+      : path.join(__dirname, '..', 'public'));   // backend/dist/public/
+  if (fs.existsSync(path.join(publicDir, 'index.html'))) {
+    // index:false so GET / falls through to SpaController instead of being
+    // served the static index.html via redirect — keeps the catch-all in one
+    // place (and lets us 503 cleanly when assets are partial).
+    app.useStaticAssets(publicDir, { index: false });
+    process.env.__PUBLIC_DIR__ = publicDir;
+    Logger.log(`Serving SPA from ${publicDir}`, 'Bootstrap');
+  } else {
+    Logger.warn(
+      `SPA assets not found at ${publicDir} — root URL will return 503`,
+      'Bootstrap',
+    );
+  }
 
   // CORS
   const allowedOrigins = process.env.CORS_ORIGINS

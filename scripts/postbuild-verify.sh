@@ -35,6 +35,7 @@ required=(
   "$RES/generated/prisma-sqlite/index.js"
   "$RES/prisma/migrations.sqlite/migration_lock.toml"
   "$RES/first-run.db"
+  "$RES/public/index.html"
 )
 
 for f in "${required[@]}"; do
@@ -47,6 +48,19 @@ done
 if [[ -z "$ARCH_ENGINE" ]]; then
   echo "MISSING: $RES/node_modules/.prisma/client/libquery_engine-darwin*.dylib.node" >&2
   fail=1
+fi
+
+# Vite emits hashed JS bundles into public/assets/. A missing/empty assets dir
+# means the SPA will load index.html but fail to fetch the actual app code.
+if [[ ! -d "$RES/public/assets" ]]; then
+  echo "MISSING: $RES/public/assets (vite assets directory)" >&2
+  fail=1
+else
+  js_count=$(find "$RES/public/assets" -maxdepth 1 -name "*.js" | wc -l | tr -d ' ')
+  if [[ "$js_count" -lt 1 ]]; then
+    echo "EMPTY: $RES/public/assets contains no .js files" >&2
+    fail=1
+  fi
 fi
 
 if [[ $fail -ne 0 ]]; then

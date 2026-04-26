@@ -25,6 +25,7 @@ import { CollaborationModule } from './collaboration/collaboration.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { HealthModule } from './health/health.module';
 import { LicenseModule } from './license/license.module';
+import { SpaModule } from './spa/spa.module';
 
 const queueProvider = process.env.QUEUE_PROVIDER || 'sync';
 const bullRootImports =
@@ -68,6 +69,11 @@ const bullRootImports =
     NotificationModule,
     CollaborationModule,
     DashboardModule,
+    // SpaModule must be imported last so its catch-all `@Get('*')` is
+    // registered after every real API route. NestJS route resolution honors
+    // module import order; placing this anywhere else risks the SPA fallback
+    // shadowing a real controller.
+    SpaModule,
   ],
 })
 export class AppModule {}
