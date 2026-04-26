@@ -12,6 +12,7 @@ import {
   UploadedFile,
   UploadedFiles,
   Req,
+  Header,
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
@@ -114,8 +115,14 @@ export class FileController {
   /**
    * List files for a node.
    * GET /api/v1/nodes/:nodeId/files
+   *
+   * `Cache-Control: no-store` — prevents Electron Chromium / browser HTTP
+   * cache from serving stale responses immediately after upload (the post-
+   * upload `loadFiles()` would otherwise see a cached empty list and the
+   * just-uploaded file would briefly disappear from the UI).
    */
   @Get('nodes/:nodeId/files')
+  @Header('Cache-Control', 'no-store')
   async listFiles(@Param('nodeId') nodeId: string) {
     return this.fileService.listFiles(nodeId);
   }
@@ -125,6 +132,7 @@ export class FileController {
    * GET /api/v1/nodes/:nodeId/files/:id
    */
   @Get('nodes/:nodeId/files/:id')
+  @Header('Cache-Control', 'no-store')
   async getFile(
     @Param('nodeId') nodeId: string,
     @Param('id') id: string,
@@ -203,6 +211,7 @@ export class FileController {
    * GET /api/v1/nodes/:nodeId/files/referenceable
    */
   @Get('nodes/:nodeId/files/referenceable')
+  @Header('Cache-Control', 'no-store')
   async listReferenceableFiles(@Param('nodeId') nodeId: string) {
     return this.fileService.listReferenceableFiles(nodeId);
   }

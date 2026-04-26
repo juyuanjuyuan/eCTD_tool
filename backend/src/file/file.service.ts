@@ -244,10 +244,10 @@ export class FileService {
       });
     }
 
-    return {
-      ...this.serializeAttachment(attachment),
-      pdfAnalysis,
-    };
+    // Pass pdfAnalysis through serializeAttachment so complianceDetails is
+    // parsed (matches listFiles shape — frontend optimistic insert and
+    // subsequent merge then deal with identical objects).
+    return this.serializeAttachment({ ...attachment, pdfAnalysis });
   }
 
   /**
@@ -366,10 +366,10 @@ export class FileService {
       });
     }
 
-    return {
-      ...this.serializeAttachment(attachment),
-      pdfAnalysis,
-    };
+    // Pass pdfAnalysis through serializeAttachment so complianceDetails is
+    // parsed (matches listFiles shape — frontend optimistic insert and
+    // subsequent merge then deal with identical objects).
+    return this.serializeAttachment({ ...attachment, pdfAnalysis });
   }
 
   /**

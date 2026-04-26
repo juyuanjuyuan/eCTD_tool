@@ -165,7 +165,23 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
       }
       // Hold the 100% bar briefly so the user sees the completion state.
       await new Promise((r) => setTimeout(r, 350));
-      loadFiles();
+      // Merge-additive refresh: server data is canonical for files it returns,
+      // but keep any optimistic items the server hasn't returned yet (handles
+      // HTTP cache, SQLite write-after-read visibility, or any other transient
+      // staleness — without it, a stale empty list would wipe the optimistic
+      // insert and the user would have to navigate away and back to see the
+      // file).
+      try {
+        const fresh = await fileApi.list(nodeId);
+        setFiles((prev) => {
+          const serverIds = new Set(fresh.map((f) => f.id));
+          const ghosts = prev.filter((p) => !serverIds.has(p.id));
+          return [...ghosts, ...fresh];
+        });
+      } catch {
+        // Keep optimistic state on refresh failure; user can navigate away
+        // and back to retry the fetch through the normal mount path.
+      }
     } catch (err: any) {
       stopFakeProgress();
       message.error(err.message || '上传失败');
