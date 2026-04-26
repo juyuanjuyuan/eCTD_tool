@@ -84,6 +84,10 @@ async function main() {
 
     // 5) Controlled Vocabulary + STF — invoke the same parser the runtime uses,
     //    so the snapshot exactly matches what the runtime would produce.
+    //    Build-time seeding is HARD-required: missing reference at build time
+    //    means a crippled snapshot ships, and the customer sees empty dropdowns
+    //    that the runtime fallback can only sometimes recover (data-dir.ts
+    //    release path is independent and may also fail). Fail the build red.
     console.log('[build-firstrun-db] seeding controlled vocabularies...');
     await seedControlledVocabularies(prisma);
     await seedStfVocabularies(prisma);
@@ -105,16 +109,57 @@ async function main() {
       });
     }
 
-    const counts = await Promise.all([
+    const [
+      userCnt,
+      ctdNodeCnt,
+      ruleCnt,
+      cvTotalCnt,
+      cvAptCnt,
+      cvPrtCnt,
+      cvRatCnt,
+      cvSqtCnt,
+      cvDepCnt,
+      stfCatCnt,
+      stfTagCnt,
+    ] = await Promise.all([
       prisma.user.count(),
       prisma.ctdTemplateNode.count(),
       prisma.ctdCompletenessRule.count(),
       prisma.controlledVocabulary.count(),
+      prisma.controlledVocabulary.count({ where: { vocabularyName: 'application-type' } }),
+      prisma.controlledVocabulary.count({ where: { vocabularyName: 'product-type' } }),
+      prisma.controlledVocabulary.count({ where: { vocabularyName: 'regulatory-activity-type' } }),
+      prisma.controlledVocabulary.count({ where: { vocabularyName: 'sequence-type' } }),
+      prisma.cvDependency.count(),
+      prisma.controlledVocabulary.count({ where: { vocabularyName: { startsWith: 'stf-category-' } } }),
+      prisma.controlledVocabulary.count({ where: { vocabularyName: { startsWith: 'stf-file-tag-' } } }),
     ]);
     console.log(
-      `[build-firstrun-db] done. counts: users=${counts[0]} ctdNodes=${counts[1]} ` +
-        `rules=${counts[2]} cv=${counts[3]}`,
+      `[build-firstrun-db] done. counts: users=${userCnt} ctdNodes=${ctdNodeCnt} ` +
+        `rules=${ruleCnt} cv=${cvTotalCnt} (apt=${cvAptCnt} prt=${cvPrtCnt} rat=${cvRatCnt} sqt=${cvSqtCnt}) ` +
+        `cvDep=${cvDepCnt} stfCat=${stfCatCnt} stfTag=${stfTagCnt}`,
     );
+
+    // Hard assertions — build red if snapshot is incomplete. Numbers are from
+    // the eCTD V1.1 controlled vocabulary spec (cnapt1-4 / cnprt1-2 / cnrat1-9 /
+    // cnsqt1-4) plus seed-ctd plan §0 (~229 template nodes, ≥196 completeness rules).
+    const failures = [];
+    if (userCnt < 1) failures.push(`users < 1 (got ${userCnt})`);
+    if (ctdNodeCnt < 200) failures.push(`ctd_template_node < 200 (got ${ctdNodeCnt})`);
+    if (ruleCnt < 100) failures.push(`ctd_completeness_rule < 100 (got ${ruleCnt})`);
+    if (cvAptCnt !== 4) failures.push(`application-type expected 4, got ${cvAptCnt}`);
+    if (cvPrtCnt !== 2) failures.push(`product-type expected 2, got ${cvPrtCnt}`);
+    if (cvRatCnt !== 9) failures.push(`regulatory-activity-type expected 9, got ${cvRatCnt}`);
+    if (cvSqtCnt !== 4) failures.push(`sequence-type expected 4, got ${cvSqtCnt}`);
+    if (cvDepCnt < 1) failures.push(`cv_dependency < 1 (got ${cvDepCnt})`);
+    if (stfCatCnt < 1) failures.push(`stf-category-* < 1 (got ${stfCatCnt})`);
+    if (stfTagCnt < 1) failures.push(`stf-file-tag-* < 1 (got ${stfTagCnt})`);
+    if (failures.length > 0) {
+      throw new Error(
+        `[build-firstrun-db] snapshot incomplete; refusing to ship. Failures:\n  - ` +
+          failures.join('\n  - '),
+      );
+    }
     console.log(`[build-firstrun-db] snapshot at: ${OUT_DB}`);
   } finally {
     await prisma.$disconnect();
@@ -125,17 +170,25 @@ async function main() {
 // build-time path doesn't depend on instantiating the full Nest service graph,
 // just to seed two tables). If the runtime parser changes, mirror it here.
 
+function getReferenceXmlDir() {
+  // Build-time path. Prefer REFERENCE_DIR override (e.g. CI-staged path), fall
+  // back to <repo>/reference. Either MUST exist — silent skip is what shipped
+  // a crippled first-run.db on Mac (E9-H7 hotfix).
+  const envOverride = process.env.REFERENCE_DIR;
+  if (envOverride) {
+    return envOverride; // expected to be ".../eCTD技术规范V1.1附件包"
+  }
+  return path.resolve(ROOT, '..', 'reference', 'eCTD技术规范V1.1附件包');
+}
+
 async function seedControlledVocabularies(prisma) {
-  const xmlDir = path.resolve(
-    ROOT,
-    '..',
-    'reference',
-    'eCTD技术规范V1.1附件包',
-    '附件1-2：受控词汇文件包',
-  );
+  const baseDir = getReferenceXmlDir();
+  const xmlDir = path.join(baseDir, '附件1-2：受控词汇文件包');
   if (!fs.existsSync(xmlDir)) {
-    console.warn(`[build-firstrun-db] reference dir missing: ${xmlDir} — skipping CV seed`);
-    return;
+    throw new Error(
+      `[build-firstrun-db] reference dir missing: ${xmlDir}\n` +
+        `Set REFERENCE_DIR env or check that <repo>/reference/eCTD技术规范V1.1附件包/ is present.`,
+    );
   }
   const { XMLParser } = require(path.join(ROOT, 'node_modules', 'fast-xml-parser'));
   const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
@@ -149,8 +202,7 @@ async function seedControlledVocabularies(prisma) {
   for (const { file, vocabName } of cvFiles) {
     const fullPath = path.join(xmlDir, file);
     if (!fs.existsSync(fullPath)) {
-      console.warn(`  skip ${file} (missing)`);
-      continue;
+      throw new Error(`[build-firstrun-db] required CV file missing: ${fullPath}`);
     }
     const xml = fs.readFileSync(fullPath, 'utf-8');
     const parsed = parser.parse(xml);
@@ -177,30 +229,132 @@ async function seedControlledVocabularies(prisma) {
       });
     }
   }
+
+  // Dependency table (apt-rat-sqt cascade). Same XML root, separate file.
+  const depFile = path.join(xmlDir, 'depend-apt-rat-sqt.xml');
+  if (!fs.existsSync(depFile)) {
+    throw new Error(`[build-firstrun-db] required dependency file missing: ${depFile}`);
+  }
+  const depXml = fs.readFileSync(depFile, 'utf-8');
+  const depParsed = parser.parse(depXml);
+  const dependency = depParsed.dependency;
+  const depVersionNumber = dependency.version['@_number'];
+  const appCodes = Array.isArray(dependency.version.code)
+    ? dependency.version.code
+    : [dependency.version.code];
+  for (const appCode of appCodes) {
+    const ratCodes = Array.isArray(appCode.code) ? appCode.code : [appCode.code];
+    for (const ratCode of ratCodes) {
+      const sqtCodes = Array.isArray(ratCode.code) ? ratCode.code : [ratCode.code];
+      for (const sqtCode of sqtCodes) {
+        await prisma.cvDependency.create({
+          data: {
+            applicationTypeCode: appCode['@_name'],
+            regulatoryActivityTypeCode: ratCode['@_name'],
+            sequenceTypeCode: sqtCode['@_name'],
+            version: depVersionNumber,
+          },
+        });
+      }
+    }
+  }
 }
 
 async function seedStfVocabularies(prisma) {
-  const validValuesPath = path.resolve(
-    ROOT,
-    '..',
-    'reference',
-    'eCTD技术规范V1.1附件包',
-    '附件2-6：STF标签值文件',
-    'valid-values.xml',
-  );
+  const baseDir = getReferenceXmlDir();
+  const validValuesPath = path.join(baseDir, '附件2-6：STF标签值文件', 'valid-values.xml');
   if (!fs.existsSync(validValuesPath)) {
-    console.warn(`[build-firstrun-db] STF valid-values.xml missing — skipping STF seed`);
-    return;
+    throw new Error(
+      `[build-firstrun-db] STF valid-values.xml missing: ${validValuesPath}`,
+    );
   }
-  // Dynamic import of the runtime service is heavy (full Nest graph), so we
-  // just leave STF un-seeded in the snapshot — the runtime seeder will pick
-  // it up on first boot from <userData>/reference/ which is always shipped.
-  console.log(`  STF vocabularies will be seeded at runtime first boot from <userData>/reference/`);
+  const { XMLParser } = require(path.join(ROOT, 'node_modules', 'fast-xml-parser'));
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+
+  const xml = fs.readFileSync(validValuesPath, 'utf-8');
+  const parsed = parser.parse(xml);
+  // Mirror runtime parser at backend/src/controlled-vocabulary/...service.ts
+  // parseStfValidValuesFile(): root is <ectd:study-values>, values are in
+  // @_value attributes (not text content), version is hardcoded since the
+  // file only carries it as an XML comment.
+  const root = parsed['ectd:study-values'];
+  if (!root) {
+    throw new Error(
+      `[build-firstrun-db] invalid STF valid-values.xml: missing <ectd:study-values> root`,
+    );
+  }
+  const versionNumber = '6.0';
+  const validFrom = new Date('2023-11-01');
+
+  const normaliseEntries = (raw) => {
+    if (!raw) return [];
+    const entries = Array.isArray(raw) ? raw : [raw];
+    return entries
+      .map((e) => ({
+        value: String(e['@_value'] || ''),
+        realm: String(e['@_realm'] || 'ich'),
+      }))
+      .filter((e) => e.value.length > 0);
+  };
+
+  // Categories: one or many <category name="..."> blocks
+  const categoryNodes = collectArray(root.category);
+  let stfCatRows = 0;
+  for (const category of categoryNodes) {
+    const vocabName = `stf-category-${category['@_name']}`;
+    const entries = normaliseEntries(category['valid-value']);
+    for (const e of entries) {
+      await prisma.controlledVocabulary.create({
+        data: {
+          vocabularyName: vocabName,
+          code: e.value,
+          version: versionNumber,
+          validFrom,
+          descriptionZh: e.value,
+          descriptionEn: `[${e.realm}] ${e.value}`,
+        },
+      });
+      stfCatRows++;
+    }
+  }
+
+  // file-tag block: shared across modules 4 and 5; mirror under both keys per Plan 12 §1.2.
+  const fileTagEntries = normaliseEntries(root['file-tag']?.['valid-value']);
+  let stfTagRows = 0;
+  for (const moduleKey of ['m4', 'm5']) {
+    const vocabName = `stf-file-tag-${moduleKey}`;
+    for (const e of fileTagEntries) {
+      await prisma.controlledVocabulary.create({
+        data: {
+          vocabularyName: vocabName,
+          code: e.value,
+          version: versionNumber,
+          validFrom,
+          descriptionZh: e.value,
+          descriptionEn: `[${e.realm}] ${e.value}`,
+        },
+      });
+      stfTagRows++;
+    }
+  }
+  console.log(
+    `  stf seeded: ${categoryNodes.length} categories (${stfCatRows} rows), ` +
+      `${stfTagRows} file-tag rows (mirrored m4+m5)`,
+  );
+}
+
+function collectArray(maybe) {
+  if (maybe == null) return [];
+  return Array.isArray(maybe) ? maybe : [maybe];
 }
 
 function parseDate(str) {
   if (!str) return new Date();
-  // accepts yyyy-MM-dd
+  // accepts yyyy-MM-dd or yyyy-M-d
+  const parts = String(str).split('-');
+  if (parts.length === 3) {
+    return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  }
   return new Date(str);
 }
 

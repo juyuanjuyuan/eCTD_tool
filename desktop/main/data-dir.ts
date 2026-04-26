@@ -71,9 +71,15 @@ export function initDataDir(): DataDirPaths {
       copyDir(bundled, referenceDir);
       log.info(`reference released: ${bundled} → ${referenceDir}`);
     } else {
-      log.info(
+      // Loud, not info: with no reference released and no first-run.db
+      // pre-seed of CV (which is also possible if build-firstrun-db.js ran
+      // without REFERENCE_DIR access), the customer sees empty dropdowns
+      // for application-type / regulatory-activity-type / etc. (E9-H7).
+      log.error(
         `reference bundle not found at ${bundled ?? '(resourcesPath/reference)'}. ` +
-          `Skipping release; backend will skip XML-driven seed and rely on first-run.db.`,
+          `Backend will not be able to seed controlled vocabulary from XML at runtime. ` +
+          `If first-run.db is also missing CV rows, all CV-dependent dropdowns will be empty. ` +
+          `Verify electron-builder.yml extraResources stages reference/ correctly.`,
       );
     }
   }

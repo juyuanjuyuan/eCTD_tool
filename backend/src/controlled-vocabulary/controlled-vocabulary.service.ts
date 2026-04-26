@@ -27,9 +27,9 @@ export class ControlledVocabularyService implements OnModuleInit {
   // Resolution order:
   //   1. process.env.REFERENCE_DIR (Electron main injects this from <userData>/reference/)
   //   2. ../reference/... relative to backend's cwd (dev path, run-from-backend)
-  // If neither resolves to an existing dir we skip seeding and log a warning;
-  // the customer-side embedded build is expected to populate via a pre-seeded
-  // first-run.db snapshot rather than parsing XMLs at runtime.
+  // If neither resolves to an existing dir we log an error and skip seeding;
+  // the customer-side embedded build expects either a pre-seeded first-run.db
+  // OR a successful first-launch reference release (data-dir.ts).
   private readonly cvBasePath = (() => {
     const fromEnv = process.env.REFERENCE_DIR;
     if (fromEnv) {
@@ -38,6 +38,16 @@ export class ControlledVocabularyService implements OnModuleInit {
     return path.resolve(
       process.cwd(),
       '../reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包',
+    );
+  })();
+  private readonly stfFilePath = (() => {
+    const fromEnv = process.env.REFERENCE_DIR;
+    if (fromEnv) {
+      return path.join(fromEnv, '附件2-6：STF标签值文件', 'valid-values.xml');
+    }
+    return path.resolve(
+      process.cwd(),
+      '../reference/eCTD技术规范V1.1附件包/附件2-6：STF标签值文件/valid-values.xml',
     );
   })();
 
@@ -51,24 +61,16 @@ export class ControlledVocabularyService implements OnModuleInit {
     await this.seedStfVocabularies();
   }
 
+  /**
+   * Seed the four CV tables (application-type / product-type /
+   * regulatory-activity-type / sequence-type) and the cv_dependency mapping.
+   *
+   * Self-healing per-vocabulary check: if first-run.db only partially
+   * populated CV (e.g. app-type seeded but rat empty due to a build hiccup),
+   * each vocabulary heals independently. The previous "global count > 0 skip"
+   * masked partial state and produced the empty-dropdown bug on desktop.
+   */
   async seedControlledVocabularies() {
-    const existingCount = await this.prisma.controlledVocabulary.count();
-    if (existingCount > 0) {
-      this.logger.log('受控词汇数据已存在，跳过初始化');
-      return;
-    }
-
-    if (!fs.existsSync(this.cvBasePath)) {
-      this.logger.warn(
-        `受控词汇 reference 目录不存在 (${this.cvBasePath}); 跳过 XML 解析。` +
-          ` 桌面/embedded 构建应通过预生成的 first-run.db 填充该表。` +
-          ` 设置 REFERENCE_DIR 环境变量指向 reference 目录可启用 XML 解析。`,
-      );
-      return;
-    }
-
-    this.logger.log('开始解析受控词汇文件...');
-
     const cvFiles = [
       { file: 'cv-application-type.xml', vocabName: 'application-type' },
       { file: 'cv-product-type.xml', vocabName: 'product-type' },
@@ -76,12 +78,52 @@ export class ControlledVocabularyService implements OnModuleInit {
       { file: 'cv-sequence-type.xml', vocabName: 'sequence-type' },
     ];
 
+    const refDirAvailable = fs.existsSync(this.cvBasePath);
+
+    let seededAny = false;
+    let healedAny = false;
+
     for (const { file, vocabName } of cvFiles) {
+      const existing = await this.prisma.controlledVocabulary.count({
+        where: { vocabularyName: vocabName },
+      });
+      if (existing > 0) continue;
+
+      if (!refDirAvailable) {
+        this.logger.error(
+          `受控词汇 ${vocabName} 缺失 (DB 中 0 行) 且 reference 目录不存在 (${this.cvBasePath})；` +
+            ` 桌面/embedded 构建必须有 first-run.db 预填或 reference 释放，否则前端下拉为空。` +
+            ` 检查: build-firstrun-db.js 是否成功 seed、data-dir.ts 是否成功释放 reference。`,
+        );
+        continue;
+      }
+      seededAny = true;
+      healedAny = healedAny || (await this.prisma.controlledVocabulary.count()) > 0;
       await this.parseCvFile(file, vocabName);
     }
 
-    await this.parseDependencyFile();
-    this.logger.log('受控词汇数据初始化完成');
+    if (healedAny) {
+      this.logger.warn(
+        `受控词汇部分缺失，已从 XML 自愈。这通常意味着 first-run.db 不完整或 reference 释放部分失败——请检查 build pipeline。`,
+      );
+    }
+
+    // Dependency table: independent self-heal.
+    const depCount = await this.prisma.cvDependency.count();
+    if (depCount === 0 && refDirAvailable) {
+      seededAny = true;
+      await this.parseDependencyFile();
+    } else if (depCount === 0 && !refDirAvailable) {
+      this.logger.error(
+        `cv_dependency 表为空且 reference 目录不存在；申请类型→注册行为→序列类型的级联将失效。`,
+      );
+    }
+
+    if (seededAny) {
+      this.logger.log('受控词汇数据初始化完成（含自愈路径）');
+    } else {
+      this.logger.log('受控词汇数据已完整，无需初始化');
+    }
   }
 
   private async parseCvFile(fileName: string, vocabularyName: string) {
@@ -211,18 +253,17 @@ export class ControlledVocabularyService implements OnModuleInit {
       return;
     }
 
-    const filePath = path.resolve(
-      process.cwd(),
-      '../reference/eCTD技术规范V1.1附件包/附件2-6：STF标签值文件/valid-values.xml',
-    );
-
-    if (!fs.existsSync(filePath)) {
-      this.logger.warn(`STF valid-values.xml not found at ${filePath}`);
+    if (!fs.existsSync(this.stfFilePath)) {
+      this.logger.error(
+        `STF valid-values.xml not found at ${this.stfFilePath}; ` +
+          `module 4/5 STF category + file-tag dropdowns will be empty. ` +
+          `Check: build-firstrun-db.js stf seed (currently runtime-only) + data-dir.ts reference release.`,
+      );
       return;
     }
 
     const { categories, fileTags, version, validFrom } =
-      this.parseStfValidValuesFile(filePath);
+      this.parseStfValidValuesFile(this.stfFilePath);
 
     // Insert categories
     let categoryRowCount = 0;

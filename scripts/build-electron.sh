@@ -95,12 +95,36 @@ mkdir -p resources/reference
 # (If you switch to file:// loading instead, copy frontend/dist here.)
 
 # Copy the reference XML bundle so the desktop app can release it on first run.
-if [[ -d "../reference/eCTD技术规范V1.1附件包" ]]; then
-  rsync -a --delete "../reference/eCTD技术规范V1.1附件包/" "resources/reference/eCTD技术规范V1.1附件包/"
+# This is HARD-required: missing reference here means data-dir.ts at runtime
+# has nothing to release to <userData>/reference/, and combined with an empty
+# first-run.db the app ships with empty CV dropdowns (see E9-H7).
+if [[ ! -d "../reference/eCTD技术规范V1.1附件包" ]]; then
+  echo "FATAL: <repo>/reference/eCTD技术规范V1.1附件包/ missing — cannot stage" >&2
+  exit 1
 fi
+rsync -a --delete "../reference/eCTD技术规范V1.1附件包/" "resources/reference/eCTD技术规范V1.1附件包/"
 if [[ -f "../reference/现行申报资料要求与eCTD目录元素、CTD目录层级对应表.xlsx" ]]; then
   cp "../reference/现行申报资料要求与eCTD目录元素、CTD目录层级对应表.xlsx" "resources/reference/"
 fi
+
+# Stage-time sanity: assert the four CV files + STF valid-values are actually
+# in the staged resources before electron-builder packs the dmg/exe. Catches
+# disk full / partial rsync / wrong locale path before [5/6].
+required_xmls=(
+  "resources/reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包/cv-application-type.xml"
+  "resources/reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包/cv-product-type.xml"
+  "resources/reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包/cv-regulatory-activity-type.xml"
+  "resources/reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包/cv-sequence-type.xml"
+  "resources/reference/eCTD技术规范V1.1附件包/附件1-2：受控词汇文件包/depend-apt-rat-sqt.xml"
+  "resources/reference/eCTD技术规范V1.1附件包/附件2-6：STF标签值文件/valid-values.xml"
+)
+for f in "${required_xmls[@]}"; do
+  if [[ ! -f "$f" ]]; then
+    echo "FATAL: required reference XML missing after staging: $f" >&2
+    exit 1
+  fi
+done
+echo "    [4/6] reference XMLs staged: ${#required_xmls[@]} files OK"
 
 echo "==> [5/6] desktop: tsc + electron-builder ($target)"
 case "$target" in
