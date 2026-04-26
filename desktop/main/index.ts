@@ -35,14 +35,19 @@ if (!ensureSingleInstance()) {
   });
 
   app.on('activate', () => {
-    if (mainWindow === null && backend && paths) {
+    // A window that the user closed via the title-bar X button keeps the
+    // BrowserWindow JS object reachable (we hold a reference) but the
+    // underlying native window is destroyed. Treat that case as "no window".
+    const haveLiveWindow = mainWindow && !mainWindow.isDestroyed();
+    if (!haveLiveWindow && backend && paths) {
       mainWindow = createMainWindow({
         backendBaseUrl: backend.baseUrl,
         preloadPath: previewPreloadPath(),
       });
-    } else if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
+      attachWindowLifecycle(mainWindow);
+    } else if (haveLiveWindow) {
+      mainWindow!.show();
+      mainWindow!.focus();
     }
   });
 
@@ -81,6 +86,7 @@ async function boot() {
     backendBaseUrl: backend.baseUrl,
     preloadPath: previewPreloadPath(),
   });
+  attachWindowLifecycle(mainWindow);
 
   Menu.setApplicationMenu(buildAppMenu(paths, () => mainWindow));
   createTray(paths, () => mainWindow);
@@ -120,6 +126,12 @@ function showBackendCrashDialog(logsDir: string) {
     `后端服务异常退出，应用即将关闭。完整日志见：\n${path.join(logsDir, 'main.log')}\n\n` +
       `请把日志发给厂商技术支持。`,
   );
+}
+
+function attachWindowLifecycle(win: BrowserWindow) {
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+  });
 }
 
 async function shutdownAndQuit() {
