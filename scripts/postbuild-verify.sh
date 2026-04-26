@@ -1,28 +1,95 @@
 #!/usr/bin/env bash
-# Post-build sanity check: fail loudly if the produced .app is missing any of
-# the runtime files we know are required for the backend to start. Builds that
-# fail this check must NOT be shipped to the test machine.
+# Post-build sanity check: fail loudly if the produced installer is missing any
+# of the runtime files we know are required for the backend to start. Builds
+# that fail this check must NOT be shipped.
+#
+# Detection:
+#   - Mac:    desktop/release/mac/eCTDTool.app/Contents/Resources/backend/
+#   - Win:    desktop/release/win-unpacked/resources/backend/
+#             (electron-builder always emits win-unpacked alongside the .exe;
+#              checking it instead of crawling the NSIS installer keeps this
+#              script offline and fast)
+#   - Linux:  desktop/release/linux-unpacked/resources/backend/
 set -euo pipefail
 
 RELEASE_DIR="${1:-desktop/release}"
-APP=$(find "$RELEASE_DIR" -maxdepth 3 -name "eCTDTool.app" -type d | head -1)
-if [[ -z "${APP:-}" || ! -d "$APP" ]]; then
-  echo "postbuild-verify: no eCTDTool.app under $RELEASE_DIR" >&2
+
+target_kind=""
+APP=""
+RES=""
+ENGINE_GLOB=""
+
+# Mac .app
+APP_MAC=$(find "$RELEASE_DIR" -maxdepth 4 -name "eCTDTool.app" -type d | head -1 || true)
+if [[ -n "$APP_MAC" ]]; then
+  target_kind="mac"
+  APP="$APP_MAC"
+  RES="$APP/Contents/Resources/backend"
+  REF_RES="$APP/Contents/Resources/reference/eCTD技术规范V1.1附件包"
+fi
+
+# Windows: prefer win-unpacked (deterministic layout). Falls back to scanning
+# any directory whose name ends with `-unpacked` so we still catch portable / zip outputs.
+if [[ -z "$target_kind" ]]; then
+  APP_WIN=$(find "$RELEASE_DIR" -maxdepth 3 -name "win-unpacked" -type d | head -1 || true)
+  if [[ -z "$APP_WIN" ]]; then
+    APP_WIN=$(find "$RELEASE_DIR" -maxdepth 3 -name "win-ia32-unpacked" -type d | head -1 || true)
+  fi
+  if [[ -n "$APP_WIN" ]]; then
+    target_kind="win"
+    APP="$APP_WIN"
+    RES="$APP/resources/backend"
+    REF_RES="$APP/resources/reference/eCTD技术规范V1.1附件包"
+  fi
+fi
+
+# Linux unpacked
+if [[ -z "$target_kind" ]]; then
+  APP_LIN=$(find "$RELEASE_DIR" -maxdepth 3 -name "linux-unpacked" -type d | head -1 || true)
+  if [[ -n "$APP_LIN" ]]; then
+    target_kind="linux"
+    APP="$APP_LIN"
+    RES="$APP/resources/backend"
+    REF_RES="$APP/resources/reference/eCTD技术规范V1.1附件包"
+  fi
+fi
+
+if [[ -z "$target_kind" ]]; then
+  echo "postbuild-verify: no recognised build output (eCTDTool.app / win-unpacked / linux-unpacked) under $RELEASE_DIR" >&2
   exit 1
 fi
-RES="$APP/Contents/Resources/backend"
+echo "postbuild-verify target=$target_kind app=$APP"
 
-# darwin-arm64 / darwin-x64 engines have different names; pick whichever exists.
+# Pick the platform-specific Prisma engine. better-sqlite3's native binary is
+# `better_sqlite3.node` on every platform (different PE/Mach-O/ELF inside, but
+# the filename is identical), so no platform branch needed there.
 ARCH_ENGINE=""
-for cand in \
-  "$RES/node_modules/.prisma/client/libquery_engine-darwin-arm64.dylib.node" \
-  "$RES/node_modules/.prisma/client/libquery_engine-darwin.dylib.node"
-do
-  if [[ -e "$cand" ]]; then
-    ARCH_ENGINE="$cand"
-    break
-  fi
-done
+case "$target_kind" in
+  mac)
+    for cand in \
+      "$RES/node_modules/.prisma/client/libquery_engine-darwin-arm64.dylib.node" \
+      "$RES/node_modules/.prisma/client/libquery_engine-darwin.dylib.node"
+    do
+      [[ -e "$cand" ]] && ARCH_ENGINE="$cand" && break
+    done
+    ENGINE_GLOB="libquery_engine-darwin*.dylib.node"
+    ;;
+  win)
+    cand="$RES/node_modules/.prisma/client/query_engine-windows.dll.node"
+    [[ -e "$cand" ]] && ARCH_ENGINE="$cand"
+    ENGINE_GLOB="query_engine-windows.dll.node"
+    ;;
+  linux)
+    for cand in \
+      "$RES/node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node" \
+      "$RES/node_modules/.prisma/client/libquery_engine-debian-openssl-1.1.x.so.node" \
+      "$RES/node_modules/.prisma/client/libquery_engine-linux-musl.so.node"
+    do
+      [[ -e "$cand" ]] && ARCH_ENGINE="$cand" && break
+    done
+    ENGINE_GLOB="libquery_engine-*.so.node"
+    ;;
+esac
 
 fail=0
 required=(
@@ -38,17 +105,16 @@ required=(
   "$RES/public/index.html"
 )
 
-# reference/ is mounted at <APP>/Contents/Resources/reference/ (sibling of backend/),
-# released to <userData>/reference/ on first launch by data-dir.ts. Missing here
-# means CV dropdowns will be empty unless first-run.db pre-populated everything.
-REF_ROOT="$APP/Contents/Resources/reference/eCTD技术规范V1.1附件包"
+# reference/ is mounted at <APP>/.../reference/ (sibling of backend/), released
+# to <userData>/reference/ on first launch by data-dir.ts. Missing here means
+# CV dropdowns will be empty unless first-run.db pre-populated everything.
 required+=(
-  "$REF_ROOT/附件1-2：受控词汇文件包/cv-application-type.xml"
-  "$REF_ROOT/附件1-2：受控词汇文件包/cv-product-type.xml"
-  "$REF_ROOT/附件1-2：受控词汇文件包/cv-regulatory-activity-type.xml"
-  "$REF_ROOT/附件1-2：受控词汇文件包/cv-sequence-type.xml"
-  "$REF_ROOT/附件1-2：受控词汇文件包/depend-apt-rat-sqt.xml"
-  "$REF_ROOT/附件2-6：STF标签值文件/valid-values.xml"
+  "$REF_RES/附件1-2：受控词汇文件包/cv-application-type.xml"
+  "$REF_RES/附件1-2：受控词汇文件包/cv-product-type.xml"
+  "$REF_RES/附件1-2：受控词汇文件包/cv-regulatory-activity-type.xml"
+  "$REF_RES/附件1-2：受控词汇文件包/cv-sequence-type.xml"
+  "$REF_RES/附件1-2：受控词汇文件包/depend-apt-rat-sqt.xml"
+  "$REF_RES/附件2-6：STF标签值文件/valid-values.xml"
 )
 
 for f in "${required[@]}"; do
@@ -59,7 +125,7 @@ for f in "${required[@]}"; do
 done
 
 if [[ -z "$ARCH_ENGINE" ]]; then
-  echo "MISSING: $RES/node_modules/.prisma/client/libquery_engine-darwin*.dylib.node" >&2
+  echo "MISSING: $RES/node_modules/.prisma/client/$ENGINE_GLOB" >&2
   fail=1
 fi
 
@@ -110,9 +176,9 @@ elif ! command -v sqlite3 >/dev/null 2>&1; then
 fi
 
 if [[ $fail -ne 0 ]]; then
-  echo "postbuild-verify FAILED — do not ship this dmg" >&2
+  echo "postbuild-verify FAILED ($target_kind) — do not ship this installer" >&2
   exit 1
 fi
 
-echo "postbuild-verify OK: $APP"
+echo "postbuild-verify OK ($target_kind): $APP"
 echo "  prisma engine: $ARCH_ENGINE"

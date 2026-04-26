@@ -70,11 +70,31 @@ function computeMachineId(): string {
         mac = firstUsefulMac();
       }
     } else if (platform === 'win32') {
-      const cpuOut = sh('wmic cpu get ProcessorId /value');
+      // wmic is deprecated in Win11 24H2 and absent from new installs. Try
+      // wmic first (faster), then PowerShell CIM, then registry MachineGuid.
+      const cpuOut = shSafe('wmic cpu get ProcessorId /value');
       cpu = (cpuOut.match(/ProcessorId=([^\r\n]+)/) || [])[1]?.trim() || '';
-      const boardOut = sh('wmic baseboard get SerialNumber /value');
+      if (!cpu) {
+        const ps = shSafe(
+          'powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).ProcessorId"',
+        );
+        cpu = ps.split('\n')[0]?.trim() || '';
+      }
+      const boardOut = shSafe('wmic baseboard get SerialNumber /value');
       serial = (boardOut.match(/SerialNumber=([^\r\n]+)/) || [])[1]?.trim() || '';
-      // wmic + getmac can be flaky; use os.networkInterfaces() instead
+      if (!serial || serial.toLowerCase() === 'to be filled by o.e.m.') {
+        const ps = shSafe(
+          'powershell -NoProfile -Command "(Get-CimInstance Win32_BaseBoard).SerialNumber"',
+        );
+        const psSerial = ps.split('\n')[0]?.trim();
+        if (psSerial) serial = psSerial;
+      }
+      if (!serial) {
+        const reg = shSafe('reg query HKLM\\SOFTWARE\\Microsoft\\Cryptography /v MachineGuid');
+        const m = reg.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/);
+        if (m) serial = m[1].trim();
+      }
+      // os.networkInterfaces() is far more reliable than wmic/getmac.
       mac = firstUsefulMac();
     } else {
       // Linux (dev only)
@@ -101,6 +121,14 @@ function computeMachineId(): string {
 
 function sh(cmd: string): string {
   return execSync(cmd, { encoding: 'utf8' }).trim();
+}
+
+function shSafe(cmd: string): string {
+  try {
+    return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return '';
+  }
 }
 
 function firstUsefulMac(): string {

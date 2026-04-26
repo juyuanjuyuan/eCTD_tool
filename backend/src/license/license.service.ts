@@ -1,8 +1,30 @@
 import { Injectable, Logger, BadRequestException, OnModuleInit } from '@nestjs/common';
 import * as crypto from 'crypto';
+import * as os from 'os';
 import { execSync } from 'child_process';
 import { PrismaService } from '../prisma/prisma.service';
 import { LICENSE_PUBLIC_KEY } from './public-key';
+
+function shSilent(cmd: string): string {
+  try {
+    return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function firstUsefulMac(): string {
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name] || []) {
+      if (iface.internal) continue;
+      if (!iface.mac) continue;
+      if (iface.mac === '00:00:00:00:00:00') continue;
+      return iface.mac;
+    }
+  }
+  return '';
+}
 
 export interface LicensePayload {
   customer: string;
@@ -99,12 +121,34 @@ export class LicenseService implements OnModuleInit {
         ).trim();
         mac = execSync("ifconfig en0 | awk '/ether/ {print $2}'", { encoding: 'utf8' }).trim();
       } else if (platform === 'win32') {
-        const cpuOut = execSync('wmic cpu get ProcessorId /value', { encoding: 'utf8' });
-        cpu = (cpuOut.match(/ProcessorId=(.+)/) || [])[1]?.trim() || '';
-        const boardOut = execSync('wmic baseboard get SerialNumber /value', { encoding: 'utf8' });
-        serial = (boardOut.match(/SerialNumber=(.+)/) || [])[1]?.trim() || '';
-        const macOut = execSync('getmac /fo csv /nh', { encoding: 'utf8' });
-        mac = (macOut.split('\n')[0] || '').split(',')[0]?.replace(/"/g, '').trim() || '';
+        // Algorithm parity with desktop/main/machine-id.ts and
+        // tools/runtime/get-machine-id.js — wmic → PowerShell CIM →
+        // registry MachineGuid; MAC always via os.networkInterfaces().
+        // wmic is deprecated in Win11 24H2; the PowerShell + registry
+        // fallbacks are what keep this working on new Windows installs.
+        const cpuOut = shSilent('wmic cpu get ProcessorId /value');
+        cpu = (cpuOut.match(/ProcessorId=([^\r\n]+)/) || [])[1]?.trim() || '';
+        if (!cpu) {
+          const ps = shSilent(
+            'powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).ProcessorId"',
+          );
+          cpu = ps.split('\n')[0]?.trim() || '';
+        }
+        const boardOut = shSilent('wmic baseboard get SerialNumber /value');
+        serial = (boardOut.match(/SerialNumber=([^\r\n]+)/) || [])[1]?.trim() || '';
+        if (!serial || serial.toLowerCase() === 'to be filled by o.e.m.') {
+          const ps = shSilent(
+            'powershell -NoProfile -Command "(Get-CimInstance Win32_BaseBoard).SerialNumber"',
+          );
+          const psSerial = ps.split('\n')[0]?.trim();
+          if (psSerial) serial = psSerial;
+        }
+        if (!serial) {
+          const reg = shSilent('reg query HKLM\\SOFTWARE\\Microsoft\\Cryptography /v MachineGuid');
+          const m = reg.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/);
+          if (m) serial = m[1].trim();
+        }
+        mac = firstUsefulMac();
       } else {
         cpu = execSync('cat /proc/cpuinfo | grep "model name" | head -1', { encoding: 'utf8' }).trim();
         try {
@@ -112,10 +156,7 @@ export class LicenseService implements OnModuleInit {
         } catch {
           serial = 'linux-no-board-serial';
         }
-        mac = execSync(
-          "ip link show | awk '/ether/ {print $2; exit}'",
-          { encoding: 'utf8' },
-        ).trim();
+        if (!mac) mac = firstUsefulMac();
       }
     } catch (err: any) {
       this.logger.warn(`Fingerprint collection partial failure on ${platform}: ${err?.message ?? err}`);

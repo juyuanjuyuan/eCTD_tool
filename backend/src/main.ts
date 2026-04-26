@@ -78,6 +78,27 @@ function isEmbedded(): boolean {
   return process.env.EMBEDDED === 'true';
 }
 
+/**
+ * Build a Prisma-safe `file:` URL from an absolute path.
+ *
+ * On Windows the DB file is `C:\Users\foo\AppData\Local\ectd-desktop\data.db`.
+ * Naively prefixing with `file:` produces `file:C:\Users\...` which Prisma
+ * SQLite has rejected with "Invalid datasource URL" in the past. The portable
+ * form is `file:///C:/Users/...` (three slashes + forward slashes), accepted
+ * on every platform.
+ */
+function toFileUrl(absPath: string): string {
+  if (process.platform === 'win32') {
+    const fwd = absPath.replace(/\\/g, '/');
+    // Drive letter path → file:///C:/...
+    if (/^[A-Za-z]:\//.test(fwd)) return `file:///${fwd}`;
+    // UNC path \\server\share → file:////server/share
+    if (fwd.startsWith('//')) return `file:${fwd}`;
+    return `file:///${fwd}`;
+  }
+  return `file:${absPath}`;
+}
+
 function reportReady(port: number) {
   // Always print a stdout line — works even without an IPC channel (tests / standalone exec)
   console.log(`READY ${port}`);
@@ -121,7 +142,7 @@ async function maybeRunMigrationsAndSeed() {
   // After `build:embed`, the schema lives in dist-embed/generated/prisma-sqlite/,
   // which is NOT where the customer's data file lives. Force an absolute URL so
   // both the migrator and the Prisma client point to the same place.
-  process.env.DATABASE_URL = `file:${databaseFile}`;
+  process.env.DATABASE_URL = toFileUrl(databaseFile);
 
   Logger.log(`Running SQLite migrations from ${migrationsDir} → ${databaseFile}`, 'Bootstrap');
   runSqliteMigrations({ migrationsDir, databaseFile });
@@ -245,6 +266,16 @@ async function bootstrap() {
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+  // SIGBREAK is Windows-only (Ctrl+Break). On Windows `child.kill('SIGTERM')`
+  // is implemented as TerminateProcess and does NOT trigger the SIGTERM
+  // handler — so the IPC `{type:'shutdown'}` path below is the *only* way the
+  // desktop shell can ask the backend to flush gracefully on Windows.
+  process.on('SIGBREAK' as NodeJS.Signals, () => shutdown('SIGBREAK'));
+  if (typeof process.on === 'function') {
+    process.on('message', (msg: any) => {
+      if (msg && msg.type === 'shutdown') void shutdown('IPC');
+    });
+  }
 }
 
 bootstrap().catch((err) => {

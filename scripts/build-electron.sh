@@ -99,7 +99,7 @@ mkdir -p resources/reference
 # has nothing to release to <userData>/reference/, and combined with an empty
 # first-run.db the app ships with empty CV dropdowns (see E9-H7).
 if [[ ! -d "../reference/eCTD技术规范V1.1附件包" ]]; then
-  echo "FATAL: <repo>/reference/eCTD技术规范V1.1附件包/ missing — cannot stage" >&2
+  echo "FATAL: <repo>/reference/eCTD-tech-spec-V1.1-bundle (eCTD技术规范V1.1附件包) missing -- cannot stage" >&2
   exit 1
 fi
 rsync -a --delete "../reference/eCTD技术规范V1.1附件包/" "resources/reference/eCTD技术规范V1.1附件包/"
@@ -125,6 +125,25 @@ for f in "${required_xmls[@]}"; do
   fi
 done
 echo "    [4/6] reference XMLs staged: ${#required_xmls[@]} files OK"
+
+# Puppeteer Chromium pre-staging. Build host's bundled chromium has the
+# WRONG binary format on cross-platform builds (Linux build host → Windows
+# installer ships a Linux chromium). Two ways to handle:
+#   (a) Skip and let puppeteer download on first PDF export (current default).
+#       Customer experience: first PDF is slow + needs internet.
+#   (b) Set PUPPETEER_DOWNLOAD_PATH at build and pre-fetch the platform binary.
+# We log a clear warning so the build engineer knows what they're shipping.
+case "$target" in
+  win)
+    if [[ ! -d "$ROOT/backend/node_modules/puppeteer/.local-chromium/win64-"* ]] 2>/dev/null \
+       && [[ ! -d "$ROOT/backend/node_modules/puppeteer/chrome/win"* ]] 2>/dev/null; then
+      echo "    [warn] puppeteer Win64 chromium NOT pre-staged in backend/node_modules." >&2
+      echo "    [warn] First-time PDF export on customer machine will download ~150MB and" >&2
+      echo "    [warn] requires internet. To pre-stage: set PUPPETEER_DOWNLOAD_PATH and" >&2
+      echo "    [warn] run \"npx puppeteer browsers install chrome --platform win64\" before this script." >&2
+    fi
+    ;;
+esac
 
 echo "==> [5/6] desktop: tsc + electron-builder ($target)"
 case "$target" in

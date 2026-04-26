@@ -35,6 +35,38 @@ describe('FileNameNormalizerService', () => {
       expect(service.normalizeFileName('a---b---c.pdf')).toBe('a-b-c.pdf');
     });
 
+    // Windows reserved device names — eCTD packages are reviewed on Windows
+    // downstream, so these basenames make the file un-openable. Reject by
+    // prefixing with `f-`.
+    it('should escape Windows reserved name CON', () => {
+      expect(service.normalizeFileName('CON.pdf')).toBe('f-con.pdf');
+    });
+
+    it('should escape Windows reserved names PRN/AUX/NUL', () => {
+      expect(service.normalizeFileName('PRN.pdf')).toBe('f-prn.pdf');
+      expect(service.normalizeFileName('aux.pdf')).toBe('f-aux.pdf');
+      expect(service.normalizeFileName('NUL.xml')).toBe('f-nul.xml');
+    });
+
+    it('should escape Windows reserved COM[1-9] / LPT[1-9]', () => {
+      expect(service.normalizeFileName('com1.pdf')).toBe('f-com1.pdf');
+      expect(service.normalizeFileName('LPT9.txt')).toBe('f-lpt9.txt');
+    });
+
+    it('should NOT escape COM0/COM10/LPT0 (not reserved)', () => {
+      expect(service.normalizeFileName('com10.pdf')).toBe('com10.pdf');
+      expect(service.normalizeFileName('lpt0.pdf')).toBe('lpt0.pdf');
+    });
+
+    it('isCompliantFileName rejects Windows reserved basenames', () => {
+      expect(service.isCompliantFileName('con.pdf')).toBe(false);
+      expect(service.isCompliantFileName('prn.xml')).toBe(false);
+      expect(service.isCompliantFileName('com1.pdf')).toBe(false);
+      expect(service.isCompliantFileName('lpt9.txt')).toBe(false);
+      // Sanity: ordinary names still pass.
+      expect(service.isCompliantFileName('report.pdf')).toBe(true);
+    });
+
     it('should remove leading and trailing hyphens', () => {
       expect(service.normalizeFileName('-report-.pdf')).toBe('report.pdf');
     });

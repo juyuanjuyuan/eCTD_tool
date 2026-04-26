@@ -108,9 +108,11 @@ function buildBackendEnv(
     PORT: '0', // OS-assigned random port
     PUBLIC_BASE_URL: '', // same-origin
 
-    // Database
+    // Database — `file:///C:/...` (forward slashes) on Windows so Prisma SQLite
+    // accepts the URL. `file:C:\Users\...` has been rejected by Prisma in the
+    // past with "Invalid datasource URL". See backend/src/main.ts toFileUrl().
     DB_PROVIDER: 'sqlite',
-    DATABASE_URL: `file:${paths.dbFile}`,
+    DATABASE_URL: toFileUrl(paths.dbFile),
     AUTO_MIGRATE: 'true',
     AUTO_SEED: 'true',
     MIGRATIONS_DIR: path.join(resourcesBackend, 'prisma', 'migrations.sqlite'),
@@ -136,6 +138,16 @@ function buildBackendEnv(
     JWT_EXPIRES_IN: '7d',
     JWT_REFRESH_EXPIRES_IN: '30d',
   };
+}
+
+function toFileUrl(absPath: string): string {
+  if (process.platform === 'win32') {
+    const fwd = absPath.replace(/\\/g, '/');
+    if (/^[A-Za-z]:\//.test(fwd)) return `file:///${fwd}`;
+    if (fwd.startsWith('//')) return `file:${fwd}`;
+    return `file:///${fwd}`;
+  }
+  return `file:${absPath}`;
 }
 
 function redactEnv(env: NodeJS.ProcessEnv): string {
@@ -212,15 +224,48 @@ async function stopChild(child: ChildProcess, timeoutMs: number): Promise<void> 
     };
 
     child.once('exit', finish);
-    child.kill('SIGTERM');
+
+    if (process.platform === 'win32') {
+      // On Windows, `child.kill('SIGTERM')` is implemented as TerminateProcess
+      // — it does NOT trigger the backend's SIGTERM handler, so Nest's
+      // shutdown hooks never run and the SQLite WAL can be left dirty. Ask
+      // the backend to flush via IPC instead, then escalate to taskkill /T
+      // (kills the whole tree, including any puppeteer chromium grandchildren)
+      // if it doesn't exit in time.
+      try {
+        child.send({ type: 'shutdown' });
+      } catch (err) {
+        log.warn(`backend IPC shutdown failed: ${(err as Error).message}`);
+      }
+    } else {
+      child.kill('SIGTERM');
+    }
 
     setTimeout(() => {
       if (resolved) return;
-      log.warn(`backend pid=${child.pid} did not exit in ${timeoutMs}ms; SIGKILL`);
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // ignore
+      if (process.platform === 'win32') {
+        log.warn(`backend pid=${child.pid} did not exit in ${timeoutMs}ms; taskkill /F /T`);
+        try {
+          // /T kills the whole tree (puppeteer, etc.); /F is force.
+          // execSync is acceptable here — we're tearing down at app exit.
+          require('child_process').execSync(`taskkill /F /T /PID ${child.pid}`, {
+            stdio: ['ignore', 'ignore', 'ignore'],
+          });
+        } catch (err) {
+          log.warn(`taskkill failed: ${(err as Error).message}`);
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            // ignore
+          }
+        }
+      } else {
+        log.warn(`backend pid=${child.pid} did not exit in ${timeoutMs}ms; SIGKILL`);
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // ignore
+        }
       }
       // give it a final 1s grace to deliver `exit` event
       setTimeout(finish, 1000);

@@ -12,6 +12,20 @@ const MAX_FILE_SIZE = 500 * 1024 * 1024;
 /** Max file size for SAS XPT files: 4GB */
 const MAX_XPT_FILE_SIZE = 4 * 1024 * 1024 * 1024;
 
+/**
+ * Windows reserved device names. NTFS rejects files whose basename (case
+ * insensitive, with or without extension) equals any of these. eCTD packages
+ * are commonly delivered to customers running Windows for review/submission,
+ * so we reject these at upload time even though the eCTD spec itself doesn't
+ * forbid them — a `prn.pdf` in a sequence makes the whole package unusable
+ * on Windows.
+ */
+const WINDOWS_RESERVED_NAMES = new Set([
+  'con', 'prn', 'aux', 'nul',
+  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
+  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+]);
+
 /** Module 1 section-to-folder mapping */
 const M1_FOLDER_MAP: Record<string, string> = {
   '1.0': 'm1/cn/00',
@@ -67,6 +81,15 @@ export class FileNameNormalizerService {
     // Ensure non-empty base name
     if (!baseName) {
       baseName = 'file';
+    }
+
+    // Windows reserves CON/PRN/AUX/NUL/COM[1-9]/LPT[1-9] regardless of
+    // extension. eCTD packages are reviewed on Windows downstream, so a file
+    // named `prn.pdf` in the sequence makes the whole package unopenable.
+    // Prefix with `f-` rather than throwing — keeps upload idempotent and
+    // avoids surprising the user during a bulk import.
+    if (WINDOWS_RESERVED_NAMES.has(baseName)) {
+      baseName = `f-${baseName}`;
     }
 
     const fullName = baseName + ext;
@@ -189,11 +212,14 @@ export class FileNameNormalizerService {
   }
 
   /**
-   * Validate that a filename only uses eCTD-compliant characters.
+   * Validate that a filename only uses eCTD-compliant characters AND is not a
+   * Windows reserved device name.
    */
   isCompliantFileName(name: string): boolean {
-    // Only a-z, 0-9, -, _, and . (for extension)
-    return /^[a-z0-9\-_]+(\.[a-z0-9]+)?$/.test(name);
+    if (!/^[a-z0-9\-_]+(\.[a-z0-9]+)?$/.test(name)) return false;
+    const lastDot = name.lastIndexOf('.');
+    const base = lastDot > 0 ? name.substring(0, lastDot) : name;
+    return !WINDOWS_RESERVED_NAMES.has(base);
   }
 
   /**
