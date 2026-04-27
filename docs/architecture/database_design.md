@@ -53,6 +53,7 @@ User (1) ──< (N) Notification
   - `Json/Json?` → `String/String?`（由 service 层负责 JSON serialize/parse）；
   - `String[]` → `String`（保存 JSON 字符串，如 `[]`、`["cnsqt1"]`）；
   - 去除 `@db.VarChar/@db.Text/@db.Char/@db.SmallInt` 等 provider-specific 注解。
+- 运行时约束：SQLite 模式下写入降级字段前必须先序列化，读取后必须反序列化到 API 契约类型；例如 `file_pdf_analysis.compliance_details` 在 PostgreSQL 为 JSONB，在 SQLite 为 TEXT/JSON string，`FileService.analyzePdf()` 写库时按 provider 分支处理，`serializeAttachment()` 返回时再 parse。
 - 通过 `npm run prisma:check-parity` 校验两份 schema 的 model/field 集合一致性。
 - SQLite 迁移独立存放在 `backend/prisma/migrations.sqlite/`，用于桌面版初始化。
 
@@ -309,7 +310,7 @@ User (1) ──< (N) Notification
 | fonts_embedded | BOOLEAN | 字体是否嵌入 |
 | has_e_seal | BOOLEAN | 是否有电子签章 |
 | compliance_status | ENUM | PASS/WARNING/ERROR |
-| compliance_details | JSONB | 详细合规检查结果 |
+| compliance_details | JSONB / TEXT | 详细合规检查结果。PostgreSQL 存 JSONB；SQLite 桌面版按 JSON string 存储，service 层负责写入 `JSON.stringify({errors,warnings})` 与读取 parse |
 | analyzed_at | TIMESTAMP | 分析时间 |
 
 ### 2.7 STF（研究标签文件）✅ (Plan 12 v2 — 2026-04-09)

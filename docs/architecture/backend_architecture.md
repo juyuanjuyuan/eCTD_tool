@@ -83,6 +83,7 @@ invitation (在 project 模块内, InvitationController, 邮箱邀请+接受+取
 - `local-storage.ts` 提供 `LocalStorage`（落到 `<DATA_DIR>/files/<key>`，按月路径由 caller 自己决定；`presignedUrl` 用 JWT 签 10min 短期 token）
 - `MinioService`（@Injectable 名字保留为 façade）按 `process.env.STORAGE_PROVIDER`（默认 `local`）选择 delegate；`onModuleInit` 仅在 `minio` 模式跑 bucket 检查
 - 新增 `file-serve.controller.ts` 暴露 `GET /api/v1/files/serve/:token`（`@Public()` 跳过 license guard，因为 token 自身就是凭证），仅 local 模式生效
+- `FileService.analyzePdf()` 在 PDF 上传后同步运行合规分析并写 `file_pdf_analysis`；桌面 SQLite 模式下 `complianceDetails` 必须在写库前 `JSON.stringify({errors,warnings})`，PostgreSQL 模式保持 JSON object。读取出口统一走 `serializeAttachment()`，把 SQLite 字符串反序列化为 `{errors:[], warnings:[]}`，保证 upload/list/detail 三类响应形状一致。H11 事故表明：只在读取侧 parse 不够，写入侧也必须按 `PrismaService.dbProvider` 分支，否则 PDF 上传会在 attachment 已创建后因 analysis 写库 500，前端拿不到新文件响应。
 
 环境变量：
 - `STORAGE_PROVIDER` = `local` | `minio`，默认 `local`
@@ -102,6 +103,7 @@ invitation (在 project 模块内, InvitationController, 邮箱邀请+接受+取
 - SQLite 首版迁移目录：`backend/prisma/migrations.sqlite/`（含 init SQL）。
 - 新增 JSON 双 provider helper：`backend/src/common/json-field.helper.ts`，已在 `ctd-template` / `study` 接入读取 JSON 字段。
 - `PrismaService` 已按 `DB_PROVIDER` 支持 Postgres/SQLite 双客户端切换（SQLite 走 `src/generated/prisma-sqlite`，通过代理转发 delegate 调用）。
+- 双 provider 读写约定：凡 PostgreSQL schema 中的 `Json/Json?` 在 SQLite schema 中降级为 `String/String?` 的字段，service 写入前必须根据 `PrismaService.dbProvider` 序列化；service 返回前必须反序列化到前端契约类型。已确认接入点包括 `CtdTemplateNode.instanceKeyFields`、`FilePdfAnalysis.complianceDetails`、Study/STF 相关 JSON 字段；后续新增 JSON 字段不得直接 raw spread Prisma record 返回。
 - 新增开发迁移脚本：`node tools/db-migrate-pg-to-sqlite/index.js`（PG→SQLite 数据搬运，支持 `--dry-run`）。
 - E2 进行中：新增 `ICacheService` 抽象与 `MemoryCacheService`（TTL 内存缓存），`RedisCacheService` 已实现统一 `wrap` 接口。
 - E2 继续：`PrismaModule` 按 `CACHE_PROVIDER` 选择注入 `RedisCacheService` 或 `MemoryCacheService`（默认 memory，无 Redis 也可运行缓存调用链）。
