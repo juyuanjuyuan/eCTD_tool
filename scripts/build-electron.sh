@@ -30,9 +30,21 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-echo "==> [1/6] backend: prisma generate (postgres + sqlite) + build:embed"
+echo "==> [1/6] frontend: vite production build"
+# MUST run before [2/6] build:embed — `shipFrontendDist` inside build:embed
+# copies frontend/dist into dist-embed/public/. If vite build runs *after*
+# build:embed, edits to frontend/src never reach the dmg until the next build.
+pushd frontend > /dev/null
+npm run build
+popd > /dev/null
+if [[ ! -f frontend/dist/index.html ]]; then
+  echo "FATAL: frontend/dist/index.html missing after vite build" >&2
+  exit 1
+fi
+
+echo "==> [2/6] backend: prisma generate + build:embed (ships frontend dist)"
 # Ensure backend/node_modules native binaries match the system Node ABI before
-# firstrun-db runs in [2/6]. A previous run of @electron/rebuild may have left
+# firstrun-db runs in [3/6]. A previous run of @electron/rebuild may have left
 # Electron-ABI prebuilds here, which breaks node-side scripts. This rebuild is
 # fast (uses prebuild-install cache) and is a no-op if already correct.
 pushd backend > /dev/null
@@ -48,15 +60,22 @@ npx prisma generate
 npm run prisma:sqlite:generate
 npm run build:embed
 popd > /dev/null
+# Sanity: confirm shipFrontendDist actually placed the freshly-built SPA into
+# dist-embed/public/. If absent, electron-builder would silently pack a stale
+# bundle with stale frontend chunks.
+if [[ ! -f backend/dist-embed/public/index.html ]]; then
+  echo "FATAL: backend/dist-embed/public/index.html missing — shipFrontendDist failed" >&2
+  exit 1
+fi
 
-echo "==> [2/6] backend: produce first-run.db snapshot"
+echo "==> [3/6] backend: produce first-run.db snapshot"
 pushd backend > /dev/null
 node scripts/build-firstrun-db.js
 # Move snapshot next to the bundle so electron-builder picks it up via extraResources.
 mv -f prisma/first-run.db dist-embed/first-run.db
 popd > /dev/null
 
-echo "==> [2.5/6] rebuild native modules against Electron ABI"
+echo "==> [3.5/6] rebuild native modules against Electron ABI"
 # Pick the arch the dmg/installer is being built for. Native .node files
 # compiled against system Node (NODE_MODULE_VERSION 127) won't load inside
 # Electron's child_process.fork (which uses Electron's Node ABI, currently
@@ -81,11 +100,6 @@ echo "    rebuilding for electron=$electron_version arch=$rebuild_arch"
   --arch "$rebuild_arch" \
   --only better-sqlite3,bcrypt \
   --force
-
-echo "==> [3/6] frontend: vite production build"
-pushd frontend > /dev/null
-npm run build
-popd > /dev/null
 
 echo "==> [4/6] desktop: stage resources"
 pushd desktop > /dev/null

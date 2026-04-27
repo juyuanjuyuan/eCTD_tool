@@ -145,7 +145,34 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
         // Real progress only takes over if it's higher than current fake value.
         setUploadProgress((p) => Math.max(p, Math.min(90, percent)));
       });
-      // Ensure the panel is visible long enough to be perceptible.
+      // ============ Optimistic insert RIGHT AWAY (before any artificial wait) ============
+      // The user wants to see the new file in "已上传文件" the moment the upload
+      // succeeds, NOT after the progress panel's 2500ms minimum-visible delay.
+      // Putting setFiles here makes the row appear under the progress overlay
+      // immediately; the overlay still animates above to 100% for the remainder
+      // of MIN_UPLOAD_VISIBLE_MS.
+      if (newFile && (newFile as any).id) {
+        setFiles((prev) => {
+          if (prev.some((p) => p.id === (newFile as any).id)) return prev;
+          return [newFile as any, ...prev];
+        });
+      }
+      // Kick off the canonical refresh in parallel — don't await; we'll let it
+      // race with the artificial wait. Merge-additive so an empty/stale fetch
+      // can't clobber the optimistic row.
+      const refreshPromise = fileApi
+        .list(nodeId)
+        .then((fresh) => {
+          setFiles((prev) => {
+            const serverIds = new Set(fresh.map((f) => f.id));
+            const ghosts = prev.filter((p) => !serverIds.has(p.id));
+            return [...ghosts, ...fresh];
+          });
+        })
+        .catch(() => {
+          // Keep optimistic state on refresh failure.
+        });
+      // Now hold the upload panel for a perceptible time.
       const elapsed = Date.now() - startedAt;
       if (elapsed < MIN_UPLOAD_VISIBLE_MS) {
         await new Promise((r) => setTimeout(r, MIN_UPLOAD_VISIBLE_MS - elapsed));
@@ -154,34 +181,10 @@ const FilePanel: React.FC<FilePanelProps> = ({ nodeId, isLeaf }) => {
       setUploadProgress(100);
       message.success(`${f.name} 上传成功`);
       onSuccess?.({});
-      // Optimistic insert — the new attachment appears in the list immediately
-      // without waiting for the loadFiles() round-trip. Dedupe by id in case
-      // loadFiles races and returns it too.
-      if (newFile && (newFile as any).id) {
-        setFiles((prev) => {
-          if (prev.some((p) => p.id === (newFile as any).id)) return prev;
-          return [newFile as any, ...prev];
-        });
-      }
       // Hold the 100% bar briefly so the user sees the completion state.
       await new Promise((r) => setTimeout(r, 350));
-      // Merge-additive refresh: server data is canonical for files it returns,
-      // but keep any optimistic items the server hasn't returned yet (handles
-      // HTTP cache, SQLite write-after-read visibility, or any other transient
-      // staleness — without it, a stale empty list would wipe the optimistic
-      // insert and the user would have to navigate away and back to see the
-      // file).
-      try {
-        const fresh = await fileApi.list(nodeId);
-        setFiles((prev) => {
-          const serverIds = new Set(fresh.map((f) => f.id));
-          const ghosts = prev.filter((p) => !serverIds.has(p.id));
-          return [...ghosts, ...fresh];
-        });
-      } catch {
-        // Keep optimistic state on refresh failure; user can navigate away
-        // and back to retry the fetch through the normal mount path.
-      }
+      // Make sure the canonical refresh has settled before we clear `uploading`.
+      await refreshPromise;
     } catch (err: any) {
       stopFakeProgress();
       message.error(err.message || '上传失败');
