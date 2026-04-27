@@ -43,6 +43,7 @@ if (!ensureSingleInstance()) {
       mainWindow = createMainWindow({
         backendBaseUrl: backend.baseUrl,
         preloadPath: previewPreloadPath(),
+        openDevTools: shouldOpenDevTools(),
       });
       attachWindowLifecycle(mainWindow);
     } else if (haveLiveWindow) {
@@ -85,6 +86,7 @@ async function boot() {
   mainWindow = createMainWindow({
     backendBaseUrl: backend.baseUrl,
     preloadPath: previewPreloadPath(),
+    openDevTools: shouldOpenDevTools(),
   });
   attachWindowLifecycle(mainWindow);
 
@@ -132,6 +134,10 @@ function attachWindowLifecycle(win: BrowserWindow) {
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
   });
+}
+
+function shouldOpenDevTools() {
+  return process.env.ECTD_OPEN_DEVTOOLS === '1' || process.argv.includes('--open-devtools');
 }
 
 async function shutdownAndQuit() {

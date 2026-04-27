@@ -119,6 +119,10 @@ describe('FileService', () => {
     service = module.get<FileService>(FileService);
   });
 
+  afterEach(() => {
+    service.onModuleDestroy();
+  });
+
   describe('uploadFile', () => {
     it('should upload a PDF file and run compliance', async () => {
       const result = await service.uploadFile('node-1', mockFile, 'user-1');
@@ -129,6 +133,47 @@ describe('FileService', () => {
       expect(prisma.fileAttachment.create).toHaveBeenCalled();
       expect(pdfCompliance.checkCompliance).toHaveBeenCalled();
       expect(result.fileSize).toBe('1024');
+    });
+
+    it('should store PDF compliance details as a JSON string in SQLite mode', async () => {
+      prisma.dbProvider = 'sqlite';
+      pdfCompliance.checkCompliance.mockResolvedValue({
+        isCompliant: false,
+        errors: [
+          {
+            ruleId: '6.1',
+            severity: 'error',
+            message: '超过 5 页的 PDF 必须包含书签',
+            detail: '当前 PDF 有 12 页但没有书签',
+          },
+        ],
+        warnings: [],
+        summary: {
+          pdfVersion: '1.5',
+          pageCount: 12,
+          hasBookmarks: false,
+          hasEncryption: false,
+        },
+      });
+
+      await service.uploadFile('node-1', mockFile, 'user-1');
+
+      expect(prisma.filePdfAnalysis.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          complianceStatus: 'ERROR',
+          complianceDetails: JSON.stringify({
+            errors: [
+              {
+                ruleId: '6.1',
+                severity: 'error',
+                message: '超过 5 页的 PDF 必须包含书签',
+                detail: '当前 PDF 有 12 页但没有书签',
+              },
+            ],
+            warnings: [],
+          }),
+        }),
+      });
     });
 
     it('should update node status from EMPTY to EDITING', async () => {

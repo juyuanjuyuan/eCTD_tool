@@ -743,6 +743,15 @@ export class FileService {
     if (result.errors.length > 0) status = 'ERROR';
     else if (result.warnings.length > 0) status = 'WARNING';
 
+    const complianceDetails = {
+      errors: result.errors,
+      warnings: result.warnings,
+    };
+    const storedComplianceDetails =
+      (this.prisma as any).dbProvider === 'sqlite'
+        ? JSON.stringify(complianceDetails)
+        : JSON.parse(JSON.stringify(complianceDetails));
+
     const analysis = await this.prisma.filePdfAnalysis.create({
       data: {
         fileAttachmentId,
@@ -757,10 +766,7 @@ export class FileService {
         hasMultimedia: result.errors.some((e) => e.ruleId === '6.22'),
         fontsEmbedded: !result.warnings.some((w) => w.ruleId === '6.W2'),
         complianceStatus: status,
-        complianceDetails: JSON.parse(JSON.stringify({
-          errors: result.errors,
-          warnings: result.warnings,
-        })),
+        complianceDetails: storedComplianceDetails,
       },
     });
 
