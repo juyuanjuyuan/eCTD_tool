@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 /**
  * Resolve the SQLite migrations directory depending on how the backend is being
@@ -44,6 +45,11 @@ export function resolveDatabaseFile(): string {
       `resolveDatabaseFile: DB_PROVIDER=sqlite requires DATABASE_URL=file:..., got ${url || '(empty)'}`,
     );
   }
+
+  if (url.startsWith('file://') || /^file:[A-Za-z]:[\\/]/.test(url)) {
+    return fileURLToPath(url.replace(/\\/g, '/'));
+  }
+
   let raw = url.slice('file:'.length);
   if (path.isAbsolute(raw)) return raw;
 

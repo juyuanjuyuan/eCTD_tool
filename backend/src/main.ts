@@ -81,20 +81,17 @@ function isEmbedded(): boolean {
 /**
  * Build a Prisma-safe `file:` URL from an absolute path.
  *
- * On Windows the DB file is `C:\Users\foo\AppData\Local\ectd-desktop\data.db`.
- * Naively prefixing with `file:` produces `file:C:\Users\...` which Prisma
- * SQLite has rejected with "Invalid datasource URL" in the past. The portable
- * form is `file:///C:/Users/...` (three slashes + forward slashes), accepted
- * on every platform.
+ * On Windows Prisma SQLite accepts `file:C:/Users/...` but rejects the
+ * standards-style `file:///C:/Users/...` with SQLite error 14.
  */
 function toFileUrl(absPath: string): string {
   if (process.platform === 'win32') {
     const fwd = absPath.replace(/\\/g, '/');
-    // Drive letter path → file:///C:/...
-    if (/^[A-Za-z]:\//.test(fwd)) return `file:///${fwd}`;
+    // Drive letter path -> file:C:/...
+    if (/^[A-Za-z]:\//.test(fwd)) return `file:${fwd}`;
     // UNC path \\server\share → file:////server/share
     if (fwd.startsWith('//')) return `file:${fwd}`;
-    return `file:///${fwd}`;
+    return `file:${fwd}`;
   }
   return `file:${absPath}`;
 }

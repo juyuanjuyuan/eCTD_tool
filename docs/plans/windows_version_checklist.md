@@ -69,9 +69,7 @@
 - [ ] **bcrypt**：同上。bcrypt 的 windows prebuild 经常缺，备选方案是改用 `bcryptjs`（纯 JS，跨平台）；或 Windows 构建机上做原生编译
 
 ### 2.2 路径与 URL 编码
-- [ ] **DATABASE_URL 格式**：`backend/src/main.ts` 和 `desktop/main/backend-process.ts` 现在拼的是 `file:${dbFile}`。Windows 路径 `C:\Users\...` 拼出来是 `file:C:\Users\...`，Prisma SQLite 解析能不能消化？**测试**：在 Windows 上启动 backend，看 backend log 有没有 `Invalid datasource URL` 类错误。
-  - 保险做法：改成 `file:///${dbFile.replace(/\\/g, '/')}`（三斜杠 + 正斜杠转换）
-  - 这条没出过 Mac 案例，是 Windows 独有
+- [x] **DATABASE_URL 格式**：`backend/src/main.ts` 和 `desktop/main/backend-process.ts` 在 Windows 上拼 `file:C:/Users/.../data.db`（正斜杠、无三斜杠）。**W1-H2 真机安装首启补坑**：`file:///C:/...` 虽是标准 file URL，但 Prisma SQLite 6.x 在 Windows 上会报 SQLite `Error code 14: Unable to open the database file`；而此前 `resolveDatabaseFile()` 又会把 `file:///C:/...` 误解析成 `///C:/...` 并造成 `C:\C:\Users\...`。现状：运行时生成 Prisma 可打开的 `file:C:/...`；解析端用 `fileURLToPath()` 兼容 `file:///C:/...` 和 `file:C:/...`；`embedded-paths.spec.ts` 覆盖两种 Windows URL 与相对 dev DB。
 - [ ] **path 拼接全部走 `path.join`**，不允许字符串字面量 `'/'` 拼接路径（grep 全仓 `+ '/'`、`+ '\\\\'`、`'/' +` 找出可疑用法）
 - [ ] **URL 永远用 `/`**，不要走 `path.join` 拼 URL：`http://127.0.0.1:${port}/api/v1/...` 是 URL，`path.join` 会在 Windows 把 `/` 变 `\`
 - [ ] **MAX_PATH 260 字符限制**：`backend/dist-embed/node_modules/<deep>/` 测一下最深路径长度。命令：

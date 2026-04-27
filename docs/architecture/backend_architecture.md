@@ -56,7 +56,7 @@ invitation (在 project 模块内, InvitationController, 邮箱邀请+接受+取
 
 - `sqlite-migrator.ts`：基于 `better-sqlite3` 的迁移 runner，读 `prisma/migrations.sqlite/<sortedName>/migration.sql`，用 `_app_migrations(name, checksum, applied_at)` 跟踪。绕开了 Prisma CLI 默认 migrations 路径与 SQLite 路径错位的 P3019 问题，桌面运行时不依赖 Prisma CLI。事务包裹 + checksum 校验（防止 SQL 文件被改后再 apply）。
 - `auto-seed.ts`：用户空 → 创建默认 admin；CTD 模板表空 → 默认 warn-skip（CTD 模板 seed 依赖 `reference/eCTD技术规范V1.1附件包/` XML 文件，桌面 binary 不携带；E8 build 时跑一次 seed 后冻结成 `first-run.db` 快照，Electron main 首启复制到 `<userData>/data.db`）
-- `embedded-paths.ts`：解析 `MIGRATIONS_DIR`、`DATABASE_URL`（绝对化 file: URL 以避免 Prisma 相对路径锚点漂移）
+- `embedded-paths.ts`：解析 `MIGRATIONS_DIR`、`DATABASE_URL`（绝对化 file: URL 以避免 Prisma 相对路径锚点漂移；Windows 运行时写给 Prisma 的 URL 使用 `file:C:/...`，因为 Prisma SQLite 会对 `file:///C:/...` 报 SQLite error 14；解析端仍兼容 `file:///C:/...` 并用标准 `fileURLToPath()` 转回 `C:\...`，避免 URL pathname `///C:/...` 被 `path.dirname()` 误解成 `C:\C:\...`）
 - `main.ts`：`EMBEDDED=true` 时端口默认 `0`（OS 随机），`AUTO_MIGRATE` / `AUTO_SEED` 默认 on；启动后 `process.send({type:'ready', port})` + `console.log('READY ' + port)` 双通道；SIGTERM/SIGINT → `app.close()` → exit；启动失败 IPC + console.error 报错并 exit 1
 - `RedisCacheService.onModuleInit` 在 `CACHE_PROVIDER!=redis` 时跳过 Redis 客户端构造（避免 desktop / sqlite 模式刷屏 ECONNREFUSED）
 - `ControlledVocabularyService` 在 `REFERENCE_DIR` 缺失或 reference 路径不存在时仅 warn 跳过

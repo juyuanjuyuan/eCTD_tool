@@ -11,6 +11,14 @@ import { app, BrowserWindow } from 'electron';
 export function ensureSingleInstance(): boolean {
   const acquired = app.requestSingleInstanceLock();
   if (!acquired) {
+    if (process.platform === 'win32') {
+      // On some Windows installs Electron can report the instance lock as held
+      // even though no visible eCTDTool process remains. Starting is safer than
+      // silently exiting before the logger is configured.
+      // eslint-disable-next-line no-console
+      console.warn('single-instance lock not acquired on Windows; continuing startup');
+      return true;
+    }
     app.quit();
     return false;
   }

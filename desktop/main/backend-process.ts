@@ -108,9 +108,8 @@ function buildBackendEnv(
     PORT: '0', // OS-assigned random port
     PUBLIC_BASE_URL: '', // same-origin
 
-    // Database — `file:///C:/...` (forward slashes) on Windows so Prisma SQLite
-    // accepts the URL. `file:C:\Users\...` has been rejected by Prisma in the
-    // past with "Invalid datasource URL". See backend/src/main.ts toFileUrl().
+    // Database — Prisma SQLite on Windows accepts `file:C:/...` but rejects
+    // standards-style `file:///C:/...` with SQLite error 14.
     DB_PROVIDER: 'sqlite',
     DATABASE_URL: toFileUrl(paths.dbFile),
     AUTO_MIGRATE: 'true',
@@ -143,9 +142,9 @@ function buildBackendEnv(
 function toFileUrl(absPath: string): string {
   if (process.platform === 'win32') {
     const fwd = absPath.replace(/\\/g, '/');
-    if (/^[A-Za-z]:\//.test(fwd)) return `file:///${fwd}`;
+    if (/^[A-Za-z]:\//.test(fwd)) return `file:${fwd}`;
     if (fwd.startsWith('//')) return `file:${fwd}`;
-    return `file:///${fwd}`;
+    return `file:${fwd}`;
   }
   return `file:${absPath}`;
 }

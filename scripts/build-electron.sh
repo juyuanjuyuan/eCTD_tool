@@ -92,7 +92,11 @@ case "$target" in
     ;;
   *) rebuild_arch="$(uname -m)"; [[ "$rebuild_arch" == "x86_64" ]] && rebuild_arch=x64 ;;
 esac
-electron_version=$(node -p "require('$ROOT/desktop/node_modules/electron/package.json').version")
+ROOT_NODE="$ROOT"
+if command -v cygpath >/dev/null 2>&1; then
+  ROOT_NODE="$(cygpath -m "$ROOT")"
+fi
+electron_version=$(node -p "require('$ROOT_NODE/desktop/node_modules/electron/package.json').version")
 echo "    rebuilding for electron=$electron_version arch=$rebuild_arch"
 "$ROOT/desktop/node_modules/.bin/electron-rebuild" \
   --module-dir "$ROOT/backend/dist-embed" \
